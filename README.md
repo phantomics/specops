@@ -1,9 +1,8 @@
 # specops
-### _Your Name <your.name@example.com>_
 
-This is a project to do ... something.
+An assembler framework for Common Lisp.
 
 ## License
 
-Specify license here
+BSD 3-Clause
 
