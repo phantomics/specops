@@ -1,9 +1,9 @@
-;;;; m68k.asd
+;;;; z80.asd
 
-(asdf:defsystem #:specops.m68k
-  :description "Assembler framework for Motorola 68000 architectures based on SpecOps."
+(asdf:defsystem #:specops.z80
+  :description "Common Lisp assembler framework for z80 processor based on SpecOps."
   :author "Andrew Sengul"
-  :license "BSD"
+  :license  "BSD"
   :version "0.0.1"
   :serial t
   :depends-on ("specops")

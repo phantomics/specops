@@ -143,7 +143,55 @@
                   :zmm14 (make-instance 'x86-vcregister :name :zmm14 :width 512 :series :xm14 :index 14)
                   :xmm15 (make-instance 'x86-vcregister :name :xmm15 :width 128 :series :xm15 :index 15)
                   :ymm15 (make-instance 'x86-vcregister :name :ymm15 :width 256 :series :xm15 :index 15)
-                  :zmm15 (make-instance 'x86-vcregister :name :zmm15 :width 512 :series :xm15 :index 15))
+                  :zmm15 (make-instance 'x86-vcregister :name :zmm15 :width 512 :series :xm15 :index 15)
+                  :xmm16 (make-instance 'x86-vcregister :name :xmm16 :width 128 :series :xm16 :index 16)
+                  :ymm16 (make-instance 'x86-vcregister :name :ymm16 :width 256 :series :xm16 :index 16)
+                  :zmm16 (make-instance 'x86-vcregister :name :zmm16 :width 512 :series :xm16 :index 16)
+                  :xmm17 (make-instance 'x86-vcregister :name :xmm17 :width 128 :series :xm17 :index 17)
+                  :ymm17 (make-instance 'x86-vcregister :name :ymm17 :width 256 :series :xm17 :index 17)
+                  :zmm17 (make-instance 'x86-vcregister :name :zmm17 :width 512 :series :xm17 :index 17)
+                  :xmm18 (make-instance 'x86-vcregister :name :xmm18 :width 128 :series :xm18 :index 18)
+                  :ymm18 (make-instance 'x86-vcregister :name :ymm18 :width 256 :series :xm18 :index 18)
+                  :zmm18 (make-instance 'x86-vcregister :name :zmm18 :width 512 :series :xm18 :index 18)
+                  :xmm19 (make-instance 'x86-vcregister :name :xmm19 :width 128 :series :xm19 :index 19)
+                  :ymm19 (make-instance 'x86-vcregister :name :ymm19 :width 256 :series :xm19 :index 19)
+                  :zmm19 (make-instance 'x86-vcregister :name :zmm19 :width 512 :series :xm19 :index 19)
+                  :xmm20 (make-instance 'x86-vcregister :name :xmm20 :width 128 :series :xm20 :index 20)
+                  :ymm20 (make-instance 'x86-vcregister :name :ymm20 :width 256 :series :xm20 :index 20)
+                  :zmm20 (make-instance 'x86-vcregister :name :zmm20 :width 512 :series :xm20 :index 20)
+                  :xmm21 (make-instance 'x86-vcregister :name :xmm21 :width 128 :series :xm21 :index 21)
+                  :ymm21 (make-instance 'x86-vcregister :name :ymm21 :width 256 :series :xm21 :index 21)
+                  :zmm21 (make-instance 'x86-vcregister :name :zmm21 :width 512 :series :xm21 :index 21)
+                  :xmm22 (make-instance 'x86-vcregister :name :xmm22 :width 128 :series :xm22 :index 22)
+                  :ymm22 (make-instance 'x86-vcregister :name :ymm22 :width 256 :series :xm22 :index 22)
+                  :zmm22 (make-instance 'x86-vcregister :name :zmm22 :width 512 :series :xm22 :index 22)
+                  :xmm23 (make-instance 'x86-vcregister :name :xmm23 :width 128 :series :xm23 :index 23)
+                  :ymm23 (make-instance 'x86-vcregister :name :ymm23 :width 256 :series :xm23 :index 23)
+                  :zmm23 (make-instance 'x86-vcregister :name :zmm23 :width 512 :series :xm23 :index 23)
+                  :xmm24 (make-instance 'x86-vcregister :name :xmm24 :width 128 :series :xm24 :index 24)
+                  :ymm24 (make-instance 'x86-vcregister :name :ymm24 :width 256 :series :xm24 :index 24)
+                  :zmm24 (make-instance 'x86-vcregister :name :zmm24 :width 512 :series :xm24 :index 24)
+                  :xmm25 (make-instance 'x86-vcregister :name :xmm25 :width 128 :series :xm25 :index 25)
+                  :ymm25 (make-instance 'x86-vcregister :name :ymm25 :width 256 :series :xm25 :index 25)
+                  :zmm25 (make-instance 'x86-vcregister :name :zmm25 :width 512 :series :xm25 :index 25)
+                  :xmm26 (make-instance 'x86-vcregister :name :xmm26 :width 128 :series :xm26 :index 26)
+                  :ymm26 (make-instance 'x86-vcregister :name :ymm26 :width 256 :series :xm26 :index 26)
+                  :zmm26 (make-instance 'x86-vcregister :name :zmm26 :width 512 :series :xm26 :index 26)
+                  :xmm27 (make-instance 'x86-vcregister :name :xmm27 :width 128 :series :xm27 :index 27)
+                  :ymm27 (make-instance 'x86-vcregister :name :ymm27 :width 256 :series :xm27 :index 27)
+                  :zmm27 (make-instance 'x86-vcregister :name :zmm27 :width 512 :series :xm27 :index 27)
+                  :xmm28 (make-instance 'x86-vcregister :name :xmm28 :width 128 :series :xm28 :index 28)
+                  :ymm28 (make-instance 'x86-vcregister :name :ymm28 :width 256 :series :xm28 :index 28)
+                  :zmm28 (make-instance 'x86-vcregister :name :zmm28 :width 512 :series :xm28 :index 28)
+                  :xmm29 (make-instance 'x86-vcregister :name :xmm29 :width 128 :series :xm29 :index 29)
+                  :ymm29 (make-instance 'x86-vcregister :name :ymm29 :width 256 :series :xm29 :index 29)
+                  :zmm29 (make-instance 'x86-vcregister :name :zmm29 :width 512 :series :xm29 :index 29)
+                  :xmm30 (make-instance 'x86-vcregister :name :xmm30 :width 128 :series :xm30 :index 30)
+                  :ymm30 (make-instance 'x86-vcregister :name :ymm30 :width 256 :series :xm30 :index 30)
+                  :zmm30 (make-instance 'x86-vcregister :name :zmm30 :width 512 :series :xm30 :index 30)
+                  :xmm31 (make-instance 'x86-vcregister :name :xmm31 :width 128 :series :xm31 :index 31)
+                  :ymm31 (make-instance 'x86-vcregister :name :ymm31 :width 256 :series :xm31 :index 31)
+                  :zmm31 (make-instance 'x86-vcregister :name :zmm31 :width 512 :series :xm31 :index 31))
             
             ;; :es   (make-instance 'x86-sgregister :name :es   :width 64  :series :s   :index 0)
             ;; :cs   (make-instance 'x86-sgregister :name :cs   :width 8   :series :s   :index 1)
@@ -251,8 +299,8 @@
                      0 (ash (reg-index (mac-bsreg op1)) -3))))))
 
 (defun determine-pfvex (op0 op1 op2 &key long map prefix)
-  (let ((sib-index (or (and (typep op1 'x86-mem-access)
-                            (ash (x86mac-inreg op1) -3)))))
+  (let ((sib-index (and (typep op1 'x86-mem-access)
+                        (ash (x86mac-inreg op1) -3))))
     (if long
         (masque "11000100.RXBmmmmm.WvvvvLpp"
                 (r (if (zerop (logand #b1000 (reg-index op0)))               1 0))
@@ -316,6 +364,7 @@
              :initarg    :lexicon)
    (%domains :accessor   asm-domains
              :initform   nil
+             :allocation :class
              :initarg    :domains)))
 
 (defmethod initialize-instance :after ((assembler assembler-x86) &key)
@@ -380,6 +429,7 @@
 
 (defmethod qualify-ops ((assembler assembler-x86) operands form order)
   (declare (ignore assembler))
+  ;; (print (list :or order))
   (loop :for index :in order
         :append (let ((f (nth index form)) (o (nth index operands)))
                   (if (integerp f)
@@ -408,51 +458,32 @@
                                     (:imm `((and (typep ,o 'integer)
                                                  (< ,o ,(expt 2 qualifier)))))))))))))
 
-(defmethod specify-ops ((assembler assembler-x86) asm-sym op-symbol operands params)
-  (let* ((provisions (rest (assoc :provisions params)))
-         (ins-part (rest (assoc :instructions params)))
-         (ins-meta (rest (assoc :with ins-part)))
-         (ins-main))
-
-    (let ((ins-list ins-part))
-      (loop :while (and ins-list (not ins-main))
-            :do (if (keywordp (caar ins-list))
-                    (setf ins-list (rest ins-list))
-                    (setf ins-main ins-list))))
+(defmethod specify-ops ((assembler assembler-x86) asm-sym op-symbol operands items)
+  "A simple scheme for implementing operations - the (specop) content is directly placed within functions in the lexicon hash table."
+  (let* ((params (if (not (and (listp (first items)) (listp (caar items))
+                               (keywordp (caaar items))))
+                     nil (first items)))
+         (operations (if (not params) items (rest items)))
+         (provisions (rest (assoc :provisions params))))
+    ;; (print (list :op operations params))
     
-    `(setf (gethash ,op-symbol (asm-lexicon ,asm-sym))
+    `(setf (gethash ,(intern (string op-symbol) "KEYWORD")
+                    (asm-lexicon ,asm-sym))
            (lambda ,operands
              (symbol-macrolet ,provisions
-               (cond ,@(loop :for in :in ins-main
-                             :collect (destructuring-bind (manifest conditions) in
+               (cond ,@(loop :for op :in operations
+                             :collect (destructuring-bind (manifest conditions) op
                                         (list (cons 'and (qualify-ops assembler operands conditions
-                                                                      (rest (assoc :priority ins-meta))))
+                                                                      (rest (assoc :priority params))))
                                               (cons 'join manifest))))
                      (t "Invalid operation.")))))))
-
-(defmethod %derive-domains ((assembler assembler-x86) &rest params)
-  (let ((derived-ranges))
-    (loop :for p :in params
-          :do (destructuring-bind (qualifier &rest bindings) p
-                (when (or (eq t qualifier)
-                          (member qualifier (asm-type assembler)))
-                  (loop :for b :in bindings
-                        :do (setf (getf derived-ranges (first b))
-                                  (max (second b) (or (getf derived-ranges (first b))
-                                                      0)))))))
-    ;; (print (list :der derived-ranges))
-    (setf (asm-domains assembler)
-          (loop :for (key length) :on derived-ranges :by #'cddr
-                :collect (cons key (loop :for i :below length
-                                         :unless (member i (rest (assoc key (asm-reserve assembler))))
-                                           :collect i))))))
 
 (let ((gpr-series-names) (vcr-series-names))
   (dotimes (n (/ (length (getf *x86-storage* :gpr)) 8))
     (push (reg-series (nth (1+ (* 8 n)) (getf *x86-storage* :gpr))) gpr-series-names))
   
-  (dotimes (n (/ (length (getf *x86-storage* :vcr)) 8))
-    (push (reg-series (nth (1+ (* 8 n)) (getf *x86-storage* :vcr))) vcr-series-names))
+  (dotimes (n (/ (length (getf *x86-storage* :vcr)) 6))
+    (push (reg-series (nth (1+ (* 6 n)) (getf *x86-storage* :vcr))) vcr-series-names))
 
   (setf gpr-series-names (reverse gpr-series-names)
         vcr-series-names (reverse vcr-series-names))
@@ -472,7 +503,7 @@
           nil (values (nth storage-index type-list)
                       (+ series-index width))))))
 
-(defmethod locate ((assembler assembler-x86) &rest items)
+(defmethod locate ((assembler assembler-x86) items)
   (let ((domains (copy-tree (asm-domains assembler)))
         (bound (loop :for item :in items :when (member :bind item :test #'eq) :collect item))
         (unbound (loop :for item :in items :unless (member :bind item :test #'eq) :collect item)))
@@ -530,16 +561,6 @@
   (:add :w abc 10)
   (:add :w def 33))
 |#
-
-(defmethod %assemble ((assembler assembler-x86) params expressions)
-  ;; (print (list :par params))
-  (let* ((bindings (apply #'locate assembler (rest (assoc :store params))))
-         (exparams (list (cons :bindings bindings))))
-    ;; (print (list :ee exparams))
-    (apply #'join (loop :for e :in expressions :collect (print (compose assembler exparams e))))))
-
-(defmacro assemble (assembler params &rest expressions)
-  `(%assemble ,assembler ',(rest params) ',expressions))
 
 ;; (specify-assembler asm-x86 assemble
 ;;                    (:options :x86-64)
