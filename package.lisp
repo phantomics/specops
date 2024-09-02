@@ -4,11 +4,14 @@
   (:use #:cl)
   (:export #:register
            #:reg-name #:reg-index #:reg-width
-           #:mem-access
-           #:mac-width #:mac-bsreg
-           #:assembler
-           #:asm-name #:asm-type #:asm-storage #:asm-lexicon #:asm-domains #:asm-reserve
-           #:join #:join-16 ;; #:join-spec
+           #:memory-access-scheme
+           #:mas-based #:mas-based #:mas-indexed #:mas-index #:mas-displaced #:mas-displ
+           #:assembler #:assembler-encoding
+           #:asm-name #:asm-type #:asm-storage #:asm-lexicon
+           #:asm-domains #:asm-reserve #:asm-joiner #:asm-enc-table
+           #:join #:joinw
            #:flipbits #:masque
-           #:types-of #:derive-domains #:of-lexicon #:of-storage #:specify-ops #:qualify-ops
-           #:locate #:compose #:process-operands #:assemble #:specops))
+           #:types-of #:derive-domains #:of-lexicon #:of-encoded #:of-storage
+           #:specify-ops #:qualify-ops
+           #:locate #:compose #:process-operands #:clause-processor 
+           #:assemble #:specops))
