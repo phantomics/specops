@@ -42,38 +42,104 @@
       (setq r (logior (ash r 1) (logand b 1))
             b (ash b -1)))))
 
-(defmacro masque (string &rest clauses)
-  (let* ((segments) (symbols) (base 0) (bits 0) (base-sym (gensym))
-         (params (if (listp (caar clauses)) (first clauses) nil))
-         (clauses (if (not params) clauses (rest clauses))))
+(defun quantify-mask-string (string params)
+  (let ((segments) (symbols) (base 0) (bits 0))
     (loop :for c :across string :for ix :from 0 :when (not (char= c #\.)) ;; period is used as a spacer
           :do (if (position c "01" :test #'char=)
-                  (when (char= c #\1) (incf base)) ;; set constant 1 bits
+                  (progn (when (and symbols (not (null (first symbols))))
+                           (push nil symbols)
+                           (push bits segments))
+                         (when (char= c #\1) (incf base))) ;; set constant 1 bits
                   (when (or (not symbols) (not (eq (intern (string-upcase c) "KEYWORD") (first symbols))))
                     (push (intern (string-upcase c) "KEYWORD") symbols)
+                    ;; (print (list :bit bits c))
                     (push bits segments)))
               ;; shift the number to the left unless this is the last digit
               (unless (= ix (1- (length string))) (setf base (ash base 1)))
               (incf bits))
-    (setf segments (cons 0 (loop :for s :in segments :collect (abs (- s bits)))))
-    ;; (print (list :ss segments symbols clauses params))
-    (when (assoc :static params)
-      (loop :for item :in (rest (assoc :static params))
-            :do (destructuring-bind (sym number) item
-                  (let* ((insym (intern (string-upcase sym) "KEYWORD"))
-                         (index (loop :for s :in symbols :for ix :from 0
-                                      :when (eq s insym) :return ix)))
-                    (print (list :ee index))
-                    (incf base (ash number (nth index segments)))))))
-    `(let ((,base-sym ,base))
-       ,@(loop :for clause :in clauses
-               :collect (let* ((insym (intern (string-upcase (first clause)) "KEYWORD"))
+    (values ;; (increment-byte-fields-by-key base symbols segments (rest (assoc :static params)))
+            (loop :for pair :in (rest (assoc :static params)) ;; values
+                  :do (destructuring-bind (sym value) pair
+                        (let* ((insym (intern (string-upcase sym) "KEYWORD"))
                                (index (loop :for s :in symbols :for ix :from 0
-                                            :when (eq s insym) :return ix))
-                               (length (- (nth (1+ index) segments) (nth index segments))))
-                          `(incf ,base-sym (ash (logand ,(second clause) ,(1- (ash 1 length)))
-                                                ,(nth index segments)))))
-       ,base-sym)))
+                                            :when (eq s insym) :return ix)))
+                          ;; (when reverse-match (push insym static-segments))
+                          (if index (incf base (ash value (nth index segments)))
+                              (error "Invalid key for static base value increment."))))
+                  :finally (return base))
+            (cons 0 (loop :for s :in segments :collect (abs (- s bits))))
+            symbols bits)))
+
+;; (defun increment-byte-fields-by-key (base symbols segments values)
+;;   (loop :for pair :in values
+;;         :do (destructuring-bind (sym value) pair
+;;               (let* ((insym (intern (string-upcase sym) "KEYWORD"))
+;;                      (index (loop :for s :in symbols :for ix :from 0
+;;                                   :when (eq s insym) :return ix)))
+;;                 ;; (when reverse-match (push insym static-segments))
+;;                 (if index (incf base (ash value (nth index segments)))
+;;                     (error "Invalid key for static base value increment."))))
+;;         :finally (return base)))
+
+(defmacro masque (string &rest assignments)
+  (let* ((base-sym (gensym))
+         (params (if (listp (caar assignments)) (first assignments) nil))
+         (assignments (if (not params) assignments (rest assignments))))
+    (multiple-value-bind (base segments symbols) (quantify-mask-string string params)
+      ;; (print (list :ss segments symbols clauses params))
+
+      (let ((steps (loop :for assignment :in assignments
+                         :collect (destructuring-bind (key value) assignment
+                                    (let ((index (position (intern (string-upcase key) "KEYWORD")
+                                                           symbols)))
+                                      (when (not index)
+                                        (error "Symbol ~a not found in mask ~a." key string))
+                                      (let ((length (- (nth (1+ index) segments) (nth index segments))))
+                                        ;; (format t "~v,'0B~%" 16 (ash (1- (ash 1 length)) (nth index segments)))
+                                        `(incf ,base-sym (ash (logand ,value ,(1- (ash 1 length)))
+                                                              ,(nth index segments)))))))))
+        `(let ((,base-sym ,base)) ,@steps ,base-sym)))))
+
+(defmacro unmasque (string test-value params-or-keys &body body)
+  (let* ((params (if (listp (first params-or-keys)) params-or-keys nil))
+         (keys   (if (not params) params-or-keys (first body)))
+         (body   (if (not params) body (rest body))))
+    (multiple-value-bind (base segments symbols bits) (quantify-mask-string string params)
+      (let* ((variant-mask (1- (ash 1 bits)))
+             (pairs (loop :for key :in keys
+                          :collect (let* ((index (position (intern (string-upcase key) "KEYWORD")
+                                                           symbols))
+                                          (length (- (nth (1+ index) segments) (nth index segments))))
+                                     (decf variant-mask (ash (1- (ash 1 length)) (nth index segments)))
+                                     `(,key (logand ,(1- (ash 1 length))
+                                                    (ash ,test-value ,(- (nth index segments)))))))))
+        ;; (print (list :vm (format nil "~v,'0B" 16 variant-mask)
+        ;;              (format nil "~v,'0B" 16 base)))
+        `(if (/= ,base (logand ,variant-mask ,test-value))
+             nil (let ,pairs ,@body))))))
+
+;; (loop :for c :across string :for ix :from 0 :when (not (char= c #\.)) ;; period is used as a spacer
+;;       :do (if (position c "01" :test #'char=)
+;;               (progn (when (and symbols (not (null (first symbols))))
+;;                        (push nil symbols)
+;;                        (push bits segments))
+;;                      (when (char= c #\1) (incf base))) ;; set constant 1 bits
+;;               (when (or (not symbols) (not (eq (intern (string-upcase c) "KEYWORD") (first symbols))))
+;;                 (push (intern (string-upcase c) "KEYWORD") symbols)
+;;                 (print (list :bit bits c))
+;;                 (push bits segments)))
+;;           ;; shift the number to the left unless this is the last digit
+;;           (unless (= ix (1- (length string))) (setf base (ash base 1)))
+;;           (incf bits))
+
+;; (when (assoc :static params)
+;;   (loop :for item :in (rest (assoc :static params))
+;;         :do (destructuring-bind (sym number) item
+;;               (let* ((insym (intern (string-upcase sym) "KEYWORD"))
+;;                      (index (loop :for s :in symbols :for ix :from 0
+;;                                   :when (eq s insym) :return ix)))
+;;                 ;; (when reverse-match (push insym static-segments))
+;;                 (incf base (ash number (nth index segments)))))))
 
 (defmacro mqbase (name opcsym args string static-specs &body clauses)
   ;; this is a currying macro for masque, allowing the creation
@@ -156,10 +222,22 @@
   (:documentation "A generic assembler class."))
 
 (defclass assembler-encoding (assembler)
-  ((%table :accessor asm-enc-table
-           :initform nil
-           :initarg  :table))
+  ((%breadth :accessor asm-enc-breadth
+             :initform 1
+             :initarg  :breadth)
+   (%decoder :accessor asm-enc-decoder
+             :initform nil
+             :initarg  :decoder))
   (:documentation "An assembler with relatively simple correspondences between instruction and encoding (such as z80 or 6502) such that many or most instructions can be disassembled through simple lookups."))
+
+(defclass assembler-masking (assembler)
+  ((%breadth :accessor asm-msk-segment
+             :initform nil
+             :initarg  :breadth)
+   (%battery :accessor asm-msk-battery
+             :initform nil
+             :initarg  :battery))
+  (:documentation "An assembler whose instructions can be disassembled on the basis of comparing and decomposing bitmasks."))
 
 (defgeneric types-of (assembler)
   (:documentation "Fetch an assembler's types."))
@@ -179,7 +257,7 @@
 (defgeneric qualify-ops (assembler operands form order)
   (:documentation "Qualify operations for members of a given assembler's class."))
 
-(defgeneric clause-processor (assembler)
+(defgeneric clause-processor (assembler assembler-symbol)
   (:documentation "Process opcode specification clauses for an assembler."))
 
 (defgeneric locate (assembler assembler-sym params)
@@ -191,10 +269,10 @@
 (defgeneric compose (assembler params expression)
   (:documentation "A function composing an instruction for an assembler, translating the symbols in an instruction into specific values and class instances."))
 
-(defgeneric decode (assembler params array)
+(defgeneric disassemble (assembler params array)
   (:documentation "A function converting operation codes for a given ISA into a human-readable assembly language."))
 
-(defgeneric of-encoded (assembler-encoding key value)
+(defgeneric of-decoder (assembler-encoding key value)
   (:documentation "Encoding getter/setter for an encoding assembler."))
 
 (defgeneric %assemble (assembler assembler-sym params expressions)
@@ -204,9 +282,13 @@
   (if value (setf (gethash key (asm-lexicon assembler)) value)
       (gethash key (asm-lexicon assembler))))
 
-(defmethod of-encoded ((assembler assembler-encoding) key value)
-  (if value (setf (gethash key (asm-enc-table assembler)) value)
-      (gethash key (asm-enc-table assembler))))
+(defmethod of-decoder ((assembler assembler-encoding) key value)
+  (if value (setf (gethash key (asm-enc-decoder assembler)) value)
+      (gethash key (asm-enc-decoder assembler))))
+
+(defmethod of-battery ((assembler assembler-masking) key value)
+  (if value (setf (gethash key (asm-msk-battery assembler)) value)
+      (gethash key (asm-msk-battery assembler))))
 
 (defmethod types-of ((item t))
   (declare (ignore item))
@@ -244,11 +326,12 @@
   (specify-ops (symbol-value assembler)
                assembler symbol operands params))
 
-(defmethod clause-processor ((assembler assembler))
+(defmethod clause-processor ((assembler assembler) assembler-symbol)
   (declare (ignore assembler))
-  (lambda (clause sym operands)
-    (declare (ignore clause sym operands))
-    nil))
+  (lambda (mnemonic operands body)
+    ;; (print (list :mn mnemonic body))
+    `(of-lexicon ,assembler-symbol ,(intern (string mnemonic) "KEYWORD")
+                 (lambda ,operands ,@body))))
 
 (defun process-clause-matrix (assembler asm-sym operands matrix params)
   (let ((clauses) (varops (remove '&optional operands))
@@ -288,7 +371,7 @@
            (destructuring-bind (co-symbol join-by indexer &rest combinators)
                (rest (assoc :combine params))
              (cons 'progn (loop :for co :in combinators :for i :from 0
-                                :append (let ((comp-str (case join-by
+                                :collect (let ((comp-str (case join-by
                                                            (:appending (format nil "~a~a" op-symbol co))))
                                                (index (funcall (case indexer (:by-index #'identity))
                                                                i)))
@@ -312,8 +395,10 @@
           (t ;; `(setf (gethash ,(intern (string op-symbol) "KEYWORD")
              ;;                 (asm-lexicon ,asm-sym))
              ;;        (lambda ,operands ,@operations))
-             `(of-lexicon ,asm-sym ,(intern (string op-symbol) "KEYWORD")
-                          (lambda ,operands ,@operations))
+           (funcall (clause-processor assembler asm-sym)
+                    op-symbol operands operations)
+             ;; `(of-lexicon ,asm-sym ,(intern (string op-symbol) "KEYWORD")
+             ;;              (lambda ,operands ,@operations))
              ))))
 
 (defmethod compose :around ((assembler assembler) params expression)
@@ -341,9 +426,59 @@
 (defmacro assemble (assembler params &rest expressions)
   (%assemble (symbol-value assembler) assembler params expressions))
 
-(defmethod decode ((assembler assembler) params array)
+(defmethod disassemble ((assembler assembler) params array)
   (declare (ignore assembler params array))
   nil)
+
+(defmethod disassemble ((assembler assembler-encoding) params array)
+  (let* ((etype (let ((element-type (array-element-type array)))
+                  (unless (eq 'unsigned-byte (first element-type))
+                    (error "Invalid array."))
+                  (second element-type)))
+         (to-read (ash etype (- (+ 2 (asm-dis-breadth assembler)))))
+         (disassembled) (index 0))
+    (labels ((read-words (count)
+               (let ((value 0))
+                 (loop :for i :below count
+                       :do (loop :for i :below to-read
+                                 :do (setf value (ash value etype))
+                                     (incf value (aref array index))
+                                     (incf index)))
+                 value)))
+      (loop :while (< index (1- (length vector)))
+            :do (let ((match (of-decoder assembler (read-words 1))))
+                  (push (if (not (functionp match))
+                            match (funcall match #'read-words))
+                        disassembled))))))
+
+(defmethod disassemble ((assembler assembler-masking) params array)
+  (let* ((etype (let ((element-type (array-element-type array)))
+                  (unless (eq 'unsigned-byte (first element-type))
+                    (error "Invalid array."))
+                  (second element-type)))
+         (to-read (ash etype (- (+ 2 (asm-dis-breadth a)))))
+         (intervals (loop :for segment :in (asm-msk-segment assembler)
+                          :collect (ash etype (- (+ 2 segment)))))
+         (ipatterns) (disassembled) (index 0))
+    (labels ((read-words (count &optional starting-value)
+               (let ((value (or starting-value 0)))
+                 (loop :for i :below count
+                       :do (loop :for i :below to-read
+                                 :do (setf value (ash value etype))
+                                     (incf value (aref array index))
+                                     (incf index)))
+                 value)))
+      (loop :while (< index (1- (length vector)))
+            :do (let ((total 0) (match))
+                  (loop :for i :in intervals :do (push (setf total (read-words i total)) ipatterns))
+                  (loop :for p :in ipatterns :while (not match)
+                        :do (loop :for unmasker :being :the :hash-values
+                                    :of (asm-msk-battery assembler) :while (not match)
+                                  :do (let ((attempt (funcall unmasker p)))
+                                        (when attempt (setf match attempt)))))
+                  (if match (push match disassembled)
+                      (error "Undecipherable instruction!"))))
+      (reverse disassembled))))
 
 ;; (defmethod compose ((assembler assembler) params expression)
 ;;   (destructuring-bind (ins &rest ops) expression

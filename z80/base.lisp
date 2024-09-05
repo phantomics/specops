@@ -26,10 +26,10 @@
              :allocation :class
              :initform   (make-hash-table :test #'eq)
              :initarg    :lexicon)
-   (%table   :accessor   asm-enc-table
+   (%decoder :accessor   asm-enc-decoder
              :allocation :class
              :initform   (make-hash-table :test #'eq)
-             :initarg    :lexicon)))
+             :initarg    :decoder)))
 
 ;; (defvar *z80-storage*)
 (defvar *z80-layout*)
@@ -168,7 +168,7 @@
                                                             opcode))))
                                  (multiple-value-bind (operands exchanged) (swap-numeric operands)
                                    ;; (print (list :ex operands exchanged))
-                                   `(of-encoded ,asm-sym
+                                   `(of-decoder ,asm-sym
                                                 ,(if (not exchanged)
                                                      opcode (ash (second opcode)
                                                                  (* exchanged -8)))

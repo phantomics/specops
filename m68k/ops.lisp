@@ -3,67 +3,103 @@
 (in-package #:specops.m68k)
 
 (specops ori (w op0 op1) *assembler-prototype-m68k*
-  (cond ((special-reg-p op0 :ccr)
+  (cond ((special-reg-p op1 :ccr)
          (joinw (masque "00000000.00111100")
                 op0))
-        ((special-reg-p op0 :sr)
+        ((special-reg-p op1 :sr)
          (joinw (masque "00000000.01111100")
                 op0))
-        ((typep op0 'm68k-gpregister)
+        ((typep op1 'm68k-gpregister)
          (joinw (masque "00000000.SSMMMXXX"
                         (s (determine-width w))
-                        (m (determine-amode op0))
-                        (x (base-or-reg-index op0)))
-                op1))))
+                        (m (determine-amode op1))
+                        (x (base-or-reg-index op1)))
+                op0))))
+
+(of-battery *assembler-prototype-m68k* :ori
+            (lambda (word read-words)
+              (unmasque "00000000.SSMMMXXX" word (s m x)
+                (list :ori (derive-width s) (read-words 1)
+                      (derive-location m x)))))
 
 (specops andi (w op0 op1) *assembler-prototype-m68k*
-  (cond ((special-reg-p op0 :ccr)
+  (cond ((special-reg-p op1 :ccr)
          (joinw (masque "00000010.00111100")
-                op1))
-        ((special-reg-p op0 :sr)
+                op0))
+        ((special-reg-p op1 :sr)
          (joinw (masque "00000010.01111100")
-                op1))
-        ((typep op0 'm68k-gpregister)
+                op0))
+        ((typep op1 'm68k-gpregister)
          (joinw (masque "00000010.SSMMMXXX"
                         (s (determine-width w))
-                        (m (determine-amode op0))
-                        (x (base-or-reg-index op0)))
-                op1))))
+                        (m (determine-amode op1))
+                        (x (base-or-reg-index op1)))
+                op0))))
 
-(specops subi (w op0) *assembler-prototype-m68k*
+(of-battery *assembler-prototype-m68k* :andi
+            (lambda (word read-words)
+              (unmasque "00000010.SSMMMXXX" word (s m x)
+                (list :andi (derive-width s) (read-words 1)
+                      (derive-location m x)))))
+
+(specops subi (w op0 op1) *assembler-prototype-m68k*
   (joinw (masque "00000100.SSMMMXXX"
                  (s (determine-width w))
-                 (m (determine-amode op0))
-                 (x (base-or-reg-index op0)))
+                 (m (determine-amode op1))
+                 (x (base-or-reg-index op1)))
          op0))
+
+(of-battery *assembler-prototype-m68k* :subi
+            (lambda (word read-words)
+              (unmasque "00000100.SSMMMXXX" word (s m x)
+                (list :subi (derive-width s) (read-words 1)
+                      (derive-location m x)))))
 
 (specops addi (w op0 op1) *assembler-prototype-m68k*
   (joinw (masque "00000110.SSMMMXXX"
                  (s (determine-width w))
-                 (m (determine-amode op0))
-                 (x (base-or-reg-index op0)))
-         op1))
+                 (m (determine-amode op1))
+                 (x (base-or-reg-index op1)))
+         op0))
 
-(specops eori (w op0) *assembler-prototype-m68k*
-  (cond ((special-reg-p op0 :ccr)
+(of-battery *assembler-prototype-m68k* :addi
+            (lambda (word read-words)
+              (unmasque "00000110.SSMMMXXX" word (s m x)
+                (list :addi (derive-width s) (read-words 1)
+                      (derive-location m x)))))
+
+(specops eori (w op0 op1) *assembler-prototype-m68k*
+  (cond ((special-reg-p op1 :ccr)
          (joinw (masque "00001010.00111100")
                 op0))
-        ((special-reg-p op0 :sr)
+        ((special-reg-p op1 :sr)
          (joinw (masque "00001010.01111100")
                 op0))
         ((typep op0 'm68k-gpregister)
          (joinw (masque "00001010.SSMMMXXX"
                         (s (determine-width w))
-                        (m (determine-amode op0))
-                        (x (base-or-reg-index op0)))
+                        (m (determine-amode op1))
+                        (x (base-or-reg-index op1)))
                 op0))))
 
-(specops cmpi (w op0) *assembler-prototype-m68k*
+(of-battery *assembler-prototype-m68k* :eori
+            (lambda (word read-words)
+              (unmasque "00001010.SSMMMXXX" word (s m x)
+                (list :eori (derive-width s) (read-words 1)
+                      (derive-location m x)))))
+
+(specops cmpi (w op0 op1) *assembler-prototype-m68k*
   (joinw (masque "00001100.SSMMMXXX"
                  (s (determine-width   w))
-                 (m (determine-amode   op0))
-                 (x (base-or-reg-index op0)))
+                 (m (determine-amode   op1))
+                 (x (base-or-reg-index op1)))
          op0))
+
+(of-battery *assembler-prototype-m68k* :cmpi
+            (lambda (word read-words)
+              (unmasque "00001010.SSMMMXXX" word (s m x)
+                (list :cmpi (derive-width s) (read-words 1)
+                      (derive-location m x)))))
 
 (specops btst (op0 op1) *assembler-prototype-m68k*
   (if (numberp op0)
@@ -75,6 +111,18 @@
                      (d (reg-index         op0))
                      (m (determine-amode   op1))
                      (x (base-or-reg-index op1))))))
+
+(of-battery *assembler-prototype-m68k* :btst-n
+            (lambda (word read-words)
+              (unmasque "00001000.00MMMXXX" word (m x)
+                (list :btst (read-words 1)
+                      (derive-location m x)))))
+
+(of-battery *assembler-prototype-m68k* :btst-r
+            (lambda (word read-words)
+              (unmasque "0000DDD1.00MMMXXX" word (d m x)
+                (list :btst (derive-width *** s) (read-words 1)
+                      (derive-location m x)))))
 
 (specops bchg (op0 op1) *assembler-prototype-m68k*
   (if (numberp op0)
@@ -114,7 +162,7 @@
                  (r (if (typep op0 'm68k-gpregister)
                         (reg-index op0) (reg-index op1)))
                  (d (if (typep op0 'm68k-gpregister) 1 0))
-                 (s (case w (:w 0) (t 1)))
+                 (s (determine-width-bit w))
                  (x (if (typep op0 'm68k-gpregister)
                         (reg-index op1) (reg-index op0))))
          op0))
@@ -126,12 +174,11 @@
                  (m (determine-amode   op0))
                  (x (base-or-reg-index op0)))))
 
-
 (specops move (w op0 op1) *assembler-prototype-m68k*
   (cond ((or (and (special-reg-p op0 :usp)
-                  (typep  op1 'm68k-memory-access))
+                  (typep  op1 'm68k-mas))
              (and (special-reg-p op1 :usp)
-                  (typep  op0 'm68k-memory-access)))
+                  (typep  op0 'm68k-mas)))
          (masque "01001110.0110DAAA"
                  (d (if (typep op0 'm68k-spregister) 0 1))
                  (a (reg-index (if (typep op1 'm68k-spregister) op0 op1)))))
@@ -259,7 +306,7 @@
   (joinw (masque "01001D00.1SMMMXXX"
                  ;; direction ?? how does it work
                  ;; !!! needs mask for registers to move
-                 (s (case w (:w 0) (:l 1)))
+                 (s (determine-width-bit w))
                  (m (determine-amode op0))
                  (x (base-or-reg-index op0)))))
 
@@ -276,12 +323,22 @@
                  (m (determine-amode op0))
                  (x (reg-index op0)))))
 
-(specops addq (op0 op1) *assembler-prototype-m68k*
+(specops addq (w op0 op1) *assembler-prototype-m68k*
   (joinw (masque "0101DDD0.SSMMMXXX"
                  (d op0)
                  (s (determine-width w))
                  (m (determine-amode op1))
                  (x (reg-index op1)))))
+
+
+#|
+(lambda (word)
+  (unmasque "0101DDD0.SSMMMXXX" word (d s m x)
+            (list :addq (case s (0 :b) (1 :w) (2 :l))
+                  d (build-m68k-mas m x))))
+
+|#
+
 
 (specops subq (op0 op1) *assembler-prototype-m68k*
   (joinw (masque "0101DDD1.SSMMMXXX"
@@ -327,7 +384,7 @@
                  (c condition)
                  (d op0)))) ;;; ?? join extended D-value?
 
-(specops moveq (op0 op1) *assembler-prototype-m68k*
+(specops moveq (op0 op1) *assembler-prototype-m68k* ;; ??? account for ops
   (joinw (masque "0111AAA0.DDDDDDDD"
                  (a (m (determine-amode op1)))
                  (d op0))))
@@ -346,14 +403,10 @@
 
 (specops sbcd (op0 op1) *assembler-prototype-m68k*
   (joinw (masque "1000AAA1.0000MXXX"
-                 (a (if (typep op1 'm68k-gpregister)
-                        (reg-index op1)
-                        (mas-base  op1)))
+                 (a (base-or-reg-index op1))
                  (m (if (typep op1 'm68k-gpregister)
                         0 1))
-                 (x (if (typep op0 'm68k-gpregister)
-                        (reg-index op0)
-                        (mas-base  op0))))))
+                 (x (base-or-reg-index op0)))))
 
 (specops or (w op0 op1) *assembler-prototype-m68k*
   (joinw (masque "1000AAAD.SSMMMXXX"
@@ -379,11 +432,11 @@
                         0 1))
                  (s (determine-width w))
                  (m (determine-amode op0))
-                 (x ((cond ((typep op1 'm68k-mas)
-                            (mas-base op1))
-                           ((typep op0 'm68k-mas)
-                            (mas-base op0))
-                           (t (reg-index op1))))))))
+                 (x (cond ((typep op1 'm68k-mas)
+                           (mas-base op1))
+                          ((typep op0 'm68k-mas)
+                           (mas-base op0))
+                          (t (reg-index op1)))))))
 
 (specops subx (w op0 op1) *assembler-prototype-m68k*
   (joinw (masque "1001AAA1.SS00MXXX"
@@ -431,9 +484,7 @@
                  (d (reg-index (mas-base op1)))
                  (s (determine-width w))
                  (m (determine-amode op1))
-                 (x (if (typep op1 'm68k-mas)
-                        (reg-index (mas-base op1))
-                        (reg-index op1))))))
+                 (x (base-or-reg-index op1)))))
 
 (specops cmpa (w op0 op1) *assembler-prototype-m68k*
   (joinw (masque "1011AAAS.11MMMXXX"
@@ -446,9 +497,7 @@
   (joinw (masque "1100DDD0.11MMMXXX"
                  (d (reg-index op1))
                  (m (determine-amode op0))
-                 (x (if (typep op0 'm68k-mas)
-                        (reg-index (mas-base op0))
-                        (reg-index op0))))))
+                 (x (base-or-reg-index op0)))))
 
 (specops muls (op0 op1) *assembler-prototype-m68k*
   (joinw (masque "1100DDD1.11MMMXXX"
@@ -458,10 +507,10 @@
 
 (specops abcd (op0 op1) *assembler-prototype-m68k*
   (joinw (masque "1100XXX1.0000MYYY"
-                 (d (reg-index op1))
+                 (x (reg-index op1)) ;; correct mappings?
                  (m (if (typep op1 'm68k-gpregister)
                         0 1))
-                 (x (base-or-reg-index op0)))))
+                 (y (base-or-reg-index op0)))))
 
 (specops exg (op0 op1) *assembler-prototype-m68k*
   (joinw (masque "1100XXX1.MM00NYYY"

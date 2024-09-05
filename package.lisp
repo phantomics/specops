@@ -5,13 +5,14 @@
   (:export #:register
            #:reg-name #:reg-index #:reg-width
            #:memory-access-scheme
-           #:mas-based #:mas-based #:mas-indexed #:mas-index #:mas-displaced #:mas-displ
-           #:assembler #:assembler-encoding
+           #:mas-based #:mas-base #:mas-indexed #:mas-index #:mas-displaced #:mas-displ
+           #:assembler #:assembler-encoding #:assembler-masking
            #:asm-name #:asm-type #:asm-storage #:asm-lexicon
-           #:asm-domains #:asm-reserve #:asm-joiner #:asm-enc-table
+           #:asm-domains #:asm-reserve #:asm-joiner #:asm-enc-breadth #:asm-enc-table
+           #:asm-msk-segment #:asm-msk-battery
            #:join #:joinw
-           #:flipbits #:masque
-           #:types-of #:derive-domains #:of-lexicon #:of-encoded #:of-storage
+           #:flipbits #:masque #:unmasque
+           #:types-of #:derive-domains #:of-lexicon #:of-decoder #:of-battery #:of-storage
            #:specify-ops #:qualify-ops
            #:locate #:compose #:process-operands #:clause-processor 
            #:assemble #:specops))

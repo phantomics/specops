@@ -73,7 +73,7 @@
             :adr #(:a0 :a1 :a2 :a3 :a4 :a5 :a6 :a7)
             :spr #(:usp :sr :ccr)))
 
-(defclass assembler-m68k (assembler)
+(defclass assembler-m68k (assembler-masking)
   ((%storage :accessor   asm-storage
              :allocation :class
              :initform   (make-hash-table :test #'eq)
@@ -82,6 +82,13 @@
              :allocation :class
              :initform   (make-hash-table :test #'eq)
              :initarg    :lexicon)
+   (%breadth :accessor   asm-msk-segment
+             :alloaction :class
+             :initform   '(2)
+             :initarg    :breadth)
+   (%battery :accessor   asm-unm-battery
+             :initform   (make-hash-table :test #'eq)
+             :initarg    :battery)
    (%domains :accessor   asm-domains
              :initform   nil
              :initarg    :domains)
@@ -105,6 +112,11 @@
       (case width (:b #b01) (:w #b11) (:l #b10))
       (case width (:b #b00) (:w #b01) (:l #b10))))
 
+(defun derive-width (width &optional prefix)
+  (if prefix
+      (case width (#b01 :b) (#b11 :w) (#b10 :l))
+      (case width (#b00 :b) (#b01 :w) (#b10 :l))))
+
 (defun determine-width-bit (width &optional prefix)
   (case width (:w 0) (:l 1)))
   
@@ -121,14 +133,19 @@
   (typecase operand
     (m68k-gpregister #b000)
     (m68k-adregister #b001)
-    (m68k-mem-access
-     (case (m68k-mac-qualifier operand)
+    (m68k-mas
+     (case ;; (m68k-mac-qualifier operand)
        (nil          #b010)
        (:postinc     #b011)
        (:predecr     #b100)
        (:displ       #b101)
        (:index       #b110)))
     (t               #b111)))
+
+(defun derive-location (addressing-mode index)
+  (case addressing-mode
+    (#b000 (aref (getf *m68k-layout* :gpr) index))
+    (#b001 (aref (getf *m68k-layout* :adr) index))))
 
 ;; (let ((this-join (join-spec 16)))
 ;;   (defun join (&rest items)
@@ -179,9 +196,9 @@
 #|
 
 (assemble *assembler-prototype-m68k*
-  (:with (:store (abc :gpr) (def :gpr :bind :d2)))
-  (:addi :b abc 10)
-  (:addi :b def 33))
+  (:with (:store (abc :gpr) (def :gpr)))
+  (:addi :b 10 abc)
+  (:addi :b 330 def))
 
 (@+ abc)
 
