@@ -13,6 +13,7 @@
            #:join #:joinw
            #:flipbits #:masque #:unmasque
            #:types-of #:derive-domains #:of-lexicon #:of-decoder #:of-battery #:of-storage
-           #:specify-ops #:qualify-ops
+           #:storage-type-p #:specify-ops #:qualify-ops
            #:locate #:compose #:process-operands #:clause-processor 
-           #:assemble #:specops))
+           #:assemble;;  #:specops
+           ))

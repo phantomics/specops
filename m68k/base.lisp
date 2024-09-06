@@ -2,91 +2,94 @@
 
 (in-package #:specops.m68k)
 
-(defclass m68k-register (register)
-  ())
+;; (defclass m68k-register (register)
+;;   ())
 
-(defclass m68k-gpregister (m68k-register)
-  ((%width :accessor   reg-width
-           :allocation :class
-           :initform   32
-           :initarg    :width
-           :documentation "The register's width.")))
+;; (defclass m68k-gpregister (m68k-register)
+;;   ((%width :accessor   reg-width
+;;            :allocation :class
+;;            :initform   32
+;;            :initarg    :width
+;;            :documentation "The register's width.")))
 
-(defclass m68k-adregister (m68k-register)
-  ())
+;; (defclass m68k-adregister (m68k-register)
+;;   ())
 
-(defclass m68k-saregister (m68k-register)
-  ())
+;; (defclass m68k-saregister (m68k-register)
+;;   ())
 
-(defclass m68k-spregister (m68k-register)
-  ())
+;; (defclass m68k-spregister (m68k-register)
+;;   ())
 
 (defclass m68k-mas (mas-based mas-indexed mas-displaced)
   ((%qualifier :accessor m68k-mas-qualifier
                :initform nil
                :initarg  :qualifier)))
 
-(defun @+ (operand)
-  (if (not (typep operand 'm68k-adregister))
+(defun @+ (base)
+  (if (not (position base #(:a0 :a1 :a2 :a3 :a4 :a5 :a6 :a7)))
       (error "Memory can only be addressed using an address register.")
       (make-instance 'm68k-mas :base operand :qualifier :post-incr)))
 
-(defun -@ (operand)
-  (if (not (typep operand 'm68k-adregister))
+(defun -@ (base)
+  (if (not (position base #(:a0 :a1 :a2 :a3 :a4 :a5 :a6 :a7)))
       (error "Memory can only be addressed using an address register.")
       (make-instance 'm68k-mas :base operand :qualifier :pre-decr)))
 
-(defun @++ (operand base &optional offset-arg)
-  (if (not (typep operand 'm68k-adregister))
+(defun @++ (base index &optional displacement)
+  (if (not (position base #(:a0 :a1 :a2 :a3 :a4 :a5 :a6 :a7)))
       (error "Memory can only be addressed using an address register.")
-      (make-instance 'm68k-mas :base operand :index (if offset-arg base nil)
-                               :displ (or offset-arg base))))
+      (make-instance 'm68k-mas :base operand :index (if displacement index nil)
+                               :displ (or displacement index))))
 
-(defvar *m68k-storage*)
-(defvar *m68k-layout*)
+;; (defvar *m68k-storage*)
+;; (defvar *m68k-layout*)
 (defvar *assembler-prototype-m68k*)
 
-(setf *m68k-storage*
-      (list :gpr (vector (make-instance 'm68k-gpregister :name :d0 :index 0)
-                         (make-instance 'm68k-gpregister :name :d1 :index 1)
-                         (make-instance 'm68k-gpregister :name :d2 :index 2)
-                         (make-instance 'm68k-gpregister :name :d3 :index 3)
-                         (make-instance 'm68k-gpregister :name :d4 :index 4)
-                         (make-instance 'm68k-gpregister :name :d5 :index 5)
-                         (make-instance 'm68k-gpregister :name :d6 :index 6)
-                         (make-instance 'm68k-gpregister :name :d7 :index 7))
-            :adr (vector (make-instance 'm68k-adregister :name :a0 :index 0)
-                         (make-instance 'm68k-adregister :name :a1 :index 1)
-                         (make-instance 'm68k-adregister :name :a2 :index 2)
-                         (make-instance 'm68k-adregister :name :a3 :index 3)
-                         (make-instance 'm68k-adregister :name :a4 :index 4)
-                         (make-instance 'm68k-adregister :name :a5 :index 5)
-                         (make-instance 'm68k-adregister :name :a6 :index 6)
-                         (make-instance 'm68k-saregister :name :a7 :index 7))
+;; (setf *m68k-storage*
+;;       (list :gpr (vector (make-instance 'm68k-gpregister :name :d0 :index 0)
+;;                          (make-instance 'm68k-gpregister :name :d1 :index 1)
+;;                          (make-instance 'm68k-gpregister :name :d2 :index 2)
+;;                          (make-instance 'm68k-gpregister :name :d3 :index 3)
+;;                          (make-instance 'm68k-gpregister :name :d4 :index 4)
+;;                          (make-instance 'm68k-gpregister :name :d5 :index 5)
+;;                          (make-instance 'm68k-gpregister :name :d6 :index 6)
+;;                          (make-instance 'm68k-gpregister :name :d7 :index 7))
+;;             :adr (vector (make-instance 'm68k-adregister :name :a0 :index 0)
+;;                          (make-instance 'm68k-adregister :name :a1 :index 1)
+;;                          (make-instance 'm68k-adregister :name :a2 :index 2)
+;;                          (make-instance 'm68k-adregister :name :a3 :index 3)
+;;                          (make-instance 'm68k-adregister :name :a4 :index 4)
+;;                          (make-instance 'm68k-adregister :name :a5 :index 5)
+;;                          (make-instance 'm68k-adregister :name :a6 :index 6)
+;;                          (make-instance 'm68k-saregister :name :a7 :index 7))
             
-            :usp (make-instance 'm68k-spregister :name :usp :width 32 :index 0)
-            :sr  (make-instance 'm68k-spregister :name :sr  :width 16 :index 0)
-            :ccr (make-instance 'm68k-spregister :name :ccr :width 8  :index 0)))
+;;             :usp (make-instance 'm68k-spregister :name :usp :width 32 :index 0)
+;;             :sr  (make-instance 'm68k-spregister :name :sr  :width 16 :index 0)
+;;             :ccr (make-instance 'm68k-spregister :name :ccr :width 8  :index 0)))
 
-(setf *m68k-layout*
-      (list :gpr #(:d0 :d1 :d2 :d3 :d4 :d5 :d6 :d7)
-            :adr #(:a0 :a1 :a2 :a3 :a4 :a5 :a6 :a7)
-            :spr #(:usp :sr :ccr)))
+;; (setf *m68k-layout*
+;;       (list :gpr #(:d0 :d1 :d2 :d3 :d4 :d5 :d6 :d7)
+;;             :adr #(:a0 :a1 :a2 :a3 :a4 :a5 :a6 :a7)
+;;             :spr #(:usp :sr :ccr)))
 
 (defclass assembler-m68k (assembler-masking)
   ((%storage :accessor   asm-storage
              :allocation :class
-             :initform   (make-hash-table :test #'eq)
+             :initform   '(:gpr #(:d0 :d1 :d2 :d3 :d4 :d5 :d6 :d7)
+                           :adr #(:a0 :a1 :a2 :a3 :a4 :a5 :a6 :a7)
+                           :spr #(:usp :sr :ccr))
              :initarg    :storage)
    (%lexicon :accessor   asm-lexicon
              :allocation :class
              :initform   (make-hash-table :test #'eq)
              :initarg    :lexicon)
    (%breadth :accessor   asm-msk-segment
-             :alloaction :class
+             :allocation :class
              :initform   '(2)
              :initarg    :breadth)
-   (%battery :accessor   asm-unm-battery
+   (%battery :accessor   asm-msk-battery
+             :allocation :class
              :initform   (make-hash-table :test #'eq)
              :initarg    :battery)
    (%domains :accessor   asm-domains
@@ -99,6 +102,9 @@
 
 (defmethod initialize-instance :after ((assembler assembler-m68k) &key)
   (derive-domains assembler (t (:gpr 8) (:adr 8))))
+
+;; (defmethod reg-index ((name keyword))
+;;   )
 
 ;; (defmethod initialize-instance :after ((assembler assembler-m68k) &key)
 ;;   (derive-domains assembler (t (:gpr  8))
@@ -117,7 +123,7 @@
       (case width (#b01 :b) (#b11 :w) (#b10 :l))
       (case width (#b00 :b) (#b01 :w) (#b10 :l))))
 
-(defun determine-width-bit (width &optional prefix)
+(defun determine-width-bit (width)
   (case width (:w 0) (:l 1)))
   
 (defun base-or-reg-index (item)
@@ -125,22 +131,22 @@
       (reg-index (mas-base item))
       (reg-index item)))
 
-(defun special-reg-p (item name)
-  (and (typep item 'm68k-spregister)
-       (eq name (reg-name op0))))
+;; (defun special-reg-p (item name)
+;;   (and (typep item 'm68k-spregister)
+;;        (eq name (reg-name op0))))
 
-(defun determine-amode (operand)
-  (typecase operand
-    (m68k-gpregister #b000)
-    (m68k-adregister #b001)
-    (m68k-mas
-     (case ;; (m68k-mac-qualifier operand)
-       (nil          #b010)
-       (:postinc     #b011)
-       (:predecr     #b100)
-       (:displ       #b101)
-       (:index       #b110)))
-    (t               #b111)))
+;; (defun determine-amode (operand)
+;;   (typecase operand
+;;     (m68k-gpregister #b000)
+;;     (m68k-adregister #b001)
+;;     (m68k-mas
+;;      (case (m68k-mas-qualifier operand)
+;;        (nil          #b010)
+;;        (:postinc     #b011)
+;;        (:predecr     #b100)
+;;        (:displ       #b101)
+;;        (:index       #b110)))
+;;     (t               #b111)))
 
 (defun derive-location (addressing-mode index)
   (case addressing-mode
@@ -150,6 +156,16 @@
 ;; (let ((this-join (join-spec 16)))
 ;;   (defun join (&rest items)
 ;;     (apply this-join items)))
+
+(defmethod of-storage ((assembler assembler-m68k) key)
+  (if (typep key 'm68k-mas)
+      (values (position (mas-base key) (getf (asm-storage assembler) :adr))
+              (case (m68k-mas-qualifier key)
+                (:postinc #b011) (:predecr #b100)
+                (t (if (not (mas-displ key))
+                       #b010 (if (mas-index key) #b110 #b101)))))
+      (multiple-value-bind (index type) (call-next-method)
+        (values index (case type (:gpr #b000) (:adr #b001))))))
 
 (defmethod locate ((assembler assembler-m68k) asm-sym items)
   (let ((domains (copy-tree (asm-domains assembler)))
@@ -167,6 +183,7 @@
                                (list symbol `(reserve ,asm-sym ,type ,bind-position)))))
             (loop :for item :in unbound
                   :collect (destructuring-bind (symbol type &rest params) item
+                             (declare (ignore params))
                              (list symbol (let ((random-index
                                                   (nth (random (length (rest (assoc type domains))))
                                                        (rest (assoc type domains)))))
@@ -176,7 +193,13 @@
 
 (defmethod reserve ((assembler assembler-m68k) &rest params)
   (destructuring-bind (type index &rest _) params
-    (aref (getf *m68k-storage* type) index)))
+    (declare (ignore _))
+    (aref (getf (asm-storage assembler) type) index)))
+
+;; (defmethod reserve ((assembler assembler-m68k) &rest params)
+;;   (destructuring-bind (type index &rest _) params
+;;     (declare (ignore _))
+;;     (aref (getf *m68k-storage* type) index)))
 
 ;; (defmethod compose ((assembler assembler-m68k) params expression)
 ;;   (destructuring-bind (ins &rest ops) expression

@@ -209,7 +209,6 @@
              :initform   nil
              :initarg    :lexicon)
    (%domains :accessor   asm-domains
-             ;; :allocation :class
              :initform   nil
              :initarg    :domains)
    (%reserve :accessor   asm-reserve
@@ -248,8 +247,11 @@
 (defgeneric of-lexicon (assembler key value)
   (:documentation "Fetch lexical get/setter for given assembler."))
 
-(defgeneric of-storage (assembler &rest params)
+(defgeneric of-storage (assembler key)
   (:documentation "Fetch storage object for given assembler."))
+
+(defgeneric storage-type-p (assembler type &rest keys)
+  (:documentation "Confirm membership of symbol(s) in a given storage type of an assembler."))
 
 (defgeneric specify-ops (assembler asm-symbol op-symbol operands params)
   (:documentation "Specify operations for members of a given assembler's class."))
@@ -269,7 +271,7 @@
 (defgeneric compose (assembler params expression)
   (:documentation "A function composing an instruction for an assembler, translating the symbols in an instruction into specific values and class instances."))
 
-(defgeneric disassemble (assembler params array)
+(defgeneric derive (assembler params array)
   (:documentation "A function converting operation codes for a given ISA into a human-readable assembly language."))
 
 (defgeneric of-decoder (assembler-encoding key value)
@@ -281,6 +283,17 @@
 (defmethod of-lexicon ((assembler assembler) key value)
   (if value (setf (gethash key (asm-lexicon assembler)) value)
       (gethash key (asm-lexicon assembler))))
+
+(defmethod of-storage ((assembler assembler) key)
+  (let ((return-type) (return-index))
+    (loop :for (type-key names) :on (asm-storage assembler) :by #'cddr :while (not return-type)
+          :do (let ((pos (position key names)))
+                (when pos (setf return-type type-key return-index pos))))
+    (values return-index return-type)))
+
+(defmethod storage-type-p ((assembler assembler) type &rest keys)
+  (let ((type-domain (getf (asm-storage assembler) type)))
+    (loop :for key :in keys :always (position key type-domain))))
 
 (defmethod of-decoder ((assembler assembler-encoding) key value)
   (if value (setf (gethash key (asm-enc-decoder assembler)) value)
@@ -426,11 +439,11 @@
 (defmacro assemble (assembler params &rest expressions)
   (%assemble (symbol-value assembler) assembler params expressions))
 
-(defmethod disassemble ((assembler assembler) params array)
+(defmethod derive ((assembler assembler) params array)
   (declare (ignore assembler params array))
   nil)
 
-(defmethod disassemble ((assembler assembler-encoding) params array)
+(defmethod derive ((assembler assembler-encoding) params array)
   (let* ((etype (let ((element-type (array-element-type array)))
                   (unless (eq 'unsigned-byte (first element-type))
                     (error "Invalid array."))
@@ -451,7 +464,7 @@
                             match (funcall match #'read-words))
                         disassembled))))))
 
-(defmethod disassemble ((assembler assembler-masking) params array)
+(defmethod derive ((assembler assembler-masking) params array)
   (let* ((etype (let ((element-type (array-element-type array)))
                   (unless (eq 'unsigned-byte (first element-type))
                     (error "Invalid array."))
@@ -591,60 +604,6 @@
 ;;        ;; ,@(loop for c :in clauses :collect `(format t "~v,'0B~%" 24 (funcall ,mapper ,@c)))
 ;;        (funcall (if (>= 8 ,bits) #'identity (lambda (,input) (vectorize (ceiling ,bits 8) ,input)))
 ;;                 (reduce #'+ (list ,base ,@(loop for c :in clauses :collect `(funcall ,mapper ,@(rest c)))))))))
-;; (map-bits "11000101.WvvvvLpp")
-
-;; (map-bits "11000100.RXBmmmmm.WvvvvLpp"
-;;           (r (if r-extend 0 1)) (x (if x-extend 0 1)) (b (if b-extend 0 1))
-;;           (m m-value) (w (if width 1 0))
-;;           (v (flipbits third-op 4)) (l (if (= 256 length) 1 0)))
-
-;; (bitmanifest "11000100.RXBmmmmm.WvvvvLpp"
-;;              (:R 1) (:X 0) (:B 1)
-;;              (:|m| 3) (:W 1)
-;;              (:|v| (flipbits 12)) (:L 1))
-
-;; (defun prefix-rex (&optional is-wide mregx sindx mrmx-sbasx)
-;;   (+ #b01000000 ;; initial nibble is a fixed 0100 pattern
-;;      ;; fifth bit indicates use of 64-bit register(s)
-;;      (if is-wide    #b00001000 0)
-;;      ;; sixth bit indicates extension of the MODRM.reg field
-;;      (if mregx      #b00000100 0)
-;;      ;; seventh bit indicates extension of the SIB.index field
-;;      (if sindx      #b00000010 0)
-;;      ;; eighth bit indicates extension of the MODRM.rm field or SIB.base field
-;;      (if mrmx-sbasx #b00000001 0)))
-
-;; (defun field-modrm (&key mode reg1 reg2 address opex)
-;;   (masque "MMRRROOO"
-;;           (m (case mode (:reg #b11) (0 #b00) (1 #b01) (2 #b10)))
-;;           (r (or opex (if (numberp reg1) ;; R field may contain an opcode extension
-;;                           reg1 (floor (reg-index reg1) 8))))
-;;           (o (if reg2 (if (numberp reg2)
-;;                           reg2 (floor (reg-index reg2) 8))
-;;                  address))))
-
-;; (defun field-modrm (&key mod reg rm)
-;;   (masque "MMRRROOO"
-;;           (m mod)
-;;           (r reg
-;;           (o rm))))
-
-;; (defun field-sib (&key scale index base)
-;;   (masque "SSIIIBBB"
-;;           (s (case scale  ;; bits 0-1 determine scaling factor in bytes ranging from 2^0-3
-;;                (1 #b00) (2 #b01) (4 #b10) (8 #b11)))
-;;           (i (if (numberp scale) ;; bits 2-4 determine index register (extendable via REX)
-;;                  scale (floor (reg-index index) 8)))
-;;           (b (if (numberp base) ;; bits 5-7 determine displacement register (extendable via REX)
-;;                  base (floor (reg-index base) 8)))))
-
-;; (defun operand-modrm (mode-or-disp &key register extension operand)
-;;   (+ (case mode-or-disp (0 0) (1 1) (4 2) (:reg 3) (t (error "Invalid displacement value.")))
-;;      (or extension (if register (mod (register-index register) 8)))
-;;      (case mode-or-disp (:reg (register-index operand))
-;;            (t 0))))
-
-;; (if (not (and (typep op1 'x86-gpregister) (member (reg-width op1) '(8 16 32 64))))
 
 ;; (defmacro defop (symbol operands lexicon &rest specs)
 ;;   (let* ((provisions (rest (assoc :provisions specs)))
