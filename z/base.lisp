@@ -203,8 +203,6 @@
              :initarg    :battery)))
 
 
-;; IBM's docs count the operands from 1 and these functions do the same
-
 (defmacro rs8 (number)
   (list 'ash number -8))
 
@@ -237,6 +235,8 @@
             ,@(if (not disassemble-fn)
                   nil `((of-battery *assembler-prototype-z* ,(intern (string mnemonic) "KEYWORD")
                                     ,disassemble-fn))))))
+
+;; IBM's docs count the operands from 1 and these functions do the same
 
 (mqbase zformat-e opc mne ()
     "AAAAAAAA"

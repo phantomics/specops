@@ -36,7 +36,7 @@
       (error "Memory can only be addressed using an address register.")
       (make-instance 'm68k-mas :base base :qualifier :pre-decr)))
 
-(defun @++ (base index &optional displacement)
+(defun @~ (base index &optional displacement)
   (if (not (position base #(:a0 :a1 :a2 :a3 :a4 :a5 :a6 :a7)))
       (error "Memory can only be addressed using an address register.")
       (make-instance 'm68k-mas :base base :index (if displacement index nil)
@@ -139,11 +139,13 @@
 ;;        (:index       #b110)))
 ;;     (t               #b111)))
 
-(defun derive-location (addressing-mode index)
+(defun derive-location (addressing-mode index &key base displacement)
   (case addressing-mode
     (#b000 (aref (getf *m68k-layout* :gpr) index))
     (#b001 (aref (getf *m68k-layout* :adr) index))
-    (#b100 (list '-@ (aref (getf *m68k-layout* :adr) index)))))
+    (#b011 (list '@+ (aref (getf *m68k-layout* :adr) index)))
+    (#b100 (list '-@ (aref (getf *m68k-layout* :adr) index)))
+    (#b101 (list '@~ (aref (getf *m68k-layout* :adr) base) nil displacement))))
 
 ;; (let ((this-join (join-spec 16)))
 ;;   (defun join (&rest items)

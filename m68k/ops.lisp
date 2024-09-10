@@ -77,7 +77,7 @@
         ((eq op1 :sr)
          (joinw (masque "00001010.01111100")
                 op0))
-        ((typep op0 'm68k-gpregister)
+        ((position op0 (getf *m68k-layout* :gpr))
          (address (op1) ((index1 amode1))
            (joinw (masque "00001010.SSMMMXXX"
                           (s (determine-width w))
@@ -154,7 +154,7 @@
                        (d index0) (m amode1) (x index1))))))
 
 (readop bclr-n (word read)
-  (unmasque "00001000.10MMMXXX" word (d m x)
+  (unmasque "00001000.10MMMXXX" word (m x)
     (list :bclr (funcall read 1) (derive-location m x))))
 
 (readop bclr-r (word read)
@@ -172,21 +172,32 @@
                        (d index0) (m amode1) (x index1))))))
 
 (readop bset-n (word read)
-  (unmasque "00001000.11MMMXXX" word (d m x)
+  (unmasque "00001000.11MMMXXX" word (m x)
     (list :bset (funcall read 1) (derive-location m x))))
 
 (readop bset-r (word read)
   (unmasque "0000DDD1.11MMMXXX" word (d m x)
     (list :bset d (derive-location m x))))
 
-;; (specop movep (w op0 op1)
-;;   (address (op0 op1) ((index0) (index1)) ;; FIX TYPE
-;;     (joinw (masque "0000RRR1.DS001XXX"
-;;                    (r (if (typep op0 'm68k-gpregister) index0 index1))
-;;                    (d (if (typep op0 'm68k-gpregister) 1      0))
-;;                    (s (determine-width-bit w))
-;;                    (x (if (typep op0 'm68k-gpregister) index1 index0)))
-;;            op0)))
+(specop movep (w op0 op1)
+  (let ((to-reg (position op1 (getf *m68k-layout* :gpr))))
+    (multiple-value-bind (dat add)
+        (if to-reg (values op1 op0) (values op0 op1))
+      (assert (and (mas-base add) (mas-disp add)) (add)
+              "Address operands of MOVEP must be of base/displacement type, not ~a.")
+      (address (op0 op1) ((index0) (index1)) ;; FIX TYPE
+        (joinw (masque "0000RRR1.DS001XXX"
+                       (r dat) (d (if to-reg 0 1))
+                       (s (determine-width-bit w)) (x add))
+               (mas-disp add))))))
+
+(readop movep (word read)
+  (unmasque "0000RRR1.DS001XXX" word (r d s x)
+    (append (list :movep (derive-width-bit s))
+            (funcall (if (zerop d) #'reverse #'identity)
+                     (list (derive-location #b101 nil :base x
+                                                      :displacement (funcall read 1))
+                           (derive-location     0 r))))))
 
 (specop movea (w op0 op1)
   (address (op0 op1) ((index0 amode0) (index1))
@@ -198,31 +209,64 @@
   (unmasque "0000DDD1.11MMMXXX" word (d m x)
     (list :movea (derive-location m x) d)))
 
-;; (specop move (w op0 op1)
-;;   (cond ((or (and (eq op0 :usp)
-;;                   (typep  op1 'm68k-mas))
-;;              (and (eq op1 :usp)
-;;                   (typep  op0 'm68k-mas)))
-;;          (masque "01001110.0110DAAA"
-;;                  (d (if (eq op0 :usp) 0 1))
-;;                  (a (reg-index (if (typep op1 'm68k-spregister) op0 op1))))) ;; ***
-;;         ((eq op0 :sr) ;; move from SR
-;;          (address (op1) ((index1 amode1))
-;;            (masque "01000000.11MMMXXX"
-;;                    (m amode1) (x index1))))
-;;         ((eq op1 :sr) ;; move to SR
-;;          (address (op0) ((index0 amode0))
-;;            (masque "01000110.11MMMXXX"
-;;                    (m amode0) (x index0))))
-;;         ((typep op0 'm68k-gpregister)
-;;          (masque "00SSYYYA.AAMMMXXX"
-;;                  (s (determine-width w t))
-;;                  (y (reg-index op1))
-;;                  (a (determine-amode op1))
-;;                  (m (determine-amode op0))
-;;                  (x (reg-index op0))))))
+(specop move (w op0 op1)
+  (cond ((eq op1 :ccr) ;; move to CCR
+         (assert (eq w :w) (op1)
+          "MOVEing to ~a can only be done at width W.")
+         (address (op0) ((index0 amode0))
+           (masque "01000100.11MMMXXX"
+                   (m amode0) (x index0))))
+        ((eq op0 :sr) ;; move from SR
+         (assert (eq w :w) (op1)
+          "MOVEing to ~a can only be done at width W.")
+         (address (op1) ((index1 amode1))
+           (masque "01000000.11MMMXXX"
+                   (m amode1) (x index1))))
+        ((eq op1 :sr) ;; move to SR
+         (assert (eq w :w) (op1)
+          "MOVEing to ~a can only be done at width W.")
+         (address (op0) ((index0 amode0))
+           (masque "01000110.11MMMXXX"
+                   (m amode0) (x index0))))
+        ((or (and (eq op0 :usp)
+                  (typep  op1 'm68k-mas))
+             (and (eq op1 :usp)
+                  (typep  op0 'm68k-mas)))
+         (assert (eq w :l) (op1)
+          "MOVEing to ~a can only be done at width L.")
+         (masque "01001110.0110DAAA"
+                 (d (if (eq op0 :usp) 0 1))
+                 (a (reg-index (if (eq op1 :usp) op0 op1)))))
+        ((position op0 (getf *m68k-layout* :gpr))
+         (masque "00SSYYYA.AAMMMXXX"
+                 (s (determine-width w t))
+                 (y (reg-index       op1))
+                 (a (determine-amode op1))
+                 (m (determine-amode op0))
+                 (x (reg-index       op0))))))
 
-;; move from and to...
+(readop move-to-ccr (word read)
+  (unmasque "01000100.11MMMXXX" word (m x)
+    (list :move :w (derive-location m x) :ccr)))
+
+(readop move-from-sr (word read)
+  (unmasque "01000000.11MMMXXX" word (m x)
+    (list :move :w :sr (derive-location m x))))
+
+(readop move-to-sr (word read)
+  (unmasque "01000110.11MMMXXX" word (m x)
+    (list :move :w (derive-location m x) :sr)))
+
+(readop move-usp (word read)
+  (unmasque "01001110.0110DAAA" word (d a)
+    (append '(:move :l)
+            (if (zerop d) (list (derive-location 1 a) :usp)
+                (list :usp (derive-location 1 a))))))
+
+(readop move (word read)
+  (unmasque "00SSYYYA.AAMMMXXX" word (s y a m x)
+    (list :move (derive-width s) (derive-location m x)
+          (derive-location a y))))
 
 (specop negx (w op0)
   (address (op0) ((index0 amode0))
@@ -280,8 +324,8 @@
                    (m amode0) (x index0)))))
 
 (readop nbcd (word read)
-  (unmasque "01000110.SSMMMXXX" word (s m x)
-    (list :nbcd (derive-width s) (derive-location m x))))
+  (unmasque "01001000.00MMMXXX" word (m x)
+    (list :nbcd (derive-location m x))))
 
 (specop swap (op0)
   (address (op0) ((index0))
@@ -414,15 +458,42 @@
   (unmasque "01001110.11MMMXXX" word (m x)
     (list :jmp (derive-location m x))))
 
-(specop movem (op0)
-  (address (op0) ((index0 amode0))
-    (joinw (masque "01001D00.1SMMMXXX"
-                   ;; direction ?? how does it work
-                   ;; *** needs mask for registers to move
-                   (s (determine-width-bit w))
-                   (m amode0) (x index0)))))
+(specop movem (w op0 op1)
+  (let ((to-reg (listp op1)))
+    ;; *** CONTROL FOR INPUT MODES
+    (multiple-value-bind (regs addr)
+        (if to-reg (values op1 op0) (values op0 op1))
+      (address (addr) ((index-a amode-a))
+        (joinw (masque "01001D00.1SMMMXXX"
+                       (d (if to-reg 1 0))
+                       (s (determine-width-bit w))
+                       (m amode-a) (x index-a))
+               (let ((encoding 0)
+                     (indices (if (= #b100 amode-a)
+                                  #(:d0 :d1 :d2 :d3 :d4 :d5 :d6 :d7
+                                    :a0 :a1 :a2 :a3 :a4 :a5 :a6 :a7)
+                                  #(:a7 :a6 :a5 :a4 :a3 :a2 :a1 :a0
+                                    :d7 :d6 :d5 :d4 :d3 :d2 :d1 :d0))))
+                 (loop :for r :in regs :for ix :from 0
+                       :do (increment encoding (ash 1 (position r indices))))
+                 encoding))))))
 
-;; *** readop movem
+(flet ((mask-to-list (is-predec mask)
+         (let ((collected))
+           (loop :for i :across (if predec #(:d0 :d1 :d2 :d3 :d4 :d5 :d6 :d7
+                                             :a0 :a1 :a2 :a3 :a4 :a5 :a6 :a7)
+                                    #(:a7 :a6 :a5 :a4 :a3 :a2 :a1 :a0
+                                      :d7 :d6 :d5 :d4 :d3 :d2 :d1 :d0))
+                 :for ix :from 0 :do (unless (zerop (logand mask (ash 1 ix)))
+                                       (push i collected)))
+           (list 'quote collected))))
+  (readop movem (word read)
+    (unmasque "01001D00.1SMMMXXX" word (d s m x)
+      (append (list :movem (derive-width-bit s))
+              (funcall (if (zerop d) #'identity #'reverse)
+                       (list (mask-to-list (= #b100 m) (funcall read 1))
+                             (derive-location m x)))))))
+
 
 (specop lea (op0 op1)
   (address (op0 op1) ((index0 amode0) (index1))
@@ -454,14 +525,6 @@
 (readop addq (word read)
   (unmasque "0101NNN0.SSMMMXXX" word (n m x)
     (list :addq (derive-width s) (if (zerop n) 8 n) (derive-location m x))))
-
-#|
-(lambda (word)
-  (unmasque "0101DDD0.SSMMMXXX" word (d s m x)
-            (list :addq (case s (0 :b) (1 :w) (2 :l))
-                  d (build-m68k-mas m x))))
-
-|#
 
 (specop subq (op0 op1)
   (address (op1) ((index1 amode1))
@@ -502,7 +565,7 @@
 
 (specop bra (op0)
   (assert (integerp op0) (op0)
-          "BRA can only take an integer as operand.")
+          "BRA ~a can only take an integer as operand.")
   (if (zerop (ash op0 -8))
       (joinw (masque "01100000.DDDDDDDD"
                      (d op0)))
@@ -610,7 +673,7 @@
 
 (readop sub (word read)
   (unmasque "1000AAAD.SSMMMXXX" word (a d s m x)
-    (list :or (derive-width s) (if (zerop d) (derive-location 0 a) (derive-location m x))
+    (list :sub (derive-width s) (if (zerop d) (derive-location 0 a) (derive-location m x))
           (if (zerop d) (derive-location m x) (derive-location 0 a)))))
 
 (specop subx (w op0 op1)
@@ -623,6 +686,11 @@
                    (m (if (typep op1 'm68k-mas) 1 0))
                    (x index0)))))
 
+(readop subx (word read)
+  (unmasque "1001AAA1.SS00MXXX" word (a s m x)
+    (list :subx (derive-width s) (derive-location (* m #b100) x)
+          (derive-location (* m #b100) y))))
+
 (specop suba (w op0 op1)
   (assert (storage-type-p :adr op1) (op1)
           "SUBA operand 1 must be an address register.")
@@ -631,11 +699,21 @@
                    (a index1) (s (determine-width-bit w))
                    (m amode0) (x index0)))))
 
+(readop suba (word read)
+  (unmasque "1001AAAS.11MMMXXX" word (a s m x)
+    (list :suba (derive-width-bit s) (derive-location 1 a)
+          (derive-location m x))))
+
 (specop eor (w op0 op1)
   (address (op0 op1) ((index0) (index1 amode1))
     (joinw (masque "1011AAA1.SSMMMXXX"
                    (a index0) (s (determine-width w))
                    (m amode1) (x index1)))))
+
+(readop eor (word read)
+  (unmasque "1011AAA1.SSMMMXXX" word (a s m x)
+    (list :eor (derive-width s) (derive-location 0 a)
+          (derive-location m x))))
 
 (specop cmpm (w op0 op1)
   ;; CONTROL FOR ADDRESS REGISTERS - ALWAYS POSTINCREMENT
@@ -643,6 +721,11 @@
     (joinw (masque "1011AAA1.SS001XXX"
                    (a index1) (s (determine-width w))
                    (x index0)))))
+
+(readop cmpm (word read)
+  (unmasque "1011AAA1.SS001XXX" word (a s x)
+    (list :cmpm (derive-width s) (derive-location #b011 x)
+          (derive-location #b011 a))))
 
 (specop cmp (w op0 op1)
   (assert (storage-type-p :gpr op1) (op1)
@@ -653,6 +736,11 @@
                    (m (determine-amode op1))
                    (m amode0) (x index0)))))
 
+(readop cmp (word read)
+  (unmasque "1011DDD0.SSMMMXXX" word (d s m x)
+    (list :cmp (derive-width s) (derive-location m x)
+          (derive-location 0 d))))
+
 (specop cmpa (w op0 op1)
   (assert (storage-type-p :adr op1) (op1)
           "CMPA operand 1 must be an address register.")
@@ -661,16 +749,30 @@
                    (a index1) (s (determine-width-bit w))
                    (m amode0) (x index0)))))
 
+(readop cmpa (word read)
+  (unmasque "1011AAAS.11MMMXXX" word (a s m x)
+    (list :cmpa (derive-width-bit s) (derive-location m x)
+          (derive-location 1 a))))
 
 (specop mulu (op0 op1)
   (address (op0 op1) ((index0 amode0) (index1))
     (joinw (masque "1100DDD0.11MMMXXX"
                    (d index1) (m amode0) (x index0)))))
 
+(readop mulu (word read)
+  (unmasque "1100DDD0.11MMMXXX" word (d m x)
+    (list :mulu (derive-width s) (derive-location m x)
+          (derive-location 0 d))))
+
 (specop muls (op0 op1)
   (address (op0 op1) ((index0 amode0) (index1))
     (joinw (masque "1100DDD1.11MMMXXX"
                    (d index1) (m amode0) (x index0)))))
+
+(readop mulu (word read)
+  (unmasque "1100DDD1.11MMMXXX" word (d m x)
+    (list :muls (derive-width s) (derive-location m x)
+          (derive-location 0 d))))
 
 (specop abcd (op0 op1)
   ;; CONTROL FOR BOTH Dx OR BOTH Ax
@@ -680,7 +782,13 @@
                    (m (if (typep op1 'm68k-mas) 1 0))
                    (y index0)))))
 
+(readop abcd (word read) ;; uses either 0 data register mode or 4 predecrement addressing mode
+  (unmasque "1100XXX1.0000MYYY" word (x m y)
+    (list :abcd (derive-location (* m #b100) y)
+          (derive-location (* m #b100) x))))
+
 (specop exg (op0 op1)
+  ;; *** CONTROL for address or data regs
   (address (op0 op1) ((index0) (index1))
     (joinw (masque "1100XXX1.MMMMMYYY"
                    (x index0)
@@ -689,6 +797,11 @@
                               #b01000 #b10001)
                           #b01001))
                    (y index1)))))
+
+(readop exg (word read)
+  (unmasque "1100XXX1.MMMMMYYY" word (x m y)
+    (list :exg (derive-location (signum (logand m #b10000)) x)
+          (derive-location (logand m 1) y))))
 
 (specop and (op0 op1)
   (address (op0 op1) ((index0 amode0) (index1 amode1))
@@ -699,6 +812,11 @@
                    (m (if (typep op1 'm68k-mas) amode1 amode0))
                    (x (if (typep op1 'm68k-mas) index1 index0))))))
 
+(readop and (word read)
+  (unmasque "1100AAAD.SSMMMXXX" word (a d s m x)
+    (list :and (derive-width s) (if (zerop d) (derive-location 0 a) (derive-location m x))
+          (if (zerop d) (derive-location m x) (derive-location 0 a)))))
+
 (specop add (op0 op1)
   (address (op0 op1) ((index0 amode0) (index1 amode1))
     (joinw (masque "1101AAAD.SSMMMXXX"
@@ -708,79 +826,158 @@
                    (m (if (typep op1 'm68k-mas) amode1 amode0))
                    (x (if (typep op1 'm68k-mas) index1 index0))))))
 
-(specop addx (op0 op1)
-  ;; CONTROL FOR TWO DATA OR TWO ADDRESS REGS
-  (address (op0 op1) ((index0) (index1))
-    (joinw (masque "1101AAA1.SS00MXXX"
-                   (a index1) (s (determine-width w))
-                   (m (if (typep op1 'm68k-mas) 1 0))
-                   (x index0)))))
+(readop add (word read)
+  (unmasque "1101AAAD.SSMMMXXX" word (a d s m x)
+    (list :add (derive-width s) (if (zerop d) (derive-location 0 a) (derive-location m x))
+          (if (zerop d) (derive-location m x) (derive-location 0 a)))))
 
-(specop adda (op0 op1)
+(specop addx (w op0 op1)
+  ;; CONTROL FOR TWO DATA OR TWO PREDECREMENT ADDRESS REGS
+  (address (op0 op1) ((index0) (index1))
+    (joinw (masque "1101XXX1.SS00MYYY"
+                   (x index1) (s (determine-width w))
+                   (m (if (typep op1 'm68k-mas) 1 0))
+                   (y index0)))))
+
+(readop addx (word read)
+  (unmasque "1101XXX1.SS00MYYY" word (x s m y)
+    (list :addx (derive-width s) (derive-location (* m #b011) x)
+          (derive-location (* m #b011) y))))
+
+(specop adda (w op0 op1)
   (address (op0 op1) ((index0 amode0) (index1))
     (joinw (masque "1101AAAS.11MMMXXX"
                    (a index1) (s (determine-width-bit w))
                    (m amode0) (x index0)))))
 
+(readop adda (word read)
+  (unmasque "1101AAAS.11MMMXXX" word (a s m x)
+    (list :adda (derive-width-bit s) (derive-location m x)
+          (derive-location 1 a))))
+
+;; note: the following shift and rotate instructions encode immediate degree values as bitfields
+;; with a value from  1-7 if the number is the same,but encoded as 0 if the number is 8,
+;; amounting to (logand #b111 n)
+
 (specop as (w op0 &optional op1)
   ((:combine direction :appending :by-index :r :l))
   (if op1
       (joinw (masque "1110RRRD.SSM00XXX"
-                     (r (if (numberp op0)
-                            op0 (reg-index op0)))
+                     (r (if (numberp op0) (logand #b111 op0)
+                            (reg-index op0)))
                      (d direction)
                      (s (determine-width w))
                      (m (determine-amode op0))
                      (x (reg-index op1))))
-      (joinw (masque "1110000D.11MMMXXX"
-                     (d direction)
-                     (m (determine-amode op0))
-                     (x (base-or-reg-index op0))))))
+      (if (not (eq :w w))
+          (error "Memory shifts can only be done at the word size.")
+          (joinw (masque "1110000D.11MMMXXX"
+                         (d direction)
+                         (m (determine-amode op0))
+                         (x (base-or-reg-index op0)))))))
+
+(readop as-reg (word read)
+  (unmasque "1110RRRD.SSM00XXX" word (r d s m x)
+    (list (if (zerop d) :asr :asl)
+          (derive-width s)
+          (if (zerop m) (if (zerop r) 8 r)
+              (derive-location 0 r))
+          (derive-location 0 x))))
+
+(readop as-mem (word read)
+  (unmasque "1110000D.11MMMXXX" word (d m x)
+    (list (if (zerop d) :asr :asl)
+          :w (derive-location m x))))
 
 (specop ls (w op0 &optional op1)
   ((:combine direction :appending :by-index :r :l))
   (if op1
       (joinw (masque "1110RRRD.SSM01XXX"
-                     (r (if (numberp op0)
-                            op0 (reg-index op0)))
+                     (r (if (numberp op0) (logand #b111 op0)
+                            (reg-index op0)))
                      (d direction)
                      (s (determine-width w))
                      (m (determine-amode op0))
                      (x (reg-index op1))))
-      (joinw (masque "1110001D.11MMMXXX"
-                     (d direction)
-                     (m (determine-amode op0))
-                     (x (base-or-reg-index op0))))))
+      (if (not (eq :w w))
+          (error "Memory shifts can only be done at the word size.")
+          (joinw (masque "1110001D.11MMMXXX"
+                         (d direction)
+                         (m (determine-amode op0))
+                         (x (base-or-reg-index op0)))))))
+
+(readop ls-reg (word read)
+  (unmasque "1110RRRD.SSM01XXX" word (r d s m x)
+    (list (if (zerop d) :lsr :lsl)
+          (derive-width s)
+          (if (zerop m) (if (zerop r) 8 r)
+              (derive-location 0 r))
+          (derive-location 0 x))))
+
+(readop ls-mem (word read)
+  (unmasque "1110001D.11MMMXXX" word (d m x)
+    (list (if (zerop d) :lsr :lsl)
+          :w (derive-location m x))))
 
 (specop rox (w op0 &optional op1)
   ((:combine direction :appending :by-index :r :l))
   (if op1
       (joinw (masque "1110RRRD.SSM10XXX"
-                     (r (if (numberp op0)
-                            op0 (reg-index op0)))
+                     (r (if (numberp op0) (logand #b111 op0)
+                            (reg-index op0)))
                      (d direction)
                      (s (determine-width w))
                      (m (determine-amode op0))
                      (x (reg-index op1))))
-      (joinw (masque "1110010D.11MMMXXX"
-                     (d direction)
-                     (m (determine-amode op0))
-                     (x (base-or-reg-index op0))))))
+      (if (not (eq :w w))
+          (error "Memory rotations can only be done at the word size.")
+          (joinw (masque "1110010D.11MMMXXX"
+                         (d direction)
+                         (m (determine-amode op0))
+                         (x (base-or-reg-index op0)))))))
+
+(readop rox-reg (word read)
+  (unmasque "1110RRRD.SSM01XXX" word (r d s m x)
+    (list (if (zerop d) :roxr :roxl)
+          (derive-width s)
+          (if (zerop m) (if (zerop r) 8 r)
+              (derive-location 0 r))
+          (derive-location 0 x))))
+
+(readop rox-mem (word read)
+  (unmasque "1110001D.11MMMXXX" word (d m x)
+    (list (if (zerop d) :roxr :roxl)
+          :w (derive-location m x))))
 
 (specop ro (w op0 &optional op1)
   ((:combine direction :appending :by-index :r :l))
   (if op1
       (joinw (masque "1110RRRD.SSM11XXX"
-                     (r (if (numberp op0)
-                            op0 (reg-index op0)))
+                     (r (if (numberp op0) (logand #b111 op0)
+                            (reg-index op0)))
                      (d direction)
                      (s (determine-width w))
                      (m (determine-amode op0))
                      (x (reg-index op1))))
-      (joinw (masque "1110011D.11MMMXXX"
-                     (d direction)
-                     (m (determine-amode op0))
-                     (x (base-or-reg-index op0))))))
+      (if (not (eq :w w))
+          (error "Memory rotations can only be done at the word size.")
+          (joinw (masque "1110011D.11MMMXXX"
+                         (d direction)
+                         (m (determine-amode op0))
+                         (x (base-or-reg-index op0)))))))
+
+(readop ro-reg (word read)
+  (unmasque "1110RRRD.SSM11XXX" word (r d s m x)
+    (list (if (zerop d) :ror :rol)
+          (derive-width s)
+          (if (zerop m) (if (zerop r) 8 r)
+              (derive-location 0 r))
+          (derive-location 0 x))))
+
+(readop ro-mem (word read)
+  (unmasque "1110011D.11MMMXXX" word (d m x)
+    (list (if (zerop d) :ror :rol)
+          :w (derive-location m x))))
 
 ;; (specops rox (op0)
 ;;   ((:combine direction :appending :by-index :r :l))
