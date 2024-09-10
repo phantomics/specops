@@ -2,39 +2,39 @@
 
 (in-package #:specops.z)
 
-(defclass z-register (register)
-  ())
+;; (defclass z-register (register)
+;;   ())
 
-(defclass z-gpregister (z-register)
-  ((%width :accessor   reg-width
-           :allocation :class
-           :initform   64
-           :initarg    :width
-           :documentation "The register's width.")))
+;; (defclass z-gpregister (z-register)
+;;   ((%width :accessor   reg-width
+;;            :allocation :class
+;;            :initform   64
+;;            :initarg    :width
+;;            :documentation "The register's width.")))
 
-(defclass z-fpregister (z-register)
-  ((%width :accessor   reg-width
-           :allocation :class
-           :initform   64
-           :initarg    :width
-           :documentation "The register's width.")))
+;; (defclass z-fpregister (z-register)
+;;   ((%width :accessor   reg-width
+;;            :allocation :class
+;;            :initform   64
+;;            :initarg    :width
+;;            :documentation "The register's width.")))
 
-(defclass z-ctregister (z-register)
-  ((%width :accessor   reg-width
-           :allocation :class
-           :initform   64
-           :initarg    :width
-           :documentation "The register's width.")))
+;; (defclass z-ctregister (z-register)
+;;   ((%width :accessor   reg-width
+;;            :allocation :class
+;;            :initform   64
+;;            :initarg    :width
+;;            :documentation "The register's width.")))
 
-(defclass z-acregister (z-register)
-  ((%width :accessor   reg-width
-           :allocation :class
-           :initform   32
-           :initarg    :width
-           :documentation "The register's width.")))
+;; (defclass z-acregister (z-register)
+;;   ((%width :accessor   reg-width
+;;            :allocation :class
+;;            :initform   32
+;;            :initarg    :width
+;;            :documentation "The register's width.")))
 
-(defclass z-vcregister (z-register)
-  ())
+;; (defclass z-vcregister (z-register)
+;;   ())
 
 (defclass z-mas (mas-based mas-indexed mas-displaced)
   ())
@@ -69,7 +69,7 @@
 
 (defgeneric encoded-mras-length (z-mras))
 
-(defgeneric z-vcr-loix (z-vcregister))
+;; (defgeneric z-vcr-loix (z-vcregister))
 
 (defmethod encoded-mras-length ((z-mras z-mras))
   (if (zerop (z-mras-length z-mras))
@@ -81,8 +81,11 @@
 (defmethod z-masd-lo12 ((z-mas z-mas))
   (logand #xFFF (mas-displ z-mas)))
 
-(defmethod z-vcr-loix ((z-vcregister z-vcregister))
-  (logand #xF (reg-index z-vcregister)))
+;; (defmethod z-vcr-loix ((z-vcregister z-vcregister))
+;;   (logand #xF (reg-index z-vcregister)))
+
+(defun z-vcr-loix (index)
+  (logand #xF index))
 
 (defun add-longdisp (hi4 lo12)
   (+ lo12 (ash hi4 12)))
@@ -191,12 +194,13 @@
              :allocation :class
              :initform   #'joinw
              :initarg    :joiner)
-   (%segment :accessor asm-msk-segment
-             :initform '(2 4 6)
-             :initarg  :breadth)
-   (%battery :accessor asm-msk-battery
-             :initform (make-hash-table)
-             :initarg  :battery)))
+   (%segment :accessor   asm-msk-segment
+             :initform   '(2 4 6)
+             :initarg    :breadth)
+   (%battery :accessor   asm-msk-battery
+             :allocation :class
+             :initform   (make-hash-table)
+             :initarg    :battery)))
 
 
 ;; IBM's docs count the operands from 1 and these functions do the same
@@ -213,12 +217,19 @@
 (defmacro lo8 (number)
   (list 'logand number #xFF))
 
+;; (defun vrmsbits (v1 &optional v2 v3 v4)
+;;   "Get most significant bits from indices of vector registers passed as operands to a vector instruction. Used to populate the RXB fields of vector instruction codes."
+;;   (+ (if v1 (ash (logand #b10000 (reg-index v1)) -1) 0)
+;;      (if v2 (ash (logand #b10000 (reg-index v2)) -2) 0)
+;;      (if v3 (ash (logand #b10000 (reg-index v3)) -3) 0)
+;;      (if v4 (ash (logand #b10000 (reg-index v4)) -4) 0)))
+
 (defun vrmsbits (v1 &optional v2 v3 v4)
   "Get most significant bits from indices of vector registers passed as operands to a vector instruction. Used to populate the RXB fields of vector instruction codes."
-  (+ (if v1 (ash (logand #b10000 (reg-index v1)) -1) 0)
-     (if v2 (ash (logand #b10000 (reg-index v2)) -2) 0)
-     (if v3 (ash (logand #b10000 (reg-index v3)) -3) 0)
-     (if v4 (ash (logand #b10000 (reg-index v4)) -4) 0)))
+  (+ (if v1 (ash (logand #b10000 v1) -1) 0)
+     (if v2 (ash (logand #b10000 v2) -2) 0)
+     (if v3 (ash (logand #b10000 v3) -3) 0)
+     (if v4 (ash (logand #b10000 v4) -4) 0)))
 
 (defmacro specop-z (mnemonic format opcode)
   (destructuring-bind (assemble-fn &optional disassemble-fn) (macroexpand (list format opcode mnemonic))
@@ -226,9 +237,6 @@
             ,@(if (not disassemble-fn)
                   nil `((of-battery *assembler-prototype-z* ,(intern (string mnemonic) "KEYWORD")
                                     ,disassemble-fn))))))
-
-;; (defmacro zformat-e (opc)
-;;   opc)
 
 (mqbase zformat-e opc mne ()
     "AAAAAAAA"
@@ -750,6 +758,9 @@
   ((i i3) (b (mas-base bd2)) (d (mas-displ bd2))
    (v (z-vcr-loix v1)) (y (vrmsbits v1)))
   (list mne (derive-vra 0 v y) (derive-mas b nil d) i))
+
+
+
 
 
 
