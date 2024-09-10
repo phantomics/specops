@@ -73,7 +73,7 @@
             :adr #(:a0 :a1 :a2 :a3 :a4 :a5 :a6 :a7)
             :spr #(:usp :sr :ccr)))
 
-(defclass assembler-m68k (assembler-masking)
+(defclass assembler-m68k (assembler-encoding assembler-masking)
   ((%storage :accessor   asm-storage
              :allocation :class
              :initform   *m68k-layout*
@@ -82,6 +82,10 @@
              :allocation :class
              :initform   (make-hash-table :test #'eq)
              :initarg    :lexicon)
+   (%decoder :accessor   asm-enc-decoder
+             :allocation :class
+             :initform   (make-hash-table :test #'eq)
+             :initarg    :decoder)
    (%breadth :accessor   asm-msk-segment
              :allocation :class
              :initform   '(2)
