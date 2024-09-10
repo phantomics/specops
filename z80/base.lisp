@@ -20,7 +20,9 @@
 (defclass assembler-z80 (assembler-encoding)
   ((%storage :accessor   asm-storage
              :allocation :class
-             :initform   (make-hash-table :test #'eq)
+             :initform   '(:gpr #(:a :f :af :b :c :bc :d :e :de :h :l :hl)
+                           :ixr #(:ixl :iyl :ix :iy)
+                           :spr #(:sp :r :i))
              :initarg    :storage)
    (%lexicon :accessor   asm-lexicon
              :allocation :class
@@ -32,13 +34,13 @@
              :initarg    :decoder)))
 
 ;; (defvar *z80-storage*)
-(defvar *z80-layout*)
+;; (defvar *z80-layout*)
 (defvar *assembler-prototype-z80*)
 
-(setf *z80-layout*
-      (list :gpr #(:a :f :af :b :c :bc :d :e :de :h :l :hl)
-            :ixr #(:ixl :iyl :ix :iy)
-            :spr #(:sp :r :i)))
+;; (setf *z80-layout*
+;;       (list :gpr #(:a :f :af :b :c :bc :d :e :de :h :l :hl)
+;;             :ixr #(:ixl :iyl :ix :iy)
+;;             :spr #(:sp :r :i)))
 
 ;; (setf *z80-storage*
 ;;       (list :gpr (list :a   (make-instance 'z80-gpregister :name :a   :width  8)
@@ -77,9 +79,9 @@
            (and (keywordp op1) (eq op1 val1)))))
 
 (defun @ (address &optional offset)
-    (make-instance 'z80-mas :base address :displ offset))
+  (make-instance 'z80-mas :base address :displ offset))
 
-(defmethod clause-processor ((assembler assembler-z80))
+(defmethod clause-processor ((assembler assembler-z80) assembler-symbol)
   (declare (ignore assembler))
   (labels ((operand-test (o1 o2)
              (if (keywordp o1)
@@ -149,34 +151,40 @@
            (encoding-entry (varops operands opcode)
              `(((match-ops ,@varops ,@operands) ,opcode))))
     
-    (lambda (clauses asm-sym op-symbols)
-      (let ((varops (remove '&optional op-symbols))
-            (clauses (cons (first clauses)
-                           (loop :for clause :in (rest clauses) :append (clause-extend clauses clause)))))
-        ;; (loop :for clause :in (rest clauses) :do (clause-extend clauses clause))
-        ;; (print (list :clxx clauses))
-        (cons `(of-lexicon
-                ,asm-sym ,(first clauses) 
-                (lambda ,op-symbols
-                  (cond ,@(loop :for clause :in (rest clauses)
-                                :append (apply #'encoding-entry varops clause)))))
-              (loop :for clause :in (rest clauses)
-                    :collect (destructuring-bind (operands opcode) clause
-                               ;; (print (list :oa operands))
-                               (let ((opcode (if (numberp opcode)
-                                                 opcode (if (and (listp opcode) (eql '+ (first opcode)))
-                                                            opcode))))
-                                 (multiple-value-bind (operands exchanged) (swap-numeric operands)
-                                   ;; (print (list :ex operands exchanged))
-                                   `(of-decoder ,asm-sym
-                                                ,(if (not exchanged)
-                                                     opcode (ash (second opcode)
-                                                                 (* exchanged -8)))
-                                                ,(funcall (lambda (form)
-                                                            (if (not exchanged)
-                                                                form `(lambda (of-code) ,form)))
-                                                          (cons 'list (cons (first clauses)
-                                                                            operands)))))))))))))
+    (lambda (clauses op-symbols)
+      (if (numberp (second clauses))
+          ;; `(setf (gethash ,(first c) ,table) ,(second c))
+          `((of-lexicon ,assembler-symbol ,(first  clauses) ,(second clauses))
+            (of-decoder ,assembler-symbol ,(second clauses)  (list ,(first clauses))))
+          (let ((varops (remove '&optional op-symbols))
+                (clauses (cons (first clauses)
+                               (loop :for clause :in (rest clauses)
+                                     :append (clause-extend clauses clause)))))
+            ;; (loop :for clause :in (rest clauses) :do (clause-extend clauses clause))
+            ;; (print (list :clxx clauses))
+            (cons `(of-lexicon
+                    ,assembler-symbol ,(first clauses) 
+                    (lambda ,op-symbols
+                      (cond ,@(loop :for clause :in (rest clauses)
+                                    :append (apply #'encoding-entry varops clause)))))
+                  (loop :for clause :in (rest clauses)
+                        :collect (destructuring-bind (operands opcode) clause
+                                   ;; (print (list :oa operands))
+                                   (let ((opcode (if (numberp opcode)
+                                                     opcode (if (and (listp opcode)
+                                                                     (eql '+ (first opcode)))
+                                                                opcode))))
+                                     (multiple-value-bind (operands exchanged) (swap-numeric operands)
+                                       ;; (print (list :ex operands exchanged))
+                                       `(of-decoder ,assembler-symbol
+                                                    ,(if (not exchanged)
+                                                         opcode (ash (second opcode)
+                                                                     (* exchanged -8)))
+                                                    ,(funcall (lambda (form)
+                                                                (if (not exchanged)
+                                                                    form `(lambda (of-code) ,form)))
+                                                              (cons 'list (cons (first clauses)
+                                                                                operands))))))))))))))
 
 ;; (defmethod locate ((assembler assembler-z80) asm-sym items)
 ;;   (let ((domains (copy-tree (asm-domains assembler)))

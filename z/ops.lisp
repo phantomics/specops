@@ -2000,7 +2000,7 @@
 
 (specop-z tmy     zformat-siy   #xEB51)
 
-(specop-z tp      zformat-rsl   #xEBC0)
+(specop-z tp      zformat-rsl-a #xEBC0)
 
 (specop-z tpei    zformat-rre   #xB9A1)
 
@@ -2032,7 +2032,7 @@
 
 (specop-z trtr    zformat-ss-a  #x00D0)
 
-(specop-z trtre   zformat-rrf   #xB9BD)
+(specop-z trtre   zformat-rrf-a #xB9BD)
 
 (specop-z trtt    zformat-rrf-c #xB990)
 
@@ -2190,7 +2190,7 @@
 
 (specop-z vlbr    zformat-vrx   #xE606)
 
-(specop-z vlbrre p zformat-vrx   #xE605)
+(specop-z vlbrrep zformat-vrx   #xE605)
 
 (specop-z vlc     zformat-vrr-a #xE7DE)
 

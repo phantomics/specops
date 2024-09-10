@@ -29,21 +29,21 @@
 (defun @+ (base)
   (if (not (position base #(:a0 :a1 :a2 :a3 :a4 :a5 :a6 :a7)))
       (error "Memory can only be addressed using an address register.")
-      (make-instance 'm68k-mas :base operand :qualifier :post-incr)))
+      (make-instance 'm68k-mas :base base :qualifier :post-incr)))
 
 (defun -@ (base)
   (if (not (position base #(:a0 :a1 :a2 :a3 :a4 :a5 :a6 :a7)))
       (error "Memory can only be addressed using an address register.")
-      (make-instance 'm68k-mas :base operand :qualifier :pre-decr)))
+      (make-instance 'm68k-mas :base base :qualifier :pre-decr)))
 
 (defun @++ (base index &optional displacement)
   (if (not (position base #(:a0 :a1 :a2 :a3 :a4 :a5 :a6 :a7)))
       (error "Memory can only be addressed using an address register.")
-      (make-instance 'm68k-mas :base operand :index (if displacement index nil)
+      (make-instance 'm68k-mas :base base :index (if displacement index nil)
                                :displ (or displacement index))))
 
 ;; (defvar *m68k-storage*)
-;; (defvar *m68k-layout*)
+(defvar *m68k-layout*)
 (defvar *assembler-prototype-m68k*)
 
 ;; (setf *m68k-storage*
@@ -68,17 +68,15 @@
 ;;             :sr  (make-instance 'm68k-spregister :name :sr  :width 16 :index 0)
 ;;             :ccr (make-instance 'm68k-spregister :name :ccr :width 8  :index 0)))
 
-;; (setf *m68k-layout*
-;;       (list :gpr #(:d0 :d1 :d2 :d3 :d4 :d5 :d6 :d7)
-;;             :adr #(:a0 :a1 :a2 :a3 :a4 :a5 :a6 :a7)
-;;             :spr #(:usp :sr :ccr)))
+(setf *m68k-layout*
+      (list :gpr #(:d0 :d1 :d2 :d3 :d4 :d5 :d6 :d7)
+            :adr #(:a0 :a1 :a2 :a3 :a4 :a5 :a6 :a7)
+            :spr #(:usp :sr :ccr)))
 
 (defclass assembler-m68k (assembler-masking)
   ((%storage :accessor   asm-storage
              :allocation :class
-             :initform   '(:gpr #(:d0 :d1 :d2 :d3 :d4 :d5 :d6 :d7)
-                           :adr #(:a0 :a1 :a2 :a3 :a4 :a5 :a6 :a7)
-                           :spr #(:usp :sr :ccr))
+             :initform   *m68k-layout*
              :initarg    :storage)
    (%lexicon :accessor   asm-lexicon
              :allocation :class
@@ -103,16 +101,6 @@
 (defmethod initialize-instance :after ((assembler assembler-m68k) &key)
   (derive-domains assembler (t (:gpr 8) (:adr 8))))
 
-;; (defmethod reg-index ((name keyword))
-;;   )
-
-;; (defmethod initialize-instance :after ((assembler assembler-m68k) &key)
-;;   (derive-domains assembler (t (:gpr  8))
-;;                   (:x86-64 (:gpr 16))
-;;                   (:avx    (:vcr  8))
-;;                   (:avx2   (:vcr 16))
-;;                   (:avx512 (:vcr 32))))
-
 (defun determine-width (width &optional prefix)
   (if prefix
       (case width (:b #b01) (:w #b11) (:l #b10))
@@ -125,6 +113,9 @@
 
 (defun determine-width-bit (width)
   (case width (:w 0) (:l 1)))
+
+(defun derive-width-bit (width)
+  (if (zerop width) :w :l))
   
 (defun base-or-reg-index (item)
   (if (typep item 'm68k-mas)
@@ -151,7 +142,8 @@
 (defun derive-location (addressing-mode index)
   (case addressing-mode
     (#b000 (aref (getf *m68k-layout* :gpr) index))
-    (#b001 (aref (getf *m68k-layout* :adr) index))))
+    (#b001 (aref (getf *m68k-layout* :adr) index))
+    (#b100 (list '-@ (aref (getf *m68k-layout* :adr) index)))))
 
 ;; (let ((this-join (join-spec 16)))
 ;;   (defun join (&rest items)

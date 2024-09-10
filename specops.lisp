@@ -98,7 +98,8 @@
                                         ;; (format t "~v,'0B~%" 16 (ash (1- (ash 1 length)) (nth index segments)))
                                         `(incf ,base-sym (ash (logand ,value ,(1- (ash 1 length)))
                                                               ,(nth index segments)))))))))
-        `(let ((,base-sym ,base)) ,@steps ,base-sym)))))
+        (if (not steps)
+            base `(let ((,base-sym ,base)) ,@steps ,base-sym))))))
 
 (defmacro unmasque (string test-value params-or-keys &body body)
   (let* ((params (if (listp (first params-or-keys)) params-or-keys nil))
@@ -141,22 +142,33 @@
 ;;                 ;; (when reverse-match (push insym static-segments))
 ;;                 (incf base (ash number (nth index segments)))))))
 
-(defmacro mqbase (name opcsym args string static-specs &body clauses)
+(defmacro mqbase (name opcsym mnesym args string &body body)
   ;; this is a currying macro for masque, allowing the creation
   ;; of a specialized masque with static contents for some fields
-  `(defmacro ,name (,opcsym)
-     (list 'lambda ',args
-           (append (list 'masque ,string)
-                   (list
-                    ;; generate a template incorporating the :static values
-                    ;; into a (masque) expansion within the defined macro
-                    (list ,@(loop :for ss :in static-specs
-                                  :collect (if (not (eq :static (first ss)))
-                                               (list 'quote ss)
-                                               `(list :static ,@(loop :for spec :in (rest ss)
-                                                                      :collect `(list ',(first spec)
-                                                                                      ,(second spec))))))))
-                   ',clauses))))
+  (destructuring-bind (static-specs clauses &optional disassembler) body
+    (let ((dsarg (gensym))
+          (static-form (loop :for ss :in static-specs
+                             :collect (if (not (eq :static (first ss)))
+                                          (list 'quote ss)
+                                          `(list :static ,@(loop :for spec :in (rest ss)
+                                                                 :collect `(list ',(first spec)
+                                                                                 ,(second spec))))))))
+      `(defmacro ,name (,opcsym ,mnesym)
+         (list (list 'lambda ',args
+                     (append (list 'masque ,string)
+                             ;; generate a template incorporating the :static values
+                             ;; into a (masque) expansion within the defined macro
+                             (list (list ,@static-form))
+                             ',clauses))
+               ,@(if (not disassembler)
+                     nil `((list 'lambda (list ',dsarg)
+                                 (list 'unmasque ,string ',dsarg (list ,@static-form)
+                                       ',(mapcar #'first clauses) ;; ',disassembler
+                                       (list ,@(loop :for item :in disassembler
+                                                     :collect (if (and (symbolp item)
+                                                                       (eql item mnesym))
+                                                                  `(intern (string ,item) "KEYWORD")
+                                                                  `(quote ,item)))))))))))))
 
 (defclass register ()
   ((%name  :accessor reg-name
@@ -230,7 +242,7 @@
   (:documentation "An assembler with relatively simple correspondences between instruction and encoding (such as z80 or 6502) such that many or most instructions can be disassembled through simple lookups."))
 
 (defclass assembler-masking (assembler)
-  ((%breadth :accessor asm-msk-segment
+  ((%segment :accessor asm-msk-segment
              :initform nil
              :initarg  :breadth)
    (%battery :accessor asm-msk-battery
@@ -348,7 +360,7 @@
 
 (defun process-clause-matrix (assembler asm-sym operands matrix params)
   (let ((clauses) (varops (remove '&optional operands))
-        (clause-processor (clause-processor assembler)))
+        (clause-processor (clause-processor assembler asm-sym)))
     (symbol-macrolet ((opcode (+ (first cellx) (caar row))))
       (loop :for row :in (rest matrix) :for row-index :from 0
             :do (loop :for cell :in (rest row) :for col-index :from 0
@@ -365,12 +377,7 @@
                                                     (list ins opcode))
                                                 clauses))))))
       ;; (print (list :clau clauses))
-      (loop :for c :in clauses
-            :append (if (numberp (second c))
-                         ;; `(setf (gethash ,(first c) ,table) ,(second c))
-                        `((of-lexicon ,asm-sym ,(first c) ,(second c))
-                          (of-encoded ,asm-sym ,(second c) (list ,(first c))))
-                        (funcall clause-processor c asm-sym operands))))))
+      (loop :for c :in clauses :append (funcall clause-processor c operands)))))
 
 (defmethod specify-ops ((assembler assembler) asm-sym op-symbol operands items)
   "A simple scheme for implementing operations - the (specop) content is directly placed within functions in the lexicon hash table."

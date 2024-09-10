@@ -2,10 +2,11 @@
 
 (asdf:defsystem #:specops.6502
   :description "Describe 6502 here"
-  :author "Your Name <your.name@example.com>"
-  :license  "Specify license here"
+  :author "Andrew Sengul"
+  :license  "BSD"
   :version "0.0.1"
   :serial t
   :depends-on ("specops")
   :components ((:file "package")
-               (:file "6502")))
+               (:file "base")
+               (:file "ops")))

@@ -7,6 +7,13 @@
 (defmacro specop (symbol operands &body params)
   (specify-ops *assembler-prototype-m68k* '*assembler-prototype-m68k* symbol operands params))
 
+(defmacro readop (symbol args &body body)
+  (let ((symbol (macroexpand symbol))
+        (function `(lambda ,args (declare (ignorable ,@args)) ,@body)))
+    (if (numberp symbol)
+        `(of-decoder *assembler-prototype-m68k* ,symbol ,function)
+        `(of-battery *assembler-prototype-m68k* ,(intern (string symbol) "KEYWORD") ,function))))
+
 (defmacro address (operands bindings &body body)
   (labels ((process-level (ops bns)
              (if (not ops)
