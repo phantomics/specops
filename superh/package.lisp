@@ -1,4 +1,4 @@
 ;;;; package.lisp
 
-(defpackage #:superh
+(defpackage #:specops.superh
   (:use #:cl #:specops))

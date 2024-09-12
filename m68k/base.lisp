@@ -21,29 +21,35 @@
 ;; (defclass m68k-spregister (m68k-register)
 ;;   ())
 
+(defvar *m68k-layout*)
+(setf *m68k-layout*
+      (list :gpr #(:d0 :d1 :d2 :d3 :d4 :d5 :d6 :d7)
+            :adr #(:a0 :a1 :a2 :a3 :a4 :a5 :a6 :a7)
+            :spr #(:usp :sr :ccr)))
+
 (defclass m68k-mas (mas-based mas-indexed mas-displaced)
   ((%qualifier :accessor m68k-mas-qualifier
                :initform nil
                :initarg  :qualifier)))
 
 (defun @+ (base)
-  (if (not (position base #(:a0 :a1 :a2 :a3 :a4 :a5 :a6 :a7)))
+  (if (not (position base (getf *m68k-layout* :adr)))
       (error "Memory can only be addressed using an address register.")
       (make-instance 'm68k-mas :base base :qualifier :post-incr)))
 
 (defun -@ (base)
-  (if (not (position base #(:a0 :a1 :a2 :a3 :a4 :a5 :a6 :a7)))
+  (if (not (position base (getf *m68k-layout* :adr)))
       (error "Memory can only be addressed using an address register.")
       (make-instance 'm68k-mas :base base :qualifier :pre-decr)))
 
 (defun @~ (base index &optional displacement)
-  (if (not (position base #(:a0 :a1 :a2 :a3 :a4 :a5 :a6 :a7)))
+  (if (not (position base (getf *m68k-layout* :adr)))
       (error "Memory can only be addressed using an address register.")
       (make-instance 'm68k-mas :base base :index (if displacement index nil)
                                :displ (or displacement index))))
 
 ;; (defvar *m68k-storage*)
-(defvar *m68k-layout*)
+
 (defvar *assembler-prototype-m68k*)
 
 ;; (setf *m68k-storage*
@@ -68,10 +74,6 @@
 ;;             :sr  (make-instance 'm68k-spregister :name :sr  :width 16 :index 0)
 ;;             :ccr (make-instance 'm68k-spregister :name :ccr :width 8  :index 0)))
 
-(setf *m68k-layout*
-      (list :gpr #(:d0 :d1 :d2 :d3 :d4 :d5 :d6 :d7)
-            :adr #(:a0 :a1 :a2 :a3 :a4 :a5 :a6 :a7)
-            :spr #(:usp :sr :ccr)))
 
 (defclass assembler-m68k (assembler-encoding assembler-masking)
   ((%storage :accessor   asm-storage
@@ -151,9 +153,27 @@
     (#b100 (list '-@ (aref (getf *m68k-layout* :adr) index)))
     (#b101 (list '@~ (aref (getf *m68k-layout* :adr) base) nil displacement))))
 
-;; (let ((this-join (join-spec 16)))
-;;   (defun join (&rest items)
-;;     (apply this-join items)))
+(defun gpr-p (item)
+  (and (keywordp item)
+       (position item (getf *m68k-layout* :gpr))))
+
+(defun adr-p (item)
+  (and (keywordp item)
+       (position item (getf *m68k-layout* :adr))))
+
+(deftype gpr () `(satisfies gpr-p))
+
+(deftype adr () `(satisfies adr-p))
+
+(defun mas-simple-p  (item)
+  (and (typep item 'superh-mas)
+       (not (mas-displ item))
+       (not (superh-mas-qualifier item))))
+
+(defun mas-predecr-p (item)
+  (and (typep item 'superh-mas)
+       (eq :predecr (superh-mas-qualifier item))))
+
 
 (defmethod of-storage ((assembler assembler-m68k) key)
   (if (typep key 'm68k-mas)
@@ -193,26 +213,6 @@
   (destructuring-bind (type index &rest _) params
     (declare (ignore _))
     (aref (getf (asm-storage assembler) type) index)))
-
-;; (defmethod reserve ((assembler assembler-m68k) &rest params)
-;;   (destructuring-bind (type index &rest _) params
-;;     (declare (ignore _))
-;;     (aref (getf *m68k-storage* type) index)))
-
-;; (defmethod compose ((assembler assembler-m68k) params expression)
-;;   (destructuring-bind (ins &rest ops) expression
-;;     (let ((width (if (not (keywordp (first ops)))
-;;                      nil (position (first ops) #(:b :w :l) :test #'eq)))
-;;           (bindings (rest (assoc :store params))))
-;;       (print (list :bi bindings width params ins ops))
-;;       (apply (gethash ins (asm-lexicon assembler))
-;;              (process-operands bindings ops)))))
-
-;; (print (loop :for o :in ops
-;;              :collect (typecase o
-;;                         (keyword o)
-;;                         (symbol (second (assoc o bindings)))
-;;                         (t o))))
 
 #|
 

@@ -16,4 +16,5 @@
            #:storage-type-p #:specify-ops #:qualify-ops
            #:locate #:compose #:process-operands #:clause-processor 
            #:assemble #:specops
+           #:match-types
            ))

@@ -957,18 +957,3 @@
   (unmasque "1110011D.11MMMXXX" word (d m x)
     (list (if (zerop d) :ror :rol)
           :w (derive-location m x))))
-
-;; (specops rox (op0)
-;;   ((:combine direction :appending :by-index :r :l))
-;;   (joinw (masque "1110010D.11MMMXXX"
-;;                  (d direction)
-;;                  (m (determine-amode op0))
-;;                  (x (base-or-reg-index op0)))))
-
-;; (specops ro (op0)
-;;   ((:combine direction :appending :by-index :r :l))
-;;   (joinw (masque "1110011D.11MMMXXX"
-;;                  (d direction)
-;;                  (m (determine-amode op0))
-;;                  (x (base-or-reg-index op0)))))
-

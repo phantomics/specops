@@ -1,10 +1,11 @@
 ;;;; super-h.asd
 
-(asdf:defsystem #:superh
+(asdf:defsystem #:specops.superh
   :description "Describe super-h here"
-  :author "Your Name <your.name@example.com>"
-  :license  "Specify license here"
+  :author "Andrew Sengul"
+  :license  "BSD"
   :version "0.0.1"
   :serial t
+  :depends-on ("specops")
   :components ((:file "package")
                (:file "base")))

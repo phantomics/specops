@@ -500,6 +500,13 @@
                       (error "Undecipherable instruction!"))))
       (reverse disassembled))))
 
+(defmacro match-types (&rest pairs)
+  (let ((items) (types) (count (length pairs)))
+    (loop :for sym :in pairs :for i :from 0 :do (if (< i (ash count -1))
+                                                    (push sym items) (push sym types)))
+    (cons 'and (loop :for it :in items :for ty :in types :collect `(typep ,it ',ty)))))
+
+
 ;; (defmethod compose ((assembler assembler) params expression)
 ;;   (destructuring-bind (ins &rest ops) expression
 ;;     (let ((width (if (not (keywordp (first ops)))
