@@ -2,9 +2,33 @@
 
 (in-package #:specops)
 
-(defun join-spec (unit)
+(defun find-width (number unit)
+  (let ((width 0) (shift (- unit)))
+    (loop :until (zerop number) :do (setf number (ash number shift))
+                                    (incf width))
+    width))
+
+(defun serialize (item unit collector)
+  (let ((mask (1- (ash 1 unit)))) ;; TODO: find a way to create the mask just once?
+    (flet ((decompose (number starting-width)
+             (let ((shift (- (* unit starting-width))))
+               (loop :for i :below starting-width
+                     :do (funcall collector (logand mask (ash number shift)))
+                         (incf shift unit)))))
+      (if (integerp item) ;; values that fit within a byte are just pushed on
+          (if (zerop (ash item (- unit)))
+              (funcall collector item)
+              (decompose item (1- (find-width item unit))))
+          (if (and (consp item) (not (listp (rest item))))
+              ;; handle cons cells encoding width and value, like (3 . 5) → #x000005
+              (destructuring-bind (width &rest value) item
+                (decompose value (1- width)))
+              (if (vectorp item)
+                  (loop :for i :across item :do (funcall collector i))
+                  (error "Attempted to serialize incompatible value - must be an integer, a vector")))))))
+
+(defun join-spec (unit items)
   (let ((shift (- unit)) (mask (1- (ash 1 unit))))
-    (lambda (&rest items)
       (let ((collected))
         (loop :for item :in items :when item ;; ignore null items
               :do (if (numberp item) ;; values that fit within a byte are just pushed on
@@ -25,16 +49,14 @@
                           (when (vectorp item)
                             (loop :for i :across item :do (push i collected))))))
         (make-array (length collected) :element-type (list 'unsigned-byte unit)
-                                       :initial-contents (reverse collected))))))
+                                       :initial-contents (reverse collected)))))
 
-(let ((joiner-8  (join-spec  8))
-      (joiner-16 (join-spec 16)))
-  
-  (defun joinb (&rest items)
-    (apply joiner-8  items))
+(defun joinb (&rest items)
+  (join-spec  8 items))
 
-  (defun joinw (&rest items)
-    (apply joiner-16 items)))
+(defun joinw (&rest items)
+  (join-spec 16 items)) 
+
 
 (defun flipbits (b &optional (n 32))
   (let ((r 0))
@@ -57,8 +79,7 @@
               ;; shift the number to the left unless this is the last digit
               (unless (= ix (1- (length string))) (setf base (ash base 1)))
               (incf bits))
-    (values ;; (increment-byte-fields-by-key base symbols segments (rest (assoc :static params)))
-            (loop :for pair :in (rest (assoc :static params)) ;; values
+    (values (loop :for pair :in (rest (assoc :static params)) ;; values
                   :do (destructuring-bind (sym value) pair
                         (let* ((insym (intern (string-upcase sym) "KEYWORD"))
                                (index (loop :for s :in symbols :for ix :from 0
@@ -69,17 +90,6 @@
                   :finally (return base))
             (cons 0 (loop :for s :in segments :collect (abs (- s bits))))
             symbols bits)))
-
-;; (defun increment-byte-fields-by-key (base symbols segments values)
-;;   (loop :for pair :in values
-;;         :do (destructuring-bind (sym value) pair
-;;               (let* ((insym (intern (string-upcase sym) "KEYWORD"))
-;;                      (index (loop :for s :in symbols :for ix :from 0
-;;                                   :when (eq s insym) :return ix)))
-;;                 ;; (when reverse-match (push insym static-segments))
-;;                 (if index (incf base (ash value (nth index segments)))
-;;                     (error "Invalid key for static base value increment."))))
-;;         :finally (return base)))
 
 (defmacro masque (string &rest assignments)
   (let* ((base-sym (gensym))
@@ -226,6 +236,9 @@
    (%reserve :accessor   asm-reserve
              :initform   nil
              :initarg    :reserve)
+   (%breadth :accessor   asm-breadth
+             :initform   8
+             :initarg    :breadth)
    (%joiner  :accessor   asm-joiner
              :allocation :class
              :initform   #'joinb
@@ -233,10 +246,7 @@
   (:documentation "A generic assembler class."))
 
 (defclass assembler-encoding (assembler)
-  ((%breadth :accessor asm-enc-breadth
-             :initform 1
-             :initarg  :breadth)
-   (%decoder :accessor asm-enc-decoder
+  ((%decoder :accessor asm-enc-decoder
              :initform nil
              :initarg  :decoder))
   (:documentation "An assembler with relatively simple correspondences between instruction and encoding (such as z80 or 6502) such that many or most instructions can be disassembled through simple lookups."))
@@ -244,7 +254,7 @@
 (defclass assembler-masking (assembler)
   ((%segment :accessor asm-msk-segment
              :initform nil
-             :initarg  :breadth)
+             :initarg  :segment)
    (%battery :accessor asm-msk-battery
              :initform nil
              :initarg  :battery))
@@ -256,7 +266,7 @@
 (defgeneric %derive-domains (assembler &rest params)
   (:documentation "Determine storage domains for a given assembler."))
 
-(defgeneric of-lexicon (assembler key value)
+(defgeneric of-lexicon (assembler key &optional value)
   (:documentation "Fetch lexical get/setter for given assembler."))
 
 (defgeneric of-storage (assembler key)
@@ -292,7 +302,7 @@
 (defgeneric %assemble (assembler assembler-sym params expressions)
   (:documentation "A function implementing generation of opcodes from assembly code."))
 
-(defmethod of-lexicon ((assembler assembler) key value)
+(defmethod of-lexicon ((assembler assembler) key &optional value)
   (if value (setf (gethash key (asm-lexicon assembler)) value)
       (gethash key (asm-lexicon assembler))))
 
@@ -347,9 +357,9 @@
   (specify-ops (symbol-value assembler)
                assembler symbol operands params))
 
-(defmacro specops (symbol operands assembler &body params)
-  (specify-ops (symbol-value assembler)
-               assembler symbol operands params))
+;; (defmacro specops (symbol operands assembler &body params)
+;;   (specify-ops (symbol-value assembler)
+;;                assembler symbol operands params))
 
 (defmethod clause-processor ((assembler assembler) assembler-symbol)
   (declare (ignore assembler))
@@ -359,7 +369,8 @@
                  (lambda ,operands ,@body))))
 
 (defun process-clause-matrix (assembler asm-sym operands matrix params)
-  (let ((clauses) (varops (remove '&optional operands))
+  (declare (ignore params))
+  (let ((clauses) ;; (varops (remove '&optional operands))
         (clause-processor (clause-processor assembler asm-sym)))
     (symbol-macrolet ((opcode (+ (first cellx) (caar row))))
       (loop :for row :in (rest matrix) :for row-index :from 0
@@ -385,7 +396,8 @@
                                (keywordp (caaar items))))
                      nil (first items)))
          (operations (if (not params) items (rest items)))
-         (provisions (rest (assoc :provisions params))))
+         ;; (provisions (rest (assoc :provisions params)))
+         )
     ;; (print (list :par params))
     (cond ((assoc :combine params)
            (destructuring-bind (co-symbol join-by indexer &rest combinators)
@@ -421,27 +433,89 @@
              ;;              (lambda ,operands ,@operations))
              ))))
 
-(defmethod compose :around ((assembler assembler) params expression)
-  (destructuring-bind (op &rest props) expression
-    (if (atom expression)
-        expression (if (listp (first expression))
-                       (loop :for item :in expression :collect (compose assembler params item))
-                       (call-next-method)))))
+;; (defmethod compose :around ((assembler assembler) params expression)
+;;   (destructuring-bind (op &rest props) expression
+;;     (typecase expression
+;;       (atom expression)
+;;       (list (if (atom (first expression)) (call-next-method)
+;;                 (loop :for item :in expression :collect (compose assembler params item)))))))
+
+
+;; (defmethod compose ((assembler assembler) params expression)
+;;   (print (list :par params))
+;;   (destructuring-bind (instruction &rest operands) expression
+;;     (let ((build-instruction (gethash instruction (asm-lexicon assembler))))
+;;       (if (not (functionp build-instruction))
+;;           build-instruction (apply build-instruction operands)))))
+
+;; (defmethod %assemble ((assembler assembler) assembler-sym params expressions)
+;;   (let ((compose-params))
+;;     `(let ,(locate assembler assembler-sym (rest (assoc :store (rest params))))
+;;        (apply (asm-joiner ,assembler-sym)
+;;               (compose ,assembler-sym ,compose-params
+;;                               (list ,@(loop :for e :in expressions
+;;                                             :collect (if (not (and (listp e) (keywordp (first e))))
+;;                                                          e (cons 'list e)))))))))
+(defparameter *default-segment* 1000)
 
 (defmethod compose ((assembler assembler) params expression)
-  (destructuring-bind (instruction &rest operands) expression
-    (let ((build-instruction (gethash instruction (asm-lexicon assembler))))
-      (if (not (functionp build-instruction))
-          build-instruction (apply build-instruction operands)))))
+  (let* ((unit (asm-breadth assembler))
+         (codes (make-array *default-segment* :element-type (list 'unsigned-byte unit)
+                                             :initial-element 0 :adjustable t :fill-pointer 0))
+         (marked-points) (tag-points) (codes-length))
+    (flet ((add-value (value)
+             (unless (< (fill-pointer codes) (1- (length codes)))
+               (adjust-array codes (+ *default-segment* (length codes)) :initial-element 0))
+             (vector-push value codes)))
+      (loop :for item :in expression
+            :do (typecase item
+                  (symbol (push (cons item (fill-pointer codes)) marked-points))
+                  (list   (destructuring-bind (instruction &rest operands) item
+                            (let ((build-instruction (of-lexicon assembler instruction)))
+                              (multiple-value-bind (code properties)
+                                  (if (not (functionp build-instruction))
+                                      build-instruction (apply build-instruction operands))
+                                (print (list :co code))
+                                (if (functionp code)
+                                    (let ((breadth (or (getf properties :breadth) 0)))
+                                      (push (append (list (fill-pointer codes) code)
+                                                    properties)
+                                            tag-points)
+                                      (dotimes (i breadth) (add-value 0)))
+                                    (serialize code unit #'add-value))))))))
+      (setf codes-length (fill-pointer codes))
+      ;; (print (list :mm marked-points))
+      (loop :for tag-spec :in tag-points
+            :do (destructuring-bind (point function &rest properties) tag-spec
+                  (let ((value (apply function
+                                      (cons point (loop :for b :in (getf properties :bindings)
+                                                        :collect (rest (assoc b marked-points)))))))
+                    (setf (fill-pointer codes) point)
+                    (serialize value unit #'add-value))))
+      (let ((output (make-array codes-length :element-type (list 'unsigned-byte unit))))
+        (loop :for i :below codes-length :do (setf (aref output i) (aref codes i)))
+        output))))
+
+;; (defmethod compose ((assembler assembler) params expression)
+;;   (print (list :par params))
+;;   (destructuring-bind (instruction &rest operands) expression
+;;     (let ((build-instruction (gethash instruction (asm-lexicon assembler))))
+;;       (if (not (functionp build-instruction))
+;;           build-instruction (apply build-instruction operands)))))
 
 (defmethod %assemble ((assembler assembler) assembler-sym params expressions)
   (let ((compose-params))
     `(let ,(locate assembler assembler-sym (rest (assoc :store (rest params))))
-       (apply (asm-joiner ,assembler-sym)
-              (compose ,assembler-sym ,compose-params
-                              (list ,@(loop :for e :in expressions
-                                            :collect (if (not (and (listp e) (keywordp (first e))))
-                                                         e (cons 'list e)))))))))
+       (compose ,assembler-sym ,compose-params
+                (list ,@(loop :for e :in expressions
+                              :collect (if (not (and (listp e) (keywordp (first e))))
+                                           e (cons 'list e))))))))
+
+
+
+
+
+
 
 (defmacro assemble (assembler params &rest expressions)
   (%assemble (symbol-value assembler) assembler params expressions))
@@ -455,7 +529,7 @@
                   (unless (eq 'unsigned-byte (first element-type))
                     (error "Invalid array."))
                   (second element-type)))
-         (to-read (ash etype (- (+ 2 (asm-dis-breadth assembler)))))
+         (to-read (ash etype (- (+ 2 (asm-breadth assembler)))))
          (disassembled) (index 0))
     (labels ((read-words (count)
                (let ((value 0))
@@ -465,8 +539,8 @@
                                      (incf value (aref array index))
                                      (incf index)))
                  value)))
-      (loop :while (< index (1- (length vector)))
-            :do (let ((match (of-decoder assembler (read-words 1))))
+      (loop :while (< index (1- (length array)))
+            :do (let ((match (of-decoder assembler (read-words 1) nil)))
                   (push (if (not (functionp match))
                             match (funcall match #'read-words))
                         disassembled))))))
@@ -476,7 +550,7 @@
                   (unless (eq 'unsigned-byte (first element-type))
                     (error "Invalid array."))
                   (second element-type)))
-         (to-read (ash etype (- (+ 2 (asm-dis-breadth a)))))
+         (to-read (ash etype (- (+ 2 (asm-breadth assembler)))))
          (intervals (loop :for segment :in (asm-msk-segment assembler)
                           :collect (ash etype (- (+ 2 segment)))))
          (ipatterns) (disassembled) (index 0))
@@ -488,7 +562,7 @@
                                      (incf value (aref array index))
                                      (incf index)))
                  value)))
-      (loop :while (< index (1- (length vector)))
+      (loop :while (< index (1- (length array)))
             :do (let ((total 0) (match))
                   (loop :for i :in intervals :do (push (setf total (read-words i total)) ipatterns))
                   (loop :for p :in ipatterns :while (not match)
@@ -506,6 +580,8 @@
                                                     (push sym items) (push sym types)))
     (cons 'and (loop :for it :in items :for ty :in types :collect `(typep ,it ',ty)))))
 
+(defmacro to-tag (function &rest properties)
+  (list 'values function (cons 'list properties)))
 
 ;; (defmethod compose ((assembler assembler) params expression)
 ;;   (destructuring-bind (ins &rest ops) expression

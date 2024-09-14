@@ -88,10 +88,10 @@
              :allocation :class
              :initform   (make-hash-table :test #'eq)
              :initarg    :decoder)
-   (%breadth :accessor   asm-msk-segment
+   (%segment :accessor   asm-msk-segment
              :allocation :class
              :initform   '(2)
-             :initarg    :breadth)
+             :initarg    :segment)
    (%battery :accessor   asm-msk-battery
              :allocation :class
              :initform   (make-hash-table :test #'eq)
@@ -99,6 +99,10 @@
    (%domains :accessor   asm-domains
              :initform   nil
              :initarg    :domains)
+   (%breadth :accessor   asm-breadth
+             :allocation :class
+             :initform   16
+             :initarg    :breadth)
    (%joiner  :accessor   asm-joiner
              :allocation :class
              :initform   #'joinw
@@ -166,14 +170,28 @@
 (deftype adr () `(satisfies adr-p))
 
 (defun mas-simple-p  (item)
-  (and (typep item 'superh-mas)
+  (and (typep item 'm68k-mas)
        (not (mas-displ item))
-       (not (superh-mas-qualifier item))))
+       (not (m68k-mas-qualifier item))))
 
 (defun mas-predecr-p (item)
-  (and (typep item 'superh-mas)
-       (eq :predecr (superh-mas-qualifier item))))
+  (and (typep item 'm68k-mas)
+       (eq :pre-decr (m68k-mas-qualifier item))))
 
+(defun mas-postinc-p (item)
+  (and (typep item 'm68k-mas)
+       (eq :post-incr (m68k-mas-qualifier item))))
+
+(defun location-p (item)
+  (or (gpr-p item) (adr-p item) (typep item 'm68k-mas)))
+
+(deftype mas-simple  () `(satisfies gpr-p))
+
+(deftype mas-predecr () `(satisfies adr-p))
+
+(deftype mas-postinc () `(satisfies adr-p))
+
+(deftype location    () `(satisfies location-p))
 
 (defmethod of-storage ((assembler assembler-m68k) key)
   (if (typep key 'm68k-mas)

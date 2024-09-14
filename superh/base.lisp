@@ -42,6 +42,12 @@
 (defun @gb (displacement)
   (make-instance 'superh-mas :base :gbr :displ displacement))
 
+(defun @gbr0 ()
+  (make-instance 'superh-mas :base :gbr :index :r0))
+
+(defun @@tbr (displacement)
+  (make-instance 'superh-mas :base :tbr :displ displacement :qualifier :x4))
+
 (setf *superh-layout*
       (list :gpr #(:r0 :r1 :r2  :r3  :r4  :r5  :r6  :r7
                    :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15)
@@ -125,6 +131,17 @@
        (mas-displ item)
        (eq :gbr (mas-base item))))
 
+(defun mas-gb+rzro-p (item)
+  (and (typep item 'superh-mas)
+       (eq :gbr (mas-base  item))
+       (eq :r0  (mas-index item))))
+
+(defun mas-tb+dis4-p (item)
+  (and (typep item 'superh-mas)
+       (eq :tbr (mas-base item))
+       (eq :x4  (superh-mas-qualifier item))
+       (mas-displ item)))
+
 (deftype mas-simple  () `(satisfies mas-simple-p))
 
 (deftype mas-predecr () `(satisfies mas-predecr-p))
@@ -140,6 +157,10 @@
 (deftype mas-pc+disp () `(satisfies mas-pc+disp-p))
 
 (deftype mas-gb+disp () `(satisfies mas-pc+disp-p))
+
+(deftype mas-gb+rzro () `(satisfies mas-gb+rzro-p))
+
+(deftype mas-tb+dis4 () `(satisfies mas-tb+dis4-p))
 
 (defun drv-gpr (index)
   (aref (getf *superh-layout* :gpr) index))
