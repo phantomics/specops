@@ -49,11 +49,13 @@
   (make-instance 'superh-mas :base :tbr :displ displacement :qualifier :x4))
 
 (setf *superh-layout*
-      (list :gpr #(:r0 :r1 :r2  :r3  :r4  :r5  :r6  :r7
-                   :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15)
-            :fpr #(:f0 :f1 :f2  :f3  :f4  :f5  :f6  :f7
-                   :f8 :f9 :f10 :f11 :f12 :f13 :f14 :f15)
-            :spr #(:sr :gbr :vbr :mach :macl :pr :pc)))
+      (list :gpr  #(:r0  :r1  :r2  :r3  :r4  :r5  :r6  :r7
+                    :r8  :r9  :r10 :r11 :r12 :r13 :r14 :r15)
+            :gprb #(:rb0 :rb1 :rb2 :rb3 :rb4 :rb5 :rb6 :rb7)
+            :fpr  #(:f0  :f1  :f2  :f3  :f4  :f5  :f6  :f7
+                    :f8  :f9  :f10 :f11 :f12 :f13 :f14 :f15)
+            :spr  #(:sr :gbr :vbr :mach :macl :pr :pc)
+            :dspr #(:dsr :a0 :x0 :x1 :y0 :y1)))
 
 (defclass assembler-superh (assembler-masking)
   ((%storage :accessor   asm-storage
@@ -83,6 +85,9 @@
 (defun gprix (index)
   (aref (getf *superh-layout* :gpr) index))
 
+(defun gprbix (index)
+  (aref (getf *superh-layout* :gprb) index))
+
 (defun fprix (index)
   (aref (getf *superh-layout* :fpr) index))
 
@@ -90,13 +95,19 @@
   (and (keywordp item)
        (position item (getf *superh-layout* :gpr))))
 
+(defun gprb-p (item)
+  (and (keywordp item)
+       (position item (getf *superh-layout* :gprb))))
+
 (defun fpr-p (item)
   (and (keywordp item)
        (position item (getf *superh-layout* :fpr))))
 
-(deftype gpr () `(satisfies gpr-p))
+(deftype gpr  () `(satisfies gpr-p))
 
-(deftype fpr () `(satisfies fpr-p))
+(deftype gprb () `(satisfies gprb-p))
+
+(deftype fpr  () `(satisfies fpr-p))
 
 (defun mas-simple-p  (item)
   (and (typep item 'superh-mas)
@@ -164,6 +175,15 @@
 
 (defun drv-gpr (index)
   (aref (getf *superh-layout* :gpr) index))
+
+(defun drv-gprb (index)
+  (aref (getf *superh-layout* :gprb) index))
+
+(defun rs16 (number)
+  (ash number -16))
+
+(defun lo16 (number)
+  (logand number #xFFFF))
 
 (defmacro address (symbols addressing &body body)
   `(let ,(loop :for s :in symbols :for a :in addressing

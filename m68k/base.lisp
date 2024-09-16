@@ -2,26 +2,8 @@
 
 (in-package #:specops.m68k)
 
-;; (defclass m68k-register (register)
-;;   ())
-
-;; (defclass m68k-gpregister (m68k-register)
-;;   ((%width :accessor   reg-width
-;;            :allocation :class
-;;            :initform   32
-;;            :initarg    :width
-;;            :documentation "The register's width.")))
-
-;; (defclass m68k-adregister (m68k-register)
-;;   ())
-
-;; (defclass m68k-saregister (m68k-register)
-;;   ())
-
-;; (defclass m68k-spregister (m68k-register)
-;;   ())
-
 (defvar *m68k-layout*)
+
 (setf *m68k-layout*
       (list :gpr #(:d0 :d1 :d2 :d3 :d4 :d5 :d6 :d7)
             :adr #(:a0 :a1 :a2 :a3 :a4 :a5 :a6 :a7)
@@ -48,32 +30,7 @@
       (make-instance 'm68k-mas :base base :index (if displacement index nil)
                                :displ (or displacement index))))
 
-;; (defvar *m68k-storage*)
-
 (defvar *assembler-prototype-m68k*)
-
-;; (setf *m68k-storage*
-;;       (list :gpr (vector (make-instance 'm68k-gpregister :name :d0 :index 0)
-;;                          (make-instance 'm68k-gpregister :name :d1 :index 1)
-;;                          (make-instance 'm68k-gpregister :name :d2 :index 2)
-;;                          (make-instance 'm68k-gpregister :name :d3 :index 3)
-;;                          (make-instance 'm68k-gpregister :name :d4 :index 4)
-;;                          (make-instance 'm68k-gpregister :name :d5 :index 5)
-;;                          (make-instance 'm68k-gpregister :name :d6 :index 6)
-;;                          (make-instance 'm68k-gpregister :name :d7 :index 7))
-;;             :adr (vector (make-instance 'm68k-adregister :name :a0 :index 0)
-;;                          (make-instance 'm68k-adregister :name :a1 :index 1)
-;;                          (make-instance 'm68k-adregister :name :a2 :index 2)
-;;                          (make-instance 'm68k-adregister :name :a3 :index 3)
-;;                          (make-instance 'm68k-adregister :name :a4 :index 4)
-;;                          (make-instance 'm68k-adregister :name :a5 :index 5)
-;;                          (make-instance 'm68k-adregister :name :a6 :index 6)
-;;                          (make-instance 'm68k-saregister :name :a7 :index 7))
-            
-;;             :usp (make-instance 'm68k-spregister :name :usp :width 32 :index 0)
-;;             :sr  (make-instance 'm68k-spregister :name :sr  :width 16 :index 0)
-;;             :ccr (make-instance 'm68k-spregister :name :ccr :width 8  :index 0)))
-
 
 (defclass assembler-m68k (assembler-encoding assembler-masking)
   ((%storage :accessor   asm-storage
@@ -247,3 +204,48 @@
 
 
 |#
+
+
+
+
+
+;; (defclass m68k-register (register)
+;;   ())
+
+;; (defclass m68k-gpregister (m68k-register)
+;;   ((%width :accessor   reg-width
+;;            :allocation :class
+;;            :initform   32
+;;            :initarg    :width
+;;            :documentation "The register's width.")))
+
+;; (defclass m68k-adregister (m68k-register)
+;;   ())
+
+;; (defclass m68k-saregister (m68k-register)
+;;   ())
+
+;; (defclass m68k-spregister (m68k-register)
+;;   ())
+
+;; (setf *m68k-storage*
+;;       (list :gpr (vector (make-instance 'm68k-gpregister :name :d0 :index 0)
+;;                          (make-instance 'm68k-gpregister :name :d1 :index 1)
+;;                          (make-instance 'm68k-gpregister :name :d2 :index 2)
+;;                          (make-instance 'm68k-gpregister :name :d3 :index 3)
+;;                          (make-instance 'm68k-gpregister :name :d4 :index 4)
+;;                          (make-instance 'm68k-gpregister :name :d5 :index 5)
+;;                          (make-instance 'm68k-gpregister :name :d6 :index 6)
+;;                          (make-instance 'm68k-gpregister :name :d7 :index 7))
+;;             :adr (vector (make-instance 'm68k-adregister :name :a0 :index 0)
+;;                          (make-instance 'm68k-adregister :name :a1 :index 1)
+;;                          (make-instance 'm68k-adregister :name :a2 :index 2)
+;;                          (make-instance 'm68k-adregister :name :a3 :index 3)
+;;                          (make-instance 'm68k-adregister :name :a4 :index 4)
+;;                          (make-instance 'm68k-adregister :name :a5 :index 5)
+;;                          (make-instance 'm68k-adregister :name :a6 :index 6)
+;;                          (make-instance 'm68k-saregister :name :a7 :index 7))
+            
+;;             :usp (make-instance 'm68k-spregister :name :usp :width 32 :index 0)
+;;             :sr  (make-instance 'm68k-spregister :name :sr  :width 16 :index 0)
+;;             :ccr (make-instance 'm68k-spregister :name :ccr :width 8  :index 0)))

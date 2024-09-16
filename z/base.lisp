@@ -202,12 +202,11 @@
              :initform   (make-hash-table)
              :initarg    :battery)))
 
+(defmacro rs4 (number)
+  (list 'ash number -4))
 
 (defmacro rs8 (number)
   (list 'ash number -8))
-
-(defmacro rs4 (number)
-  (list 'ash number -4))
 
 (defmacro lo4 (number)
   (list 'logand number #x0F))

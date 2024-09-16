@@ -363,10 +363,16 @@
 
 (defmethod clause-processor ((assembler assembler) assembler-symbol)
   (declare (ignore assembler))
-  (lambda (mnemonic operands body)
-    ;; (print (list :mn mnemonic body))
-    `(of-lexicon ,assembler-symbol ,(intern (string mnemonic) "KEYWORD")
-                 (lambda ,operands ,@body))))
+  (lambda (mnemonic operands body params)
+    (flet ((add-alias (form)
+             (let ((items (gensym)))
+               (if (not (assoc :type-matcher params))
+                   form `(labels ((,(second (assoc :type-matcher params)) (&rest ,items)
+                                    (intersection ,items (types-of ,assembler-symbol))))
+                           ,form)))))
+      ;; (print (list :mn mnemonic body))
+      `(of-lexicon ,assembler-symbol ,(intern (string mnemonic) "KEYWORD")
+                   ,(add-alias `(lambda ,operands ,@body))))))
 
 (defun process-clause-matrix (assembler asm-sym operands matrix params)
   (declare (ignore params))
@@ -424,14 +430,8 @@
            ;;        ,(first operations))
            `(of-lexicon ,asm-sym ,(intern (string op-symbol) "KEYWORD")
                         ,(first operations)))
-          (t ;; `(setf (gethash ,(intern (string op-symbol) "KEYWORD")
-             ;;                 (asm-lexicon ,asm-sym))
-             ;;        (lambda ,operands ,@operations))
-           (funcall (clause-processor assembler asm-sym)
-                    op-symbol operands operations)
-             ;; `(of-lexicon ,asm-sym ,(intern (string op-symbol) "KEYWORD")
-             ;;              (lambda ,operands ,@operations))
-             ))))
+          (t (funcall (clause-processor assembler asm-sym)
+                      op-symbol operands operations params)))))
 
 ;; (defmethod compose :around ((assembler assembler) params expression)
 ;;   (destructuring-bind (op &rest props) expression
@@ -456,6 +456,7 @@
 ;;                               (list ,@(loop :for e :in expressions
 ;;                                             :collect (if (not (and (listp e) (keywordp (first e))))
 ;;                                                          e (cons 'list e)))))))))
+
 (defparameter *default-segment* 1000)
 
 (defmethod compose ((assembler assembler) params expression)
@@ -511,12 +512,6 @@
                               :collect (if (not (and (listp e) (keywordp (first e))))
                                            e (cons 'list e))))))))
 
-
-
-
-
-
-
 (defmacro assemble (assembler params &rest expressions)
   (%assemble (symbol-value assembler) assembler params expressions))
 
@@ -524,26 +519,26 @@
   (declare (ignore assembler params array))
   nil)
 
-(defmethod derive ((assembler assembler-encoding) params array)
-  (let* ((etype (let ((element-type (array-element-type array)))
-                  (unless (eq 'unsigned-byte (first element-type))
-                    (error "Invalid array."))
-                  (second element-type)))
-         (to-read (ash etype (- (+ 2 (asm-breadth assembler)))))
-         (disassembled) (index 0))
-    (labels ((read-words (count)
-               (let ((value 0))
-                 (loop :for i :below count
-                       :do (loop :for i :below to-read
-                                 :do (setf value (ash value etype))
-                                     (incf value (aref array index))
-                                     (incf index)))
-                 value)))
-      (loop :while (< index (1- (length array)))
-            :do (let ((match (of-decoder assembler (read-words 1) nil)))
-                  (push (if (not (functionp match))
-                            match (funcall match #'read-words))
-                        disassembled))))))
+;; (defmethod derive ((assembler assembler-encoding) params array)
+;;   (let* ((etype (let ((element-type (array-element-type array)))
+;;                   (unless (eq 'unsigned-byte (first element-type))
+;;                     (error "Invalid array."))
+;;                   (second element-type)))
+;;          (to-read (ash etype (- (+ 2 (asm-breadth assembler)))))
+;;          (disassembled) (index 0))
+;;     (labels ((read-words (count)
+;;                (let ((value 0))
+;;                  (loop :for i :below count
+;;                        :do (loop :for i :below to-read
+;;                                  :do (setf value (ash value etype))
+;;                                      (incf value (aref array index))
+;;                                      (incf index)))
+;;                  value)))
+;;       (loop :while (< index (1- (length array)))
+;;             :do (let ((match (of-decoder assembler (read-words 1) nil)))
+;;                   (push (if (not (functionp match))
+;;                             match (funcall match #'read-words))
+;;                         disassembled))))))
 
 (defmethod derive ((assembler assembler-masking) params array)
   (let* ((etype (let ((element-type (array-element-type array)))
