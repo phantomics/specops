@@ -427,10 +427,10 @@
   (list :nop))
 
 (specop stop (op0)
-  (joinw (masque "01001110.01110001")
+  (joinw (masque "01001110.01110010")
          op0))
 
-(readop (masque "01001110.01110001") (read)
+(readop (masque "01001110.01110010") (read)
   (list :stop (funcall read 1)))
 
 (specop rte ()

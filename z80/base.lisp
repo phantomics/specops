@@ -181,7 +181,7 @@
                                                          opcode (ash (second opcode)
                                                                      (* exchanged -8)))
                                                     ,(funcall (lambda (form)
-                                                                (if (not exchanged)
+                                                                (if (not exchanged) ;; TODO: gensym of-code
                                                                     form `(lambda (of-code) ,form)))
                                                               (cons 'list (cons (first clauses)
                                                                                 operands))))))))))))))
