@@ -242,7 +242,15 @@
    (%joiner  :accessor   asm-joiner
              :allocation :class
              :initform   #'joinb
-             :initarg    :joiner))
+             :initarg    :joiner)
+   (%pro-api :accessor   asm-program-api
+             :allocation :class
+             :initform   'program-api
+             :initarg    :program-api)
+   (%pro-aac :accessor   asm-program-api-access
+             :allocation :class
+             :initform   'of-program
+             :initarg    :program-api-access))
   (:documentation "A generic assembler class."))
 
 (defclass assembler-encoding (assembler)
@@ -364,15 +372,21 @@
 (defmethod clause-processor ((assembler assembler) assembler-symbol)
   (declare (ignore assembler))
   (lambda (mnemonic operands body params)
-    (flet ((add-alias (form)
-             (let ((items (gensym)))
-               (if (not (assoc :type-matcher params))
-                   form `(labels ((,(second (assoc :type-matcher params)) (&rest ,items)
-                                    (intersection ,items (types-of ,assembler-symbol))))
-                           ,form)))))
-      ;; (print (list :mn mnemonic body))
-      `(of-lexicon ,assembler-symbol ,(intern (string mnemonic) "KEYWORD")
-                   ,(add-alias `(lambda ,operands ,@body))))))
+    (let ((args (gensym))
+          (api-access-sym (asm-program-api assembler))
+          (api-access (asm-program-api-access assembler)))
+      (flet ((add-alias (form)
+               (let ((items (gensym)))
+                 (if (not (assoc :type-matcher params))
+                     form `(labels ((,(second (assoc :type-matcher params)) (&rest ,items)
+                                      (intersection ,items (types-of ,assembler-symbol))))
+                             ,form)))))
+        ;; (print (list :mn mnemonic body))
+        `(of-lexicon ,assembler-symbol ,(intern (string mnemonic) "KEYWORD")
+                     ,(add-alias `(lambda ,(cons api-access-sym operands)
+                                    (flet ((,api-access (&rest ,args)
+                                             (apply ,api-access-sym ,args)))
+                                      ,@body))))))))
 
 (defun process-clause-matrix (assembler asm-sym operands matrix params)
   (declare (ignore params))
@@ -459,11 +473,22 @@
 
 (defparameter *default-segment* 1000)
 
+
 (defmethod compose ((assembler assembler) params expression)
   (let* ((unit (asm-breadth assembler))
          (codes (make-array *default-segment* :element-type (list 'unsigned-byte unit)
                                              :initial-element 0 :adjustable t :fill-pointer 0))
-         (marked-points) (tag-points) (codes-length))
+         (marked-points) (tag-points) (codes-length)
+         (api-access (lambda (mode &rest args)
+                       (case mode
+                         (:label (destructuring-bind (offset-bits symbol) args
+                                   (typecase symbol
+                                     (integer symbol)
+                                     (symbol  (or (rest (assoc symbol marked-points))
+                                                  (and  (push (list symbol bit-offset
+                                                                    (fill-pointer codes))
+                                                              tag-points)
+                                                        0))))))))))
     (flet ((add-value (value)
              (unless (< (fill-pointer codes) (1- (length codes)))
                (adjust-array codes (+ *default-segment* (length codes)) :initial-element 0))
@@ -475,7 +500,7 @@
                             (let ((build-instruction (of-lexicon assembler instruction)))
                               (multiple-value-bind (code properties)
                                   (if (not (functionp build-instruction))
-                                      build-instruction (apply build-instruction operands))
+                                      build-instruction (apply build-instruction api-access operands))
                                 ;; (print (list :co code))
                                 (if (functionp code)
                                     (let ((breadth (or (getf properties :breadth) 0)))
@@ -496,6 +521,55 @@
       (let ((output (make-array codes-length :element-type (list 'unsigned-byte unit))))
         (loop :for i :below codes-length :do (setf (aref output i) (aref codes i)))
         output))))
+
+
+;; (defmethod compose ((assembler assembler) params expression)
+;;   (let* ((unit (asm-breadth assembler))
+;;          (codes (make-array *default-segment* :element-type (list 'unsigned-byte unit)
+;;                                              :initial-element 0 :adjustable t :fill-pointer 0))
+;;          (marked-points) (tag-points) (codes-length)
+;;          (api-access (lambda (mode &rest args)
+;;                        (case mode
+;;                          (:label (destructuring-bind (offset-bits symbol) args
+;;                                    (typecase symbol
+;;                                      (integer symbol)
+;;                                      (symbol  (or (rest (assoc symbol marked-points))
+;;                                                   (and  (push (list symbol bit-offset
+;;                                                                     (fill-pointer codes))
+;;                                                               tag-points)
+;;                                                         0))))))))))
+;;     (flet ((add-value (value)
+;;              (unless (< (fill-pointer codes) (1- (length codes)))
+;;                (adjust-array codes (+ *default-segment* (length codes)) :initial-element 0))
+;;              (vector-push value codes)))
+;;       (loop :for item :in expression
+;;             :do (typecase item
+;;                   (symbol (push (cons item (fill-pointer codes)) marked-points))
+;;                   (list   (destructuring-bind (instruction &rest operands) item
+;;                             (let ((build-instruction (of-lexicon assembler instruction)))
+;;                               (multiple-value-bind (code properties)
+;;                                   (if (not (functionp build-instruction))
+;;                                       build-instruction (apply build-instruction api-access operands))
+;;                                 ;; (print (list :co code))
+;;                                 (if (functionp code)
+;;                                     (let ((breadth (or (getf properties :breadth) 0)))
+;;                                       (push (append (list (fill-pointer codes) code)
+;;                                                     properties)
+;;                                             tag-points)
+;;                                       (dotimes (i breadth) (add-value 0)))
+;;                                     (serialize code unit #'add-value))))))))
+;;       (setf codes-length (fill-pointer codes))
+;;       ;; (print (list :mm marked-points))
+;;       (loop :for tag-spec :in tag-points
+;;             :do (destructuring-bind (point function &rest properties) tag-spec
+;;                   (let ((value (apply function
+;;                                       (cons point (loop :for b :in (getf properties :bindings)
+;;                                                         :collect (rest (assoc b marked-points)))))))
+;;                     (setf (fill-pointer codes) point)
+;;                     (serialize value unit #'add-value))))
+;;       (let ((output (make-array codes-length :element-type (list 'unsigned-byte unit))))
+;;         (loop :for i :below codes-length :do (setf (aref output i) (aref codes i)))
+;;         output))))
 
 ;; (defmethod compose ((assembler assembler) params expression)
 ;;   (print (list :par params))

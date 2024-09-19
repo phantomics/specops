@@ -10,6 +10,7 @@
          (joinw (masque "00000000.01111100")
                 op0))
         ((match-types op0 op1  integer location)
+         (of-program :label 'abc)
          (address (op1) ((index1 amode1))
            (joinw (masque "00000000.SSMMMXXX"
                           (s (determine-width w)) (m amode1) (x index1))

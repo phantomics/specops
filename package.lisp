@@ -10,7 +10,7 @@
            #:asm-name #:asm-type #:asm-storage #:asm-lexicon
            #:asm-domains #:asm-reserve #:asm-breadth #:asm-joiner
            #:asm-enc-breadth #:asm-enc-decoder #:asm-msk-segment #:asm-msk-battery
-           #:join #:joinw
+           #:join #:joinw #:of-program
            #:flipbits #:masque #:unmasque #:mqbase
            #:types-of #:derive-domains #:of-lexicon #:of-decoder #:of-battery #:of-storage
            #:storage-type-p #:specify-ops #:qualify-ops
