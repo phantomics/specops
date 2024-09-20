@@ -10,7 +10,6 @@
          (joinw (masque "00000000.01111100")
                 op0))
         ((match-types op0 op1  integer location)
-         (of-program :label 'abc)
          (address (op1) ((index1 amode1))
            (joinw (masque "00000000.SSMMMXXX"
                           (s (determine-width w)) (m amode1) (x index1))
@@ -603,51 +602,37 @@
 (specop bra (op0)
   (assert (or (symbolp op0) (integerp op0)) (op0)
           "BRA can only take an integer or location tag as operand.")
-  (if (symbolp op0)
-      (to-tag (lambda (position index)
-                (joinw (masque "01100000.00000000") ;; case for 16-bit displacement
-                       (- position index)))
-              :breadth 2 :bindings (list op0))
-      (if (zerop (ash op0 -8))
-          (joinw (masque "01100000.DDDDDDDD"
-                         (d op0)))
-          (joinw (masque "01100000.00000000") ;; case for 16-bit displacement
-                 op0))))
+  (if (and (integerp op0) (zerop (ash op0 -8)))
+      (joinw (masque "01100000.DDDDDDDD"
+                     (d op0)))
+      (joinw (masque "01100000.00000000") ;; case for 16-bit displacement
+             (of-program :label 16 16 op0))))
 
 (readop bra (word read)
   (unmasque "01100000.DDDDDDDD" word (d)
-    (list :bra d)))
-
-(readop (masque "01100000.00000000") (read)
-  (list :bra (funcall read 1)))
+    (list :bra (if (not (zerop d))
+                   d (funcall read 1)))))
 
 (specop bsr (op0)
   (assert (or (symbolp op0) (integerp op0)) (op0)
           "BSR can only take an integer or location tag as operand.")
-  (if (symbolp op0)
-      (to-tag (lambda (position index)
-                (joinw (masque "01100001.00000000") ;; case for 16-bit displacement
-                       (- position index)))
-              :breadth 2 :bindings (list op0))
-      (if (zerop (ash op0 -8))
-          (joinw (masque "01100001.DDDDDDDD"
-                         (d op0)))
-          (joinw (masque "01100001.00000000") ;; case for 16-bit displacement
-                 op0))))
+  (if (and (integerp op0) (ash op0 -8))
+      (joinw (masque "01100001.DDDDDDDD"
+                     (d op0)))
+      (joinw (masque "01100001.00000000") ;; case for 16-bit displacement
+             (of-program :label 16 16 op0))))
 
 (readop bsr (word read)
   (unmasque "01100000.DDDDDDDD" word (d)
-    (list :bsr d)))
+    (list :bsr (if (not (zerop d))
+                   d (funcall read 1)))))
 
-(readop (masque "01100001.00000000") (read)
-  (list :bsr (funcall read 1)))
-
-(specop b (op0) ;; *** !!! Is there a possibility for a 16-bit offset in the next byte?
+(specop b (op0)
   ((:combine condition :appending :by-index
     :t :f :hi :ls :cc :cs :ne :eq :vc :vs :pl :mi :ge :lt :gt :le))
   (joinw (masque "0101CCCC.NNNNNNNN"
-                 (c condition) (n (if (zerop (ash op0 -8)) op0 0)))
-         (if (zerop (ash op0 -8)) nil op0)))
+                 (c condition) (n (if (zerop (ash op0 -8)) (of-program :label 16 16 op0) 0)))
+         (if (zerop (ash op0 -8)) nil (of-program :label 16 16 op0))))
 
 (readop b (word read)
   (unmasque "0101CCCC.NNNNNNNN" word (c n)

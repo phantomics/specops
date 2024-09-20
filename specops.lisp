@@ -1,5 +1,5 @@
 ;;;; specops.lisp
-
+xx
 (in-package #:specops)
 
 (defun find-width (number unit)
@@ -297,6 +297,9 @@
 
 (defgeneric reserve (assembler &rest params)
   (:documentation "Reserve a storage location for use by a program."))
+V
+(defgeneric locate-relative  (assembler location-spec program-props)
+  (:documentation "Find the position of a branch point relative to a location."))
 
 (defgeneric compose (assembler params expression)
   (:documentation "A function composing an instruction for an assembler, translating the symbols in an instruction into specific values and class instances."))
@@ -471,112 +474,75 @@
 ;;                                             :collect (if (not (and (listp e) (keywordp (first e))))
 ;;                                                          e (cons 'list e)))))))))
 
+;; (defun label-delta (label-index inst-params)
+;;   (- label-index (nth 2 inst-params)))
+
 (defparameter *default-segment* 1000)
 
+(defmethod locate-relative ((assembler assembler) location-spec program-props)
+  ;; (print (list :aea location-spec program-props))
+  (destructuring-bind (label bit-offset field-length index) location-spec
+    (let ((offset (- (rest (assoc label (getf program-props :marked-points))) index)))
+      (if (not (minusp offset)) ;; two's complement conversion
+          offset (+ (ash 1 (1- field-length))
+                    (abs offset))))))
 
 (defmethod compose ((assembler assembler) params expression)
   (let* ((unit (asm-breadth assembler))
          (codes (make-array *default-segment* :element-type (list 'unsigned-byte unit)
-                                             :initial-element 0 :adjustable t :fill-pointer 0))
-         (marked-points) (tag-points) (codes-length)
+                                              :initial-element 0 :adjustable t :fill-pointer 0))
+         (codes-length) (props (list :marked-points nil :tag-points nil))
+         (two-power (floor (log unit 2)))
          (api-access (lambda (mode &rest args)
                        (case mode
-                         (:label (destructuring-bind (offset-bits symbol) args
+                         (:label (destructuring-bind (offset-bits field-length symbol) args
                                    (typecase symbol
                                      (integer symbol)
-                                     (symbol  (or (rest (assoc symbol marked-points))
-                                                  (and  (push (list symbol bit-offset
-                                                                    (fill-pointer codes))
-                                                              tag-points)
-                                                        0))))))))))
+                                     (symbol  (let ((spec (list symbol offset-bits field-length
+                                                                (fill-pointer codes))))
+                                                (or (and (assoc symbol (getf props :marked-points))
+                                                         (locate-relative assembler spec props))
+                                                    (and (push spec (getf props :tag-points))
+                                                         0)))))))))))
     (flet ((add-value (value)
              (unless (< (fill-pointer codes) (1- (length codes)))
                (adjust-array codes (+ *default-segment* (length codes)) :initial-element 0))
              (vector-push value codes)))
       (loop :for item :in expression
             :do (typecase item
-                  (symbol (push (cons item (fill-pointer codes)) marked-points))
+                  (symbol (push (cons item (fill-pointer codes)) (getf props :marked-points)))
                   (list   (destructuring-bind (instruction &rest operands) item
                             (let ((build-instruction (of-lexicon assembler instruction)))
                               (multiple-value-bind (code properties)
                                   (if (not (functionp build-instruction))
                                       build-instruction (apply build-instruction api-access operands))
-                                ;; (print (list :co code))
                                 (if (functionp code)
                                     (let ((breadth (or (getf properties :breadth) 0)))
                                       (push (append (list (fill-pointer codes) code)
                                                     properties)
-                                            tag-points)
+                                            (getf props :tag-points))
                                       (dotimes (i breadth) (add-value 0)))
                                     (serialize code unit #'add-value))))))))
       (setf codes-length (fill-pointer codes))
-      ;; (print (list :mm marked-points))
-      (loop :for tag-spec :in tag-points
-            :do (destructuring-bind (point function &rest properties) tag-spec
-                  (let ((value (apply function
-                                      (cons point (loop :for b :in (getf properties :bindings)
-                                                        :collect (rest (assoc b marked-points)))))))
-                    (setf (fill-pointer codes) point)
-                    (serialize value unit #'add-value))))
+      ;; 00000000 00000000
+      ;; 000AAAAA AAAAAAAA
+      
+      (loop :for tag-spec :in (getf props :tag-points)
+            :do (destructuring-bind (symbol bit-offset field-length index) tag-spec
+                  (let ((value (locate-relative assembler tag-spec props))
+                        (unaligned-bits (logand bit-offset (1- (ash 1 two-power)))))
+                    (setf (fill-pointer codes)
+                          (+ index (ash bit-offset (- two-power))))
+                    (unless (zerop unaligned-bits)
+                      (let ((first-original (aref codes (fill-pointer codes))))
+                        (serialize (+ first-original (ash value (- (- field-length
+                                                                      (- unit unaligned-bits)))))
+                                   unit #'add-value)))
+                    (serialize (rest (assoc symbol (getf props :marked-points)))
+                               unit #'add-value))))
       (let ((output (make-array codes-length :element-type (list 'unsigned-byte unit))))
         (loop :for i :below codes-length :do (setf (aref output i) (aref codes i)))
         output))))
-
-
-;; (defmethod compose ((assembler assembler) params expression)
-;;   (let* ((unit (asm-breadth assembler))
-;;          (codes (make-array *default-segment* :element-type (list 'unsigned-byte unit)
-;;                                              :initial-element 0 :adjustable t :fill-pointer 0))
-;;          (marked-points) (tag-points) (codes-length)
-;;          (api-access (lambda (mode &rest args)
-;;                        (case mode
-;;                          (:label (destructuring-bind (offset-bits symbol) args
-;;                                    (typecase symbol
-;;                                      (integer symbol)
-;;                                      (symbol  (or (rest (assoc symbol marked-points))
-;;                                                   (and  (push (list symbol bit-offset
-;;                                                                     (fill-pointer codes))
-;;                                                               tag-points)
-;;                                                         0))))))))))
-;;     (flet ((add-value (value)
-;;              (unless (< (fill-pointer codes) (1- (length codes)))
-;;                (adjust-array codes (+ *default-segment* (length codes)) :initial-element 0))
-;;              (vector-push value codes)))
-;;       (loop :for item :in expression
-;;             :do (typecase item
-;;                   (symbol (push (cons item (fill-pointer codes)) marked-points))
-;;                   (list   (destructuring-bind (instruction &rest operands) item
-;;                             (let ((build-instruction (of-lexicon assembler instruction)))
-;;                               (multiple-value-bind (code properties)
-;;                                   (if (not (functionp build-instruction))
-;;                                       build-instruction (apply build-instruction api-access operands))
-;;                                 ;; (print (list :co code))
-;;                                 (if (functionp code)
-;;                                     (let ((breadth (or (getf properties :breadth) 0)))
-;;                                       (push (append (list (fill-pointer codes) code)
-;;                                                     properties)
-;;                                             tag-points)
-;;                                       (dotimes (i breadth) (add-value 0)))
-;;                                     (serialize code unit #'add-value))))))))
-;;       (setf codes-length (fill-pointer codes))
-;;       ;; (print (list :mm marked-points))
-;;       (loop :for tag-spec :in tag-points
-;;             :do (destructuring-bind (point function &rest properties) tag-spec
-;;                   (let ((value (apply function
-;;                                       (cons point (loop :for b :in (getf properties :bindings)
-;;                                                         :collect (rest (assoc b marked-points)))))))
-;;                     (setf (fill-pointer codes) point)
-;;                     (serialize value unit #'add-value))))
-;;       (let ((output (make-array codes-length :element-type (list 'unsigned-byte unit))))
-;;         (loop :for i :below codes-length :do (setf (aref output i) (aref codes i)))
-;;         output))))
-
-;; (defmethod compose ((assembler assembler) params expression)
-;;   (print (list :par params))
-;;   (destructuring-bind (instruction &rest operands) expression
-;;     (let ((build-instruction (gethash instruction (asm-lexicon assembler))))
-;;       (if (not (functionp build-instruction))
-;;           build-instruction (apply build-instruction operands)))))
 
 (defmethod %assemble ((assembler assembler) assembler-sym params expressions)
   (let ((compose-params))

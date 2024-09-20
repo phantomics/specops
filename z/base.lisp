@@ -258,7 +258,8 @@
 (mqbase zformat-mii opc mne (m1 ri2 ri3)
     "AAAAAAAA.MMMMRRRR.RRRRRRRR.IIIIIIII.IIIIIIII.IIIIIIII"
   ((:static (a opc)))
-  ((m m1) (r ri2) (i ri3))
+  ((m m1) (r (of-program :label 12 12 ri2))
+   (i (of-program :label 24 24 ri3)))
   (list mne m r i))
 
 (mqbase zformat-ri-a opc mne (r1 i2)
@@ -270,13 +271,13 @@
 (mqbase zformat-ri-b opc mne (r1 ri2)
     "AAAAAAAA.RRRRZZZZ.IIIIIIII.IIIIIIII"
   ((:static (a (rs4 opc)) (z (lo4 opc))))
-  ((r (reg-index r1)) (i ri2))
+  ((r (reg-index r1)) (i (of-program :label 16 16 ri2)))
   (list mne r i))
 
 (mqbase zformat-ri-c opc mne (m1 ri2)
     "AAAAAAAA.MMMMZZZZ.IIIIIIII.IIIIIIII"
   ((:static (a (rs4 opc)) (z (lo4 opc))))
-  ((m m1) (i ri2))
+  ((m m1) (i (of-program :label 16 16 ri2)))
   (list mne m i))
 
 (mqbase zformat-rie-a opc mne (r1 i2 m3)
@@ -288,13 +289,15 @@
 (mqbase zformat-rie-b opc mne (r1 r2 m3 ri4)
     "AAAAAAAA.RRRRSSSS.IIIIIIII.IIIIIIII.MMMM0000.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (reg-index r1)) (s (reg-index r2)) (i ri4) (m m3))
+  ((r (reg-index r1)) (s (reg-index r2))
+   (i (of-program :label 16 16 ri4)) (m m3))
   (list mne r s m i))
 
 (mqbase zformat-rie-c opc mne (r1 i2 m3 ri4)
     "AAAAAAAA.RRRRMMMM.IIIIIIII.IIIIIIII.JJJJJJJJ.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (reg-index r1)) (m m3) (i ri4) (j i2))
+  ((r (reg-index r1)) (m m3)
+   (i (of-program :label 16 16 ri4)) (j i2))
   (list mne r j m i))
 
 (mqbase zformat-rie-d opc mne (r1 i2 r3)
@@ -306,7 +309,8 @@
 (mqbase zformat-rie-e opc mne (r1 ri2 r3)
     "AAAAAAAA.RRRRSSSS.IIIIIIII.IIIIIIII.00000000.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (reg-index r1)) (s (reg-index r3)) (i ri2))
+  ((r (reg-index r1)) (s (reg-index r3))
+   (i (of-program :label 16 16 ri2)))
   (list mne r i s))
 
 (mqbase zformat-rie-f opc mne (r1 r2 i3 i4 i5)
@@ -330,13 +334,13 @@
 (mqbase zformat-ril-b opc mne (r1 ri2)
     "AAAAAAAA.RRRRZZZZ.IIIIIIII.IIIIIIII.IIIIIIII.IIIIIIII"
   ((:static (a (rs4 opc)) (z (lo4 opc))))
-  ((r (reg-index r1)) (i ri2))
+  ((r (reg-index r1)) (i (of-program :label 16 32 ri2)))
   (list mne r i))
 
 (mqbase zformat-ril-c opc mne (m1 ri2)
     "AAAAAAAA.MMMMZZZZ.IIIIIIII.IIIIIIII.IIIIIIII.IIIIIIII"
   ((:static (a (rs4 opc)) (z (lo4 opc))))
-  ((m m1) (i ri2))
+  ((m m1) (i (of-program :label 16 32 ri2)))
   (list mne m i))
 
 (mqbase zformat-ris opc mne (r1 i2 m3 bd4)
@@ -418,7 +422,7 @@
 (mqbase zformat-rsi opc mne (r1 ri2 r3)
     "AAAAAAAA.RRRRSSSS.IIIIIIII.IIIIIIII"
   ((:static (a opc)))
-  ((r (reg-index r1)) (s (reg-index r3)) (i ri2))
+  ((r (reg-index r1)) (s (reg-index r3)) (i (of-program :label 16 16 ri2)))
   (list mne r i s))
 
 (mqbase zformat-rsl-a opc mne (bld1)
@@ -516,7 +520,8 @@
 (mqbase zformat-smi opc mne (m1 ri2 bd3)
     "AAAAAAAA.MMMM0000.BBBBDDDD.DDDDDDDD.IIIIIIII.IIIIIIII"
   ((:static (a opc)))
-  ((m m1) (b (mas-base bd3)) (d (mas-displ bd3)) (i ri2))
+  ((m m1) (b (mas-base bd3)) (d (mas-displ bd3))
+   (i (of-program :label 32 16 ri2)))
   (list mne m i (derive-mas b nil d)))
 
 (mqbase zformat-ss-a opc mne (bld1 bd2)
