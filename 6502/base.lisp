@@ -5,7 +5,7 @@
 (defclass 6502-mas (mas-displaced)
   () (:documentation "Memory access scheme for 6502 processors."))
 
-(defclass assembler-6502 (assembler)
+(defclass assembler-6502 (assembler-encoding)
   ((%storage :accessor   asm-storage
              :allocation :class
              :initform   '(:gpr #(:a :x :y) :spr #(:sp :pc :f))
@@ -13,23 +13,36 @@
    (%lexicon :accessor   asm-lexicon
              :allocation :class
              :initform   (make-hash-table :test #'eq)
-             :initarg    :lexicon))
+             :initarg    :lexicon)
+   (%decoder :accessor   asm-enc-decoder
+             :allocation :class
+             :initform   (make-hash-table :test #'eq)
+             :initarg    :decoder))
   (:documentation "Assembler for 6502 CPUs."))
 
+(defun enc-displ (item)
+  "Encode a memory address in $LLHH little-endian byte order. This also works in reverse."
+  (let ((value (if (typep item 'mas) (mas-displ mas) item)))
+    (+ (ash -8              (mas-displ mas))
+       (ash  8 (logand #xFF (mas-displ mas))))))
+  
 (defvar *assembler-prototype-6502*)
 
 (defun match-ops (a0 a1 &optional a2 a3)
   (let ((op0 a0) (op1 (if a2 a1 nil))
         (val0 (or a2 a1)) (val1 a3))
+    (print (list :aa a0 a1))
     (flet ((match (op val)
-             (if (position val #(:a :x :y))
-                 (eq op val)
-                 (if (eq :im val)
-                     (and (integerp op) (not (minusp op)) (> #x00100 op))
-                     (if (position val #(:rl :zp :in))
-                         (and (typep op '6502-mas) (> #x00100 (mas-displ op)))
-                         (if (position val #(:ab :inw))
-                             (and (typep op '6502-mas) (> #x10000 (mas-displ op)))))))))
+             (cond ((position val #(:a :x :y))
+                    (eq op val))
+                   ((eq :im val)
+                    (and (integerp op) (not (minusp op)) (> #x00100 op)))
+                   ((eq :rl val)
+                    (or (symbolp op) (typep op '(signed-byte 8))))
+                   ((position val #(:zp :in))
+                    (and (typep op '6502-mas) (> #x00100 (mas-displ op))))
+                   ((position val #(:ab :inw))
+                    (and (typep op '6502-mas) (> #x10000 (mas-displ op)))))))
       (and (match op0 val0)
            (or (not (or op1 val1))
                (match op1 val1))))))
@@ -41,7 +54,7 @@
 ;;            (and (keywordp op1) (eq op1 val1)))))
 
 (defun @ (displacement)
-  (make-instance '6502-mas :disp displacement))
+  (make-instance '6502-mas :displ displacement))
 
 ;; (:CL (:SED ((IM) 248)))
 
@@ -67,7 +80,7 @@
                  (intern (string symbol) "KEYWORD")
                  (if (eq 'im symbol) `(funcall of-code 1)
                      (if (position symbol #(ab inw))
-                         `(list '@ (funcall of-code 2))
+                         `(list '@ (enc-displ (funcall of-code 2)))
                          (if (position symbol #(in zp rl))
                              `(list '@ (funcall of-code 1)))))))
            (encoding-entry (varops legal operands opcode)
@@ -77,7 +90,8 @@
                              ,@(loop :for op :in operands
                                      :collect (case op
                                                 (x :x) (y :y) (a :a) (ab :ab) (im :im)
-                                                (zp :zp) (in :in) (inw :inw) (t op))))
+                                                (zp :zp) (in :in) (inw :inw)
+                                                (rl :rl) (iv :iv) (t op))))
                   ,@(if legal nil `((print "Illegal!")))
                   ,(let* ((var-pos (or (position 'ab operands)
                                        (position 'rl operands)
@@ -90,14 +104,17 @@
                          opcode `(+ ,(ash opcode (if (member var-sym '(ab inw)) 16 8))
                                     ;; only the :im immediate operands are not
                                     ;; derived from a memory address
-                                    ,(nth var-pos (if (member var-sym '(ab in inw zp rl))
-                                                      '((mas-displ op0) (mas-displ op1))
-                                                      '(op0 op1)))))))))))
+                                    ,(nth var-pos (cond ((eql var-sym 'rl)
+                                                         '((of-program :label 8 8 op0)
+                                                           (of-program :label 8 8 op1)))
+                                                        ((member var-sym '(ab inw))
+                                                         '((enc-displ op0) (enc-displ op1)))
+                                                        ((member var-sym '(in zp))
+                                                         '((mas-displ op0) (mas-displ op1)))
+                                                        (t '(op0 op1))))))))))))
     
     (lambda (clauses op-symbols)
       (let ((varops (remove '&optional op-symbols)))
-        ;; (loop :for clause :in (rest clauses) :do (clause-extend clauses clause))
-        (print (list :clxx clauses))
         (if (numberp (second clauses))
             ;; `(setf (gethash ,(first c) ,table) ,(second c))
             (let ((mnemonic (intern (string (first clauses)) "KEYWORD")))
@@ -111,7 +128,6 @@
                                     :append (apply #'encoding-entry varops
                                                    (keywordp (first clauses))
                                                    clause)))))
-                  ;; nil
                   (loop :for clause :in (rest clauses)
                         :append `((of-decoder ,assembler-symbol
                                               ,(second clause)
@@ -122,5 +138,14 @@
 
 ;; (OF-ENCODED *ASSEMBLER-PROTOTYPE-Z80* 205
 ;;             (LAMBDA (OF-CODE) (LIST :CALL (FUNCALL OF-CODE 2))))
+
+#|
+
+(assemble *assembler-prototype-6502*
+  (:with)
+  (:adc :x :y)
+  (:sre :x 50))
+
+|#
 
 (setf *assembler-prototype-6502* (make-instance 'assembler-6502))

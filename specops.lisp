@@ -1,5 +1,5 @@
 ;;;; specops.lisp
-xx
+
 (in-package #:specops)
 
 (defun find-width (number unit)
@@ -297,7 +297,7 @@ xx
 
 (defgeneric reserve (assembler &rest params)
   (:documentation "Reserve a storage location for use by a program."))
-V
+
 (defgeneric locate-relative  (assembler location-spec program-props)
   (:documentation "Find the position of a branch point relative to a location."))
 
@@ -374,27 +374,31 @@ V
 
 (defmethod clause-processor ((assembler assembler) assembler-symbol)
   (declare (ignore assembler))
+  (print :bbb)
   (lambda (mnemonic operands body params)
     (let ((args (gensym))
+          (wrap-body (or (rest (assoc :wrap-body params)) #'identity))
           (api-access-sym (asm-program-api assembler))
           (api-access (asm-program-api-access assembler)))
-      (flet ((add-alias (form)
-               (let ((items (gensym)))
-                 (if (not (assoc :type-matcher params))
-                     form `(labels ((,(second (assoc :type-matcher params)) (&rest ,items)
-                                      (intersection ,items (types-of ,assembler-symbol))))
-                             ,form)))))
-        ;; (print (list :mn mnemonic body))
-        `(of-lexicon ,assembler-symbol ,(intern (string mnemonic) "KEYWORD")
-                     ,(add-alias `(lambda ,(cons api-access-sym operands)
-                                    (flet ((,api-access (&rest ,args)
-                                             (apply ,api-access-sym ,args)))
-                                      ,@body))))))))
+      ;; (flet ((add-alias (form)
+      ;;          (let ((items (gensym)))
+      ;;            (if (not (assoc :type-matcher params))
+      ;;                form `(labels ((,(second (assoc :type-matcher params)) (&rest ,items)
+      ;;                                 (intersection ,items (types-of ,assembler-symbol))))
+      ;;                        ,form)))))
+      ;; (print (list :mn mnemonic body))
+      (print (list :aa api-access wrap-body))
+      `(of-lexicon ,assembler-symbol ,(intern (string mnemonic) "KEYWORD")
+                   ;; ,(add-alias `
+                   (lambda ,(cons api-access-sym operands)
+                     (flet ((,api-access (&rest ,args) (apply ,api-access-sym ,args)))
+                       ,@(funcall wrap-body body)))))))
 
 (defun process-clause-matrix (assembler asm-sym operands matrix params)
   (declare (ignore params))
   (let ((clauses) ;; (varops (remove '&optional operands))
         (clause-processor (clause-processor assembler asm-sym)))
+    (print (list :mm matrix))
     (symbol-macrolet ((opcode (+ (first cellx) (caar row))))
       (loop :for row :in (rest matrix) :for row-index :from 0
             :do (loop :for cell :in (rest row) :for col-index :from 0
@@ -410,7 +414,7 @@ V
                                           (push (if opr (list ins (list opr opcode))
                                                     (list ins opcode))
                                                 clauses))))))
-      ;; (print (list :clau clauses))
+      (print (list :clau clauses))
       (loop :for c :in clauses :append (funcall clause-processor c operands)))))
 
 (defmethod specify-ops ((assembler assembler) asm-sym op-symbol operands items)
@@ -426,27 +430,38 @@ V
            (destructuring-bind (co-symbol join-by indexer &rest combinators)
                (rest (assoc :combine params))
              (cons 'progn (loop :for co :in combinators :for i :from 0
-                                :collect (let ((comp-str (case join-by
-                                                           (:appending (format nil "~a~a" op-symbol co))))
+                                :collect (let ((comp-sym (case join-by
+                                                           (:appending (intern (format nil "~a~a" op-symbol co)
+                                                                               "KEYWORD"))))
                                                (index (funcall (case indexer (:by-index #'identity))
                                                                i)))
-                                          `(setf (gethash ,(intern comp-str "KEYWORD")
-                                                          (asm-lexicon ,asm-sym))
-                                                  (lambda ,operands
-                                                    (let ((,co-symbol ,index))
-                                                      ,@operations))))))))
+                                           (funcall (clause-processor assembler asm-sym)
+                                                    comp-sym operands operations
+                                                    (append (list (cons :wrap-body
+                                                                        (lambda (body)
+                                                                          `((let ((,co-symbol ,index))
+                                                                              ,@body)))))
+                                                            params))
+                                           
+                                          ;; `(setf (gethash ,(intern comp-str "KEYWORD")
+                                          ;;                 (asm-lexicon ,asm-sym))
+                                          ;;         (lambda ,operands
+                                          ;;           (let ((,co-symbol ,index))
+                                          ;;             ,@operations)))
+
+                                           )))))
           ((assoc :tabular params)
            (destructuring-bind (mode &rest properties) (rest (assoc :tabular params))
              ;; (print (list :mo mode))
              (case mode (:cross-adding
                          (cons 'progn (process-clause-matrix assembler asm-sym ;; `(asm-lexicon ,asm-sym)
                                                              operands operations properties))))))
-          ((and (not operands) (= 1 (length operations)))
-           ;; `(setf (gethash ,(intern (string op-symbol) "KEYWORD")
-           ;;                 (asm-lexicon ,asm-sym))
-           ;;        ,(first operations))
-           `(of-lexicon ,asm-sym ,(intern (string op-symbol) "KEYWORD")
-                        ,(first operations)))
+          ;; ((and (not operands) (= 1 (length operations)))
+          ;;  ;; `(setf (gethash ,(intern (string op-symbol) "KEYWORD")
+          ;;  ;;                 (asm-lexicon ,asm-sym))
+          ;;  ;;        ,(first operations))
+          ;;  `(of-lexicon ,asm-sym ,(intern (string op-symbol) "KEYWORD")
+          ;;               ,(first operations)))
           (t (funcall (clause-processor assembler asm-sym)
                       op-symbol operands operations params)))))
 
@@ -546,7 +561,8 @@ V
 
 (defmethod %assemble ((assembler assembler) assembler-sym params expressions)
   (let ((compose-params))
-    `(let ,(locate assembler assembler-sym (rest (assoc :store (rest params))))
+    `(let ,(if (not (rest (assoc :store (rest params))))
+               nil (locate assembler assembler-sym (rest (assoc :store (rest params)))))
        (compose ,assembler-sym ,compose-params
                 (list ,@(loop :for e :in expressions
                               :collect (if (not (and (listp e) (keywordp (first e))))
