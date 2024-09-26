@@ -4,7 +4,7 @@
 
 (specops 0 (op0 &optional op1) *assembler-prototype-6502*
   ;; the table of 6502 instructions, including illegal instructions
-  ((:tabular :cross-adding :matcher match-ops))
+  ((:tabular :cross-adding :matcher match-ops) (:duplex . of-decoder))
   ((    ) (#x0    ) (#x1      ) (#x2    ) (#x3      ) (#x4      ) (#x5      ) (#x6      ) (#x7      ) (#x8 ) (#x9      ) (#xA   ) (#xB      ) (#xC      ) (#xD      ) (#xE      ) (#xF      ))
   ((#x00) (:brk   ) (:ora x in) ( jam   ) (:slo x in) ( nop zp  ) (:ora zp  ) (:asl zp  ) ( slo zp  ) (:php) (:ora iv  ) (:asl a) ( anc iv  ) ( nop ab  ) (:ora ab  ) (:asl ab  ) ( slo ab  ))
   ((#x10) (:bpl rl) (:ora in y) ( jam   ) (:slo in y) ( nop zp x) (:ora zp x) (:asl zp x) ( slo zp x) (:clc) (:ora ab y) ( nop  ) ( slo ab y) ( nop ab x) (:ora ab x) (:asl ab x) ( slo ab x))

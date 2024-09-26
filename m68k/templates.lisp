@@ -5,7 +5,10 @@
 (setf *assembler-prototype-m68k* (make-instance 'assembler-m68k))
 
 (defmacro specop (symbol operands &body params)
-  (specify-ops *assembler-prototype-m68k* '*assembler-prototype-m68k* symbol operands params))
+  (cons 'specops (append (list symbol operands '*assembler-prototype-m68k*) params)))
+
+;; (defmacro specop (symbol operands &body params)
+;;   (specify-ops *assembler-prototype-m68k* '*assembler-prototype-m68k* symbol operands params))
 
 (defmacro readop (symbol args &body body)
   (let ((symbol (macroexpand symbol))

@@ -196,6 +196,16 @@
   (:addi :b 10 abc)
   (:addi :b 330 def))
 
+(assemble *assembler-prototype-m68k*
+        (:with (:store (abc :gpr) (def :gpr)))
+        (:addi :b 10 abc)
+        :hello
+        (:nop)
+        (:ori :b 330 def)
+        (:bra :hello)
+        (:ori :b 330 def)
+        :gg (:addi :b 10 abc))
+
 (@+ abc)
 
 (-@ abc)

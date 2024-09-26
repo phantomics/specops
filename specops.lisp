@@ -9,23 +9,45 @@
     width))
 
 (defun serialize (item unit collector)
+  "Serialize a series of integers, integer vectors and/or serial integer specifications into a vector of integers of a given width. A serial integer specification takes the form of a pair of a value and the number of elements it is intended to serialize to."
   (let ((mask (1- (ash 1 unit)))) ;; TODO: find a way to create the mask just once?
     (flet ((decompose (number starting-width)
-             (let ((shift (- (* unit starting-width))))
+             (let ((shift (- (* unit (1- starting-width)))))
                (loop :for i :below starting-width
                      :do (funcall collector (logand mask (ash number shift)))
                          (incf shift unit)))))
       (if (integerp item) ;; values that fit within a byte are just pushed on
           (if (zerop (ash item (- unit)))
               (funcall collector item)
-              (decompose item (1- (find-width item unit))))
+              (decompose item (find-width item unit)))
           (if (and (consp item) (not (listp (rest item))))
               ;; handle cons cells encoding width and value, like (3 . 5) → #x000005
               (destructuring-bind (width &rest value) item
-                (decompose value (1- width)))
+                (decompose value width))
               (if (vectorp item)
                   (loop :for i :across item :do (funcall collector i))
-                  (error "Attempted to serialize incompatible value - must be an integer, a vector")))))))
+                  (error "Attempted to serialize incompatible value - must be an integer, a vector or a pair indicating integer value and encoding width.")))))))
+
+;; (defun serialize (item unit collector)
+;;   (let ((mask (1- (ash 1 unit)))) ;; TODO: find a way to create the mask just once?
+;;     (flet ((decompose (number starting-width)
+;;              (print (list :sw starting-width unit))
+;;              (let ((shift (- (* unit starting-width))))
+;;                (loop :for i :below starting-width
+;;                      :do (funcall collector (logand mask (ash number shift)))
+;;                          (incf shift unit)))))
+;;       (print (list :it item))
+;;       (if (integerp item) ;; values that fit within a byte are just pushed on
+;;           (if (zerop (ash item (- unit)))
+;;               (funcall collector item)
+;;               (decompose item (1- (find-width item unit))))
+;;           (if (and (consp item) (not (listp (rest item))))
+;;               ;; handle cons cells encoding width and value, like (3 . 5) → #x000005
+;;               (destructuring-bind (width &rest value) item
+;;                 (decompose value (1- width)))
+;;               (if (vectorp item)
+;;                   (loop :for i :across item :do (funcall collector i))
+;;                   (error "Attempted to serialize incompatible value - must be an integer, a vector or a pair indicating integer value and encoding width.")))))))
 
 (defun join-spec (unit items)
   (let ((shift (- unit)) (mask (1- (ash 1 unit))))
@@ -56,7 +78,6 @@
 
 (defun joinw (&rest items)
   (join-spec 16 items)) 
-
 
 (defun flipbits (b &optional (n 32))
   (let ((r 0))
@@ -289,7 +310,10 @@
 (defgeneric qualify-ops (assembler operands form order)
   (:documentation "Qualify operations for members of a given assembler's class."))
 
-(defgeneric clause-processor (assembler assembler-symbol)
+;; (defgeneric clause-processor (assembler assembler-symbol)
+;;   (:documentation "Process opcode specification clauses for an assembler."))
+
+(defgeneric clause-processor (assembler action mnemonic operands body params)
   (:documentation "Process opcode specification clauses for an assembler."))
 
 (defgeneric locate (assembler assembler-sym params)
@@ -368,63 +392,133 @@
 (defmacro derive-domains (assembler &rest params)
   `(%derive-domains ,assembler ,@(loop :for p :in params :collect `(quote ,p))))
 
-(defmacro specops (symbol operands assembler &body params)
-  (specify-ops (symbol-value assembler)
-               assembler symbol operands params))
-
-(defmethod clause-processor ((assembler assembler) assembler-symbol)
-  (declare (ignore assembler))
-  (print :bbb)
-  (lambda (mnemonic operands body params)
-    (let ((args (gensym))
-          (wrap-body (or (rest (assoc :wrap-body params)) #'identity))
-          (api-access-sym (asm-program-api assembler))
-          (api-access (asm-program-api-access assembler)))
-      ;; (flet ((add-alias (form)
-      ;;          (let ((items (gensym)))
-      ;;            (if (not (assoc :type-matcher params))
-      ;;                form `(labels ((,(second (assoc :type-matcher params)) (&rest ,items)
-      ;;                                 (intersection ,items (types-of ,assembler-symbol))))
-      ;;                        ,form)))))
-      ;; (print (list :mn mnemonic body))
-      (print (list :aa api-access wrap-body))
-      `(of-lexicon ,assembler-symbol ,(intern (string mnemonic) "KEYWORD")
-                   ;; ,(add-alias `
-                   (lambda ,(cons api-access-sym operands)
-                     (flet ((,api-access (&rest ,args) (apply ,api-access-sym ,args)))
-                       ,@(funcall wrap-body body)))))))
-
-(defun process-clause-matrix (assembler asm-sym operands matrix params)
-  (declare (ignore params))
-  (let ((clauses) ;; (varops (remove '&optional operands))
-        (clause-processor (clause-processor assembler asm-sym)))
-    (print (list :mm matrix))
-    (symbol-macrolet ((opcode (+ (first cellx) (caar row))))
-      (loop :for row :in (rest matrix) :for row-index :from 0
-            :do (loop :for cell :in (rest row) :for col-index :from 0
-                      :for cellx :in (cdar matrix)
-                      :do (destructuring-bind (&optional ins &rest opr) cell
-                            (when ins (if (assoc ins clauses)
-                                          (when (not (atom (second (assoc ins clauses))))
-                                            ;; don't push an item if it's another possible
-                                            ;; opcode for an instruction without operands,
-                                            ;; as it's redundant and it interferes with the
-                                            ;; clause organization
-                                            (push (list opr opcode) (rest (assoc ins clauses))))
-                                          (push (if opr (list ins (list opr opcode))
-                                                    (list ins opcode))
-                                                clauses))))))
-      (print (list :clau clauses))
-      (loop :for c :in clauses :append (funcall clause-processor c operands)))))
-
-(defmethod specify-ops ((assembler assembler) asm-sym op-symbol operands items)
-  "A simple scheme for implementing operations - the (specop) content is directly placed within functions in the lexicon hash table."
+(defmacro specops (symbol operands assembler &body items)
   (let* ((params (if (not (and (listp (first items)) (listp (caar items))
                                (keywordp (caaar items))))
                      nil (first items)))
-         (operations (if (not params) items (rest items)))
-         ;; (provisions (rest (assoc :provisions params)))
-         )
+         (operations (if (not params) items (rest items))))
+    (specify-ops (symbol-value assembler)
+                 symbol operands (cons (cons :assembler-sym assembler) params)
+                 operations)))
+
+;; (defmethod clause-processor ((assembler assembler) assembler-symbol)
+;;   (declare (ignore assembler))
+;;   (lambda (mnemonic operands body params)
+;;     (let ((args (gensym))
+;;           (wrap-body (or (rest (assoc :wrap-body params)) #'identity))
+;;           (api-access-sym (asm-program-api assembler))
+;;           (api-access (asm-program-api-access assembler)))
+;;       ;; (flet ((add-alias (form)
+;;       ;;          (let ((items (gensym)))
+;;       ;;            (if (not (assoc :type-matcher params))
+;;       ;;                form `(labels ((,(second (assoc :type-matcher params)) (&rest ,items)
+;;       ;;                                 (intersection ,items (types-of ,assembler-symbol))))
+;;       ;;                        ,form)))))
+;;       ;; (print (list :mn mnemonic body))
+;;       ;; (print (list :aa api-access wrap-body body))
+;;       `(of-lexicon ,(rest (assoc :assembler-sym params))
+;;                    ;; ,assembler-symbol
+;;                    ,(intern (string mnemonic) "KEYWORD")
+;;                    ;; ,(add-alias `
+;;                    (lambda ,(cons api-access-sym operands)
+;;                      (flet ((,api-access (&rest ,args) (apply ,api-access-sym ,args)))
+;;                        ,@(funcall wrap-body body)))))))
+
+(defmethod clause-processor :around ((assembler assembler) action mnemonic operands params body)
+  (declare (ignore assembler))
+  ;; (print (list :pa params))
+  (let ((args (gensym))
+        (wrap-body (or (rest (assoc :wrap-body params)) #'identity))
+        (api-access-sym (asm-program-api assembler))
+        (api-access (asm-program-api-access assembler))
+        (operands (case action (of-lexicon operands) (t))))
+    (print (list :abc action mnemonic operands body))
+    (multiple-value-bind (content key is-constant) (call-next-method)
+      (print (list :gg content key action))
+      (list action (rest (assoc :assembler-sym params))
+            key ;; (intern (string mnemonic) "KEYWORD")
+            ;; (let ((content (funcall wrap-body (call-next-method))))
+            (if is-constant content
+                `(lambda ,(cons api-access-sym operands)
+                   (flet ((,api-access (&rest ,args) (apply ,api-access-sym ,args)))
+                     ,@(funcall wrap-body content))))))))
+
+(defmethod clause-processor ((assembler assembler) action mnemonic operands params body)
+  (declare (ignore assembler mnemonic operands params))
+  (values body mnemonic))
+
+;; (defmethod clause-processor ((assembler assembler) mnemonic operands body params)
+;;   (declare (ignore assembler))
+;;   (let ((args (gensym))
+;;         (wrap-body (or (rest (assoc :wrap-body params)) #'identity))
+;;         (api-access-sym (asm-program-api assembler))
+;;         (api-access (asm-program-api-access assembler)))
+;;     `(of-lexicon ,(rest (assoc :assembler-sym params))
+;;                  ;; ,assembler-symbol
+;;                  ,(intern (string mnemonic) "KEYWORD")
+;;                  ;; ,(add-alias `
+;;                  (lambda ,(cons api-access-sym operands)
+;;                    (flet ((,api-access (&rest ,args) (apply ,api-access-sym ,args)))
+;;                      ,@(funcall wrap-body body))))))
+
+;; (defun process-clause-matrix (assembler asm-sym operands matrix params)
+;;   (declare (ignore params))
+;;   (let ((clauses) ;; (varops (remove '&optional operands))
+;;         (clause-processor (clause-processor assembler asm-sym)))
+;;     (print (list :mm matrix))
+;;     (symbol-macrolet ((opcode (+ (first cellx) (caar row))))
+;;       (loop :for row :in (rest matrix) :for row-index :from 0
+;;             :do (loop :for cell :in (rest row) :for col-index :from 0
+;;                       :for cellx :in (cdar matrix)
+;;                       :do (destructuring-bind (&optional ins &rest opr) cell
+;;                             (when ins (if (assoc ins clauses)
+;;                                           (when (not (atom (second (assoc ins clauses))))
+;;                                             ;; don't push an item if it's another possible
+;;                                             ;; opcode for an instruction without operands,
+;;                                             ;; as it's redundant and it interferes with the
+;;                                             ;; clause organization
+;;                                             (push (list opr opcode) (rest (assoc ins clauses))))
+;;                                           (push (if opr (list ins (list opr opcode))
+;;                                                     (list ins opcode))
+;;                                                 clauses))))))
+;;       (print (list :clau clauses))
+;;       (loop :for c :in clauses :append (funcall clause-processor c operands)))))
+
+;; (defun process-clause-matrix (assembler asm-sym operands matrix params)
+
+(defun process-clause-matrix (assembler op-symbol operands params operations)
+  (let ((clauses))
+    (flet ((encoder-and-maybe-decoder-for (clause)
+             (let ((encoder (clause-processor assembler 'of-lexicon (first clause) operands params clause)))
+               ;; (print (list :cl clause))
+               (if (not (assoc :duplex params))
+                   encoder `(progn ,encoder ,@(loop :for c :in (rest clause)
+                                                    :collect (clause-processor assembler
+                                                                               (rest (assoc :duplex params))
+                                                                               (first clause)
+                                                                               operands params c)))))))
+      (loop :for row :in (rest operations) :for row-index :from 0
+            :do (loop :for cell :in (rest row) :for cellx :in (cdar operations) :for col-index :from 0
+                      :do (let ((opcode (+ (first cellx) (caar row))))
+                            (destructuring-bind (&optional ins &rest opr) cell
+                              (when ins (if (assoc ins clauses)
+                                            (when (not (atom (second (assoc ins clauses))))
+                                              ;; don't push an item if it's another possible
+                                              ;; opcode for an instruction without operands,
+                                              ;; as it's redundant and it interferes with the
+                                              ;; clause organization
+                                              (push (list opr opcode) (rest (assoc ins clauses))))
+                                            (push (if opr (list ins (list opr opcode))
+                                                      (list ins opcode))
+                                                  clauses)))))))
+      ;; (print (list :clau clauses params))
+      ;; (loop :for c :in clauses :collect (decode (clause-processor assembler (first c) operands params c)))
+      ;; (loop :for c :in clauses :collect (encoder-and-maybe-decoder-for c))
+      (mapcar #'encoder-and-maybe-decoder-for clauses))))
+
+(defmethod specify-ops ((assembler assembler) op-symbol operands params operations)
+  "A simple scheme for implementing operations - the (specop) content is directly placed within functions in the lexicon hash table."
+  (let ((asm-sym (rest (assoc :assembler-sym params))))
     ;; (print (list :par params))
     (cond ((assoc :combine params)
            (destructuring-bind (co-symbol join-by indexer &rest combinators)
@@ -435,35 +529,26 @@
                                                                                "KEYWORD"))))
                                                (index (funcall (case indexer (:by-index #'identity))
                                                                i)))
-                                           (funcall (clause-processor assembler asm-sym)
-                                                    comp-sym operands operations
-                                                    (append (list (cons :wrap-body
-                                                                        (lambda (body)
-                                                                          `((let ((,co-symbol ,index))
-                                                                              ,@body)))))
-                                                            params))
-                                           
-                                          ;; `(setf (gethash ,(intern comp-str "KEYWORD")
-                                          ;;                 (asm-lexicon ,asm-sym))
-                                          ;;         (lambda ,operands
-                                          ;;           (let ((,co-symbol ,index))
-                                          ;;             ,@operations)))
-
-                                           )))))
+                                           (clause-processor
+                                            assembler 'of-lexicon comp-sym operands
+                                            (append (list (cons :wrap-body
+                                                                (lambda (body)
+                                                                  `((let ((,co-symbol ,index))
+                                                                      ,@body)))))
+                                                    params)
+                                             operations))))))
           ((assoc :tabular params)
            (destructuring-bind (mode &rest properties) (rest (assoc :tabular params))
-             ;; (print (list :mo mode))
              (case mode (:cross-adding
-                         (cons 'progn (process-clause-matrix assembler asm-sym ;; `(asm-lexicon ,asm-sym)
-                                                             operands operations properties))))))
+                         (cons 'progn (process-clause-matrix assembler op-symbol
+                                                             operands params operations))))))
           ;; ((and (not operands) (= 1 (length operations)))
           ;;  ;; `(setf (gethash ,(intern (string op-symbol) "KEYWORD")
           ;;  ;;                 (asm-lexicon ,asm-sym))
           ;;  ;;        ,(first operations))
           ;;  `(of-lexicon ,asm-sym ,(intern (string op-symbol) "KEYWORD")
           ;;               ,(first operations)))
-          (t (funcall (clause-processor assembler asm-sym)
-                      op-symbol operands operations params)))))
+          (t (clause-processor assembler 'of-lexicon op-symbol operands params operations)))))
 
 ;; (defmethod compose :around ((assembler assembler) params expression)
 ;;   (destructuring-bind (op &rest props) expression
