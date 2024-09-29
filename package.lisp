@@ -14,7 +14,7 @@
            #:flipbits #:masque #:unmasque #:mqbase
            #:types-of #:derive-domains #:of-lexicon #:of-decoder #:of-battery #:of-storage
            #:storage-type-p #:specify-ops #:qualify-ops
-           #:locate #:compose #:process-operands #:clause-processor #:label-delta
+           #:locate #:compose #:process-operands #:extend-clauses #:clause-processor #:label-delta
            #:assemble #:specops
            #:match-types #:to-tag
            ))

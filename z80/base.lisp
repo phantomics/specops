@@ -18,7 +18,7 @@
   () (:documentation "Memory access scheme for z80 processors."))
 
 (defclass assembler-z80 (assembler-encoding)
-  ((%storage :accessor   asm-storage
+  ((%storage :accessor   asm-storage 
              :allocation :class
              :initform   '(:gpr #(:a :f :af :b :c :bc :d :e :de :h :l :hl)
                            :ixr #(:ixl :iyl :ix :iy)
@@ -64,100 +64,94 @@
 
 ;; as an op-matrix, the symbol is swapped out for a prefix
 
-;; (defun match-ops (op0 op1 val0 &optional val1)
-;;   (print (list op0 op1 val0))
-;;   (and (or (and (typep op0 'z80-gpregister)
-;;                 (eq val0 (reg-name op0))))
-;;        (or (and (not op1) (not val1))
-;;            (and (typep op1 'z80-gpregister)
-;;                 (eq val1 (reg-name op1))))))
-
-(defun match-ops (op0 op1 val0 &optional val1)
-  ;; (print (list op0 op1 val0 val1))
-  (and (or (and (keywordp op0) (eq op0 val0)))
-       (or (not op1)
-           (and (keywordp op1) (eq op1 val1)))))
-
 (defun match-ops (a0 a1 &optional a2 a3)
   (let ((op0 a0) (op1 (if a2 a1 nil))
         (val0 (or a2 a1)) (val1 a3))
     (flet ((match (op val)
-             (cond ((position val #(:a :x :y))
+             (cond ((position val #(:a :b :c  :d   :e   :f  :af  :bc  :de
+                                    :h :l :hl :ixh :ixl :ix :iyh :iyl :iy :sp))
                     (eq op val))
-                   ((eq :iv val)
+                   ((eq :x  val)
                     (and (integerp op) (not (minusp op)) (> #x00100 op)))
-                   ((eq :rl val)
-                    (or (symbolp op) (typep op '(signed-byte 8))))
-                   ((position val #(:zp :in))
-                    (and (typep op '6502-mas) (> #x00100 (mas-displ op))))
-                   ((position val #(:ab :inw))
-                    (and (typep op '6502-mas) (> #x10000 (mas-displ op)))))))
+                   ((eq :xx val)
+                    (and (integerp op) (not (minusp op)) (> #x10000 op)))
+                   (t (let ((masix (position val #(:@x :@xx :@ix+ :@iy+ :@bc :@de :@hl :@sp))))
+                        (and (typep val 'z80-mas)
+                             (or (and (position masix #(0 1))
+                                      (mas-disp val) (not (mas-base val)))
+                                 (and (position masix #(2 3))
+                                      (mas-disp val) (eq (mas-base val)
+                                                         (aref #(:ix :iy) (- masix 2))))
+                                 (eq (mas-base val)
+                                     (aref #(:bc :de :hl :sp) (- masix 4))))))))))
       (and (match op0 val0)
-           (or (not (or op1 val1))
-               (match op1 val1))))))
+           (or (not (or op1 val1)) (match op1 val1))))))
 
 (defun @ (base &optional displacement)
   (let ((base (if (numberp base) nil base))
         (displacement (if (numberp base) base displacement)))
     (make-instance 'z80-mas :base base :displ displacement)))
 
+(defmethod extend-clauses ((assembler assembler-z80) mnemonic operands params sub-clauses)
+  (declare (ignore assembler))
+  (print (list :ee sub-clauses))
+  (loop :for clause :in sub-clauses
+        :append (destructuring-bind (operands opcode) clause
+                  (let* ((variant-found) (opcode-out)
+                         (variant-operands '(:hl   :h   :l :@hl))
+                         (vmaps           '((:ix :ixh :ixl :@ix+)
+                                            (:iy :iyh :iyl :@iy+)))
+                         (ops-out (loop :for i :in operands
+                                        :collect
+                                        (funcall (lambda (item)
+                                                   (when (and (> 256 opcode)
+                                                              ;; the HL→IX etc. extensions are only done
+                                                              ;; for opcodes in the main table, i.e.
+                                                              ;; of values 255 and below
+                                                              (member item variant-operands :test #'eq))
+                                                     (setf variant-found t))
+                                                   item)
+                                                 (typecase i (number i)
+                                                           (symbol (intern (string i) "KEYWORD")))))))
+                    (cons (list ops-out opcode)
+                          (if (not variant-found)
+                              nil (let ((ops-out-dd) (ops-out-fd))
+                                    (loop :for op :in ops-out :for ix :from 0
+                                          :do (let ((pos (position op variant-operands :test #'eq)))
+                                                (push (if (not pos) op (nth pos (first vmaps)))
+                                                      ops-out-dd)
+                                                (push (if (not pos) op (nth pos (second vmaps)))
+                                                      ops-out-fd)))
+                                    (list (list (reverse ops-out-dd) (+ #xDD00 opcode))
+                                          (list (reverse ops-out-fd) (+ #xFD00 opcode))))))))))
+
 (defmethod clause-processor ((assembler assembler-z80) action mnemonic operands params body)
   (declare (ignore assembler))
-  (labels (;; (operand-test (o1 o2)
-           ;;   (if (keywordp o1)
-           ;;       (eq o1 o2)
-           ;;       (if (listp o1)
-           ;;           (and (listp o2) (eq (second o2) (second o1)))
-           ;;           nil)))
-           (decode-symbol (symbol)
-             (cond ((eql symbol 'x)
+  ;; (print (list :act action mnemonic operands params body))
+  (labels ((decode-symbol (symbol)
+             (cond ((eq symbol :x)
                     `(of-program :next-bytes 1))
-                   ((eql symbol 'xx)
+                   ((eq symbol :xx)
                     `(of-program :next-bytes 2))
-                   ((eql symbol '@x)
-                    '(@ (of-program :next-bytes 1)))
-                   ((eql symbol '@xx)
-                    '(@ (of-program :next-bytes 2)))
-                   ((position symbol #(a f af b c bc d e de h l hl) :test #'eql)
+                   ((eq symbol :@x)
+                    '(list '@ (of-program :next-bytes 1)))
+                   ((eq symbol :@xx)
+                    '(list '@ (of-program :next-bytes 2)))
+                   ((position symbol #(:a :f :af :b :c :bc :d :e :de :h :l :hl
+                                       :ixl :ixh :ix :iyl :iyh :iy :sp)
+                              :test #'eq)
                     (intern (string symbol) "KEYWORD"))
-                   (t (let ((symx (position symbol #(@ix+ @iy+ @c @bc @de @hl @sp) :test #'eql)))
-                        (if symx
-                            (append (list '@ (aref #(:ix :iy :c :bc :de :hl :sp) symx))
-                                    (if (> symx 1) nil '((of-program :next-bytes 1))))
-                            '(:error))))))
+                   (t (let ((symx (position symbol #(:@ix+ :@iy+ :@c :@bc :@de :@hl :@sp) :test #'eq)))
+                        (if (not symx) nil ;; '(:error)
+                            (append `(list '@ ,(aref #(:ix :iy :c :bc :de :hl :sp) symx))
+                                    (if (> symx 1) nil '((of-program :next-bytes 1)))))))))
                  
-           ;; symbol
-           ;; (if (position symbol ))
-           ;; (if (eq 'x symbol) `(funcall of-code 1)
-           ;;     (if (position symbol #(ab inw))
-           ;;         `(list '@ (enc-displ (funcall of-code 2)))
-           ;;         (if (position symbol #(in zp rl))
-           ;;             `(list '@ (funcall of-code 1)))))
-           
            (clause-extend (clauses clause)
-             (print (list :xc clauses clause))
              (destructuring-bind (operands opcode) clause
-               (let* ((variant-found) (opcode-out)
-                      (variant-operands '(:hl   :h   :l :@hl))
-                      (vmaps           '((:ix :ixh :ixl :@ix+)
-                                         (:iy :iyh :iyl :@iy+)))
-                      (ops-out (loop :for i :in operands
-                                     :collect
-                                     (funcall (lambda (item)
-                                                (when (and (> 256 opcode)
-                                                           ;; the HL→IX etc. extensions are only done
-                                                           ;; for opcodes in the main table, i.e.
-                                                           ;; of values 255 and below
-                                                           (member item variant-operands :test #'eq))
-                                                  (setf variant-found t))
-                                                item)
-                                              (typecase i (number i)
-                                                        (symbol (intern (string i) "KEYWORD")))))))
-                 ;; (print (list :aa ops-out))
-                 
+               (let* ((variant-found) (opcode-out) (ops-out operands))
                  (mapcar (lambda (op-spec)
                            (destructuring-bind (operands opcode) op-spec
-                             (let ((opcode-out opcode))
+                             (let ((opcode-out))
                                (loop :for ix :from 0 :for op :in operands
                                      :do (cond ((position op #(:x :@x) :test #'eq)
                                                 (setf opcode-out `(+ ,(ash opcode  8)
@@ -169,18 +163,7 @@
                                                 (setf opcode-out `(+ ,(ash opcode 8)
                                                                      (mas-displ ,(nth ix '(op0 op1))))))))
                                (list operands opcode-out))))
-                         (cons (list ops-out opcode)
-                               (if (not variant-found)
-                                   nil (let ((ops-out-dd) (ops-out-fd))
-                                         (loop :for op :in ops-out :for ix :from 0
-                                               :do (let ((pos (position op variant-operands
-                                                                        :test #'eq)))
-                                                     (push (if (not pos) op (nth pos (first vmaps)))
-                                                           ops-out-dd)
-                                                     (push (if (not pos) op (nth pos (second vmaps)))
-                                                           ops-out-fd)))
-                                         (list (list (reverse ops-out-dd) (+ #xDD00 opcode))
-                                               (list (reverse ops-out-fd) (+ #xFD00 opcode))))))))))
+                         (list (list ops-out opcode)))))))
            (swap-numeric (operands)
              (let ((exchanged)) ;; exchanged is an index reflecting :x or :xx as an immediate value
                (values (loop :for op :in operands :collect (if (keywordp op)
@@ -199,50 +182,39 @@
              `(((match-ops ,@(if (second operands) varops (list (first varops)))
                            ,@operands)
                 ,opcode))))
-    (print (list :bb body action))
-    (if (and (listp body) (symbolp (first body)) (numberp (second body)) (eql action 'of-lexicon))
-        ;; (and (numberp body)) ;; (eql action 'of-decoder))
-        ;; `(setf (gethash ,(first c) ,table) ,(second c))
-        (case action
-          (of-lexicon (values (second body)         mnemonic t))
-          (of-decoder (values (list 'list mnemonic) body t)))
+    (if (and (listp body) (numberp (first body)) (eql action 'of-lexicon))
+        ;; (and (listp body) (symbolp (first body)) (numberp (second body)) (eql action 'of-lexicon))
+        (values (first body) mnemonic t)
         (if (and (numberp body) (eql action 'of-decoder))
             (values (list 'list mnemonic) body t)
-            (let ((varops (remove '&optional operands))
-                  (ee (print (list :ee body)))
-                  ;; (clauses (cons (first body)
-                  ;;                (loop :for clause :in (rest body)
-                  ;;                      :append (clause-extend body clause))))
-                  )
-              ;; (loop :for clause :in (rest clauses) :do (clause-extend clauses clause))
-              ;; (print (list :clxx clauses))
-              (print (list :gg body action))
+            (let ((varops (remove '&optional operands)))
               (case action
-                (of-lexicon (values `((cond ,@(loop :for clause :in (loop :for clause :in (rest body)
-                                                                  :append (clause-extend body clause))
+                (of-lexicon (values `((cond ,@(loop :for clause :in (loop :for c :in body
+                                                                          :append (clause-extend body c))
                                                     :append (apply #'encoding-entry varops clause))))
-                                    mnemonic)
+                                    mnemonic))
                 (of-decoder
+                 ;; (print (list :dec body))
                  (values `((list ,mnemonic ,@(if (integerp body)
-                                                 nil (mapcar #'decode-symbol (first body)))))
-                         (second body)))
-                 ;; (destructuring-bind (operands opcode) clauses
-                 ;;   (let ((opcode (if (numberp opcode)
-                 ;;                     opcode (if (and (listp opcode) (eql '+ (first opcode)))
-                 ;;                                opcode))))
-                 ;;     (multiple-value-bind (operands exchanged) (swap-numeric operands)
-                 ;;       ;; (print (list :ex operands exchanged))
-                 ;;       ;; `(of-decoder ,assembler-symbol
-                 ;;       ;;              ,(if (not exchanged)
-                 ;;       ;;                   opcode (ash (second opcode)
-                 ;;       ;;                               (* exchanged -8)))
-                 ;;       ;;              ,
-                 ;;       (funcall (lambda (form)
-                 ;;                  (if (not exchanged) ;; TODO: gensym of-code
-                 ;;                      form `(lambda (of-code) ,form)))
-                 ;;                (cons 'list (cons (first body)
-                 ;;                                  operands))))))
-                 )))))))
+                                                 nil (remove nil (mapcar #'decode-symbol (first body))))))
+                         (second body)))))))))
+
+;; (destructuring-bind (operands opcode) clauses
+;;   (let ((opcode (if (numberp opcode)
+;;                     opcode (if (and (listp opcode) (eql '+ (first opcode)))
+;;                                opcode))))
+;;     (multiple-value-bind (operands exchanged) (swap-numeric operands)
+;;       ;; (print (list :ex operands exchanged))
+;;       ;; `(of-decoder ,assembler-symbol
+;;       ;;              ,(if (not exchanged)
+;;       ;;                   opcode (ash (second opcode)
+;;       ;;                               (* exchanged -8)))
+;;       ;;              ,
+;;       (funcall (lambda (form)
+;;                  (if (not exchanged) ;; TODO: gensym of-code
+;;                      form `(lambda (of-code) ,form)))
+;;                (cons 'list (cons (first body)
+;;                                  operands))))))
 
 
     ;; (let ((varops (remove '&optional operands)))

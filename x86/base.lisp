@@ -14,18 +14,16 @@
 (defclass x86-vcregister (x86-register)
   ())
 
-(defclass x86-mem-access (mem-access)
-  ((%inreg :accessor x86mac-inreg
-           :initform nil
-           :initarg  :inreg)
-   (%scale :accessor x86mac-scale
-           :initform nil
-           :initarg  :scale)
-   (%displ :accessor x86mac-displ
-           :initform nil
-           :initarg  :displ)))
+(defclass mas-x86 (mas-based mas-indexed mas-scaling-displaced)
+  () (:documentation "Memory access scheme for x86 ISA featuring base, index and scaled displacement."))
 
 (defvar *assembler-prototype-x86*)
+
+(defvar *x86-storage-2*
+  (list :gpr #(:a :c :d :b :sp :bp :di :si :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15)
+        :vcr #(:m0  :m1  :m2  :m3  :m4  :m5  :m6  :m7  :m8  :m9  :m10 :m11 :m12 :m13 :m14 :m15
+               :m16 :m17 :m18 :m19 :m20 :m21 :m22 :m23 :m24 :m25 :m26 :m27 :m28 :m29 :m30 :m31)
+        ))
 
 (defvar *x86-storage*)
 

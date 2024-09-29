@@ -3,7 +3,7 @@
 (in-package #:specops.z80)
 
 (specops 0 (op0 &optional op1) *assembler-prototype-z80*
-  ;; the main table of z80 instructions; this is permuted by replacing h, l, hl and @hl operands to
+  ;; the main table of z80 instructions; this is permuted by replacing H, L, HL and @HL operands to
   ;; manifest the DD__ and FD__ instruction tables expressing IX and IY operations
   ((:tabular :cross-adding :matcher match-ops) (:duplex . of-decoder))
   ((    ) (#x0       ) (#x1       ) (#x2        ) (#x3        ) (#x4        ) (#x5       ) (#x6        ) (#x7       ) (#x8       ) (#x9       ) (#xA        ) (#xB      ) (#xC        ) (#xD     ) (#xE       ) (#xF     ))
@@ -19,42 +19,42 @@
   ((#x90) (:sub     b) (:sub     c) (:sub      d) (:sub      e) (:sub      h) (:sub     l) (:sub    @hl) (:sub     a) (:sbc a   b) (:sbc  a  c) (:sbc  a   d) (:sbc a  e) (:sbc   a  h) (:sbc a l) (:sbc a @hl) (:sbc a a))
   ((#xA0) (:and     b) (:and     c) (:and      d) (:and      e) (:and      h) (:and     l) (:and    @hl) (:and     a) (:xor     b) (:xor     c) (:xor      d) (:xor    e) (:xor      h) (:xor   l) (:xor   @hl) (:xor   a))
   ((#xB0) (:or      b) (:or      c) (:or       d) (:or       e) (:or       h) (:or      l) (:or     @hl) (:or      a) (:cp      b) (:cp      c) (:cp       d) (:cp     e) (:cp       h) (:cp    l) (:cp    @hl) (:cp    a))
-  ((#xC0) (:ret    nz) (:pop    bc) (:jp   nz xx) (:jp      xx) (:call nz xx) (:push   bc) (:add  a   x) (:rst   00h) (:ret     z) (:ret      ) (:jp   z  xx) ()          (:call  z xx) (:call xx) (:adc a   x) (:rst 08h))
+  ((#xC0) (:ret    nz) (:pop    bc) (:jp   nz xx) (:jp      xx) (:call nz xx) (:push   bc) (:add  a   x) (:rst   00h) (:ret     z) (:ret      ) (:jp   z  xx) :prefix     (:call  z xx) (:call xx) (:adc a   x) (:rst 08h))
   ((#xD0) (:ret    nc) (:pop    de) (:jp   nc xx) (:out  @x  a) (:call nc xx) (:push   de) (:sub      x) (:rst   10h) (:ret     c) (:exx      ) (:jp   c  xx) (:in  a @x) (:call  c xx) ()         (:sbc a   x) (:rst 18h))
-  ((#xE0) (:ret    po) (:pop    hl) (:jp   po xx) (:ex  @sp hl) (:call po xx) (:push   hl) (:and      x) (:rst   20h) (:ret    pe) (:jp    @hl) (:jp  pe  xx) (:ex de hl) (:call pe xx) ()         (:xor     x) (:rst 28h))
+  ((#xE0) (:ret    po) (:pop    hl) (:jp   po xx) (:ex  @sp hl) (:call po xx) (:push   hl) (:and      x) (:rst   20h) (:ret    pe) (:jp    @hl) (:jp  pe  xx) (:ex de hl) (:call pe xx) :prefix    (:xor     x) (:rst 28h))
   ((#xF0) (:ret     p) (:pop    af) (:jp    p xx) (:di        ) (:call  p xx) (:push   af) (:or       x) (:rst   30h) (:ret     m) (:ld  sp hl) (:jp   m  xx) (:ei      ) (:call  m xx) ()         (:cp      x) (:rst 38h)))
 
-(specops #xCB (op0 &optional op1) *assembler-prototype-z80*
+(specops #xCB00 (op0 &optional op1) *assembler-prototype-z80*
   ;; the CB__ table of z80 instructions
-  ((:tabular :cross-adding :matcher match-ops))
-  ((      ) (#x0     ) (#x1     ) (#x2     ) (#x3     ) (#x4     ) (#x5     ) (#x6       ) (#x7     ) (#x8     ) (#x9     ) (#xA     ) (#xB     ) (#xC     ) (#xD     ) (#xE       ) (#xF     ))
-  ((#xCB00) (:rlc   b) (:rlc   c) (:rlc   d) (:rlc   e) (:rlc   h) (:rlc   l) (:rlc   @hl) (:rlc   a) (:rrc   b) (:rrc   c) (:rrc   d) (:rrc   e) (:rrc   h) (:rrc   l) (:rrc   @hl) (:rrc   a))
-  ((#xCB10) (:rl    b) (:rl    c) (:rl    d) (:rl    e) (:rl    h) (:rl    l) (:rl    @hl) (:rl    a) (:rr    b) (:rr    c) (:rr    d) (:rr    e) (:rr    h) (:rr    l) (:rr    @hl) (:rr    a))
-  ((#xCB20) (:sla   b) (:sla   c) (:sla   d) (:sla   e) (:sla   h) (:sla   l) (:sla   @hl) (:sla   a) (:sra   b) (:sra   c) (:sra   d) (:sra   e) (:sra   h) (:sra   l) (:sra   @hl) (:sra   a))
-  ((#xCB30) (:sll   b) (:sll   c) (:sll   d) (:sll   e) (:sll   h) (:sll   l) (:sll   @hl) (:sll   a) (:srl   b) (:srl   c) (:srl   d) (:srl   e) (:srl   h) (:srl   l) (:srl   @hl) (:srl   a))
-  ((#xCB40) (:bit 0 b) (:bit 0 c) (:bit 0 d) (:bit 0 e) (:bit 0 h) (:bit 0 l) (:bit 0 @hl) (:bit 0 a) (:bit 1 b) (:bit 1 c) (:bit 1 d) (:bit 1 e) (:bit 1 h) (:bit 1 l) (:bit 1 @hl) (:bit 1 a))
-  ((#xCB50) (:bit 2 b) (:bit 2 c) (:bit 2 d) (:bit 2 e) (:bit 2 h) (:bit 2 l) (:bit 2 @hl) (:bit 2 a) (:bit 3 b) (:bit 3 c) (:bit 3 d) (:bit 3 e) (:bit 3 h) (:bit 3 l) (:bit 3 @hl) (:bit 3 a))
-  ((#xCB60) (:bit 4 b) (:bit 4 c) (:bit 4 d) (:bit 4 e) (:bit 4 h) (:bit 4 l) (:bit 4 @hl) (:bit 4 a) (:bit 5 b) (:bit 5 c) (:bit 5 d) (:bit 5 e) (:bit 5 h) (:bit 5 l) (:bit 5 @hl) (:bit 5 a))
-  ((#xCB70) (:bit 6 b) (:bit 6 c) (:bit 6 d) (:bit 6 e) (:bit 6 h) (:bit 6 l) (:bit 6 @hl) (:bit 6 a) (:bit 7 b) (:bit 7 c) (:bit 7 d) (:bit 7 e) (:bit 7 h) (:bit 7 l) (:bit 7 @hl) (:bit 7 a))
-  ((#xCB80) (:res 0 b) (:res 0 c) (:res 0 d) (:res 0 e) (:res 0 h) (:res 0 l) (:res 0 @hl) (:res 0 a) (:res 1 b) (:res 1 c) (:res 1 d) (:res 1 e) (:res 1 h) (:res 1 l) (:res 1 @hl) (:res 1 a))
-  ((#xCB90) (:res 2 b) (:res 2 c) (:res 2 d) (:res 2 e) (:res 2 h) (:res 2 l) (:res 2 @hl) (:res 2 a) (:res 3 b) (:res 3 c) (:res 3 d) (:res 3 e) (:res 3 h) (:res 3 l) (:res 3 @hl) (:res 3 a))
-  ((#xCBA0) (:res 4 b) (:res 4 c) (:res 4 d) (:res 4 e) (:res 4 h) (:res 4 l) (:res 4 @hl) (:res 4 a) (:res 5 b) (:res 5 c) (:res 5 d) (:res 5 e) (:res 5 h) (:res 5 l) (:res 5 @hl) (:res 5 a))
-  ((#xCBB0) (:res 6 b) (:res 6 c) (:res 6 d) (:res 6 e) (:res 6 h) (:res 6 l) (:res 6 @hl) (:res 6 a) (:res 7 b) (:res 7 c) (:res 7 d) (:res 7 e) (:res 7 h) (:res 7 l) (:res 7 @hl) (:res 7 a))
-  ((#xCBC0) (:set 0 b) (:set 0 c) (:set 0 d) (:set 0 e) (:set 0 h) (:set 0 l) (:set 0 @hl) (:set 0 a) (:set 1 b) (:set 1 c) (:set 1 d) (:set 1 e) (:set 1 h) (:set 1 l) (:set 1 @hl) (:set 1 a))
-  ((#xCBD0) (:set 2 b) (:set 2 c) (:set 2 d) (:set 2 e) (:set 2 h) (:set 2 l) (:set 2 @hl) (:set 2 a) (:set 3 b) (:set 3 c) (:set 3 d) (:set 3 e) (:set 3 h) (:set 3 l) (:set 3 @hl) (:set 3 a))
-  ((#xCBE0) (:set 4 b) (:set 4 c) (:set 4 d) (:set 4 e) (:set 4 h) (:set 4 l) (:set 4 @hl) (:set 4 a) (:set 5 b) (:set 5 c) (:set 5 d) (:set 5 e) (:set 5 h) (:set 5 l) (:set 5 @hl) (:set 5 a))
-  ((#xCBF0) (:set 6 b) (:set 6 c) (:set 6 d) (:set 6 e) (:set 6 h) (:set 6 l) (:set 6 @hl) (:set 6 a) (:set 7 b) (:set 7 c) (:set 7 d) (:set 7 e) (:set 7 h) (:set 7 l) (:set 7 @hl) (:set 7 a)))
+  ((:tabular :cross-adding :matcher match-ops) (:duplex . of-decoder))
+  ((    ) (#x0     ) (#x1     ) (#x2     ) (#x3     ) (#x4     ) (#x5     ) (#x6       ) (#x7     ) (#x8     ) (#x9     ) (#xA     ) (#xB     ) (#xC     ) (#xD     ) (#xE       ) (#xF     ))
+  ((#x00) (:rlc   b) (:rlc   c) (:rlc   d) (:rlc   e) (:rlc   h) (:rlc   l) (:rlc   @hl) (:rlc   a) (:rrc   b) (:rrc   c) (:rrc   d) (:rrc   e) (:rrc   h) (:rrc   l) (:rrc   @hl) (:rrc   a))
+  ((#x10) (:rl    b) (:rl    c) (:rl    d) (:rl    e) (:rl    h) (:rl    l) (:rl    @hl) (:rl    a) (:rr    b) (:rr    c) (:rr    d) (:rr    e) (:rr    h) (:rr    l) (:rr    @hl) (:rr    a))
+  ((#x20) (:sla   b) (:sla   c) (:sla   d) (:sla   e) (:sla   h) (:sla   l) (:sla   @hl) (:sla   a) (:sra   b) (:sra   c) (:sra   d) (:sra   e) (:sra   h) (:sra   l) (:sra   @hl) (:sra   a))
+  ((#x30) (:sll   b) (:sll   c) (:sll   d) (:sll   e) (:sll   h) (:sll   l) (:sll   @hl) (:sll   a) (:srl   b) (:srl   c) (:srl   d) (:srl   e) (:srl   h) (:srl   l) (:srl   @hl) (:srl   a))
+  ((#x40) (:bit 0 b) (:bit 0 c) (:bit 0 d) (:bit 0 e) (:bit 0 h) (:bit 0 l) (:bit 0 @hl) (:bit 0 a) (:bit 1 b) (:bit 1 c) (:bit 1 d) (:bit 1 e) (:bit 1 h) (:bit 1 l) (:bit 1 @hl) (:bit 1 a))
+  ((#x50) (:bit 2 b) (:bit 2 c) (:bit 2 d) (:bit 2 e) (:bit 2 h) (:bit 2 l) (:bit 2 @hl) (:bit 2 a) (:bit 3 b) (:bit 3 c) (:bit 3 d) (:bit 3 e) (:bit 3 h) (:bit 3 l) (:bit 3 @hl) (:bit 3 a))
+  ((#x60) (:bit 4 b) (:bit 4 c) (:bit 4 d) (:bit 4 e) (:bit 4 h) (:bit 4 l) (:bit 4 @hl) (:bit 4 a) (:bit 5 b) (:bit 5 c) (:bit 5 d) (:bit 5 e) (:bit 5 h) (:bit 5 l) (:bit 5 @hl) (:bit 5 a))
+  ((#x70) (:bit 6 b) (:bit 6 c) (:bit 6 d) (:bit 6 e) (:bit 6 h) (:bit 6 l) (:bit 6 @hl) (:bit 6 a) (:bit 7 b) (:bit 7 c) (:bit 7 d) (:bit 7 e) (:bit 7 h) (:bit 7 l) (:bit 7 @hl) (:bit 7 a))
+  ((#x80) (:res 0 b) (:res 0 c) (:res 0 d) (:res 0 e) (:res 0 h) (:res 0 l) (:res 0 @hl) (:res 0 a) (:res 1 b) (:res 1 c) (:res 1 d) (:res 1 e) (:res 1 h) (:res 1 l) (:res 1 @hl) (:res 1 a))
+  ((#x90) (:res 2 b) (:res 2 c) (:res 2 d) (:res 2 e) (:res 2 h) (:res 2 l) (:res 2 @hl) (:res 2 a) (:res 3 b) (:res 3 c) (:res 3 d) (:res 3 e) (:res 3 h) (:res 3 l) (:res 3 @hl) (:res 3 a))
+  ((#xA0) (:res 4 b) (:res 4 c) (:res 4 d) (:res 4 e) (:res 4 h) (:res 4 l) (:res 4 @hl) (:res 4 a) (:res 5 b) (:res 5 c) (:res 5 d) (:res 5 e) (:res 5 h) (:res 5 l) (:res 5 @hl) (:res 5 a))
+  ((#xB0) (:res 6 b) (:res 6 c) (:res 6 d) (:res 6 e) (:res 6 h) (:res 6 l) (:res 6 @hl) (:res 6 a) (:res 7 b) (:res 7 c) (:res 7 d) (:res 7 e) (:res 7 h) (:res 7 l) (:res 7 @hl) (:res 7 a))
+  ((#xC0) (:set 0 b) (:set 0 c) (:set 0 d) (:set 0 e) (:set 0 h) (:set 0 l) (:set 0 @hl) (:set 0 a) (:set 1 b) (:set 1 c) (:set 1 d) (:set 1 e) (:set 1 h) (:set 1 l) (:set 1 @hl) (:set 1 a))
+  ((#xD0) (:set 2 b) (:set 2 c) (:set 2 d) (:set 2 e) (:set 2 h) (:set 2 l) (:set 2 @hl) (:set 2 a) (:set 3 b) (:set 3 c) (:set 3 d) (:set 3 e) (:set 3 h) (:set 3 l) (:set 3 @hl) (:set 3 a))
+  ((#xE0) (:set 4 b) (:set 4 c) (:set 4 d) (:set 4 e) (:set 4 h) (:set 4 l) (:set 4 @hl) (:set 4 a) (:set 5 b) (:set 5 c) (:set 5 d) (:set 5 e) (:set 5 h) (:set 5 l) (:set 5 @hl) (:set 5 a))
+  ((#xF0) (:set 6 b) (:set 6 c) (:set 6 d) (:set 6 e) (:set 6 h) (:set 6 l) (:set 6 @hl) (:set 6 a) (:set 7 b) (:set 7 c) (:set 7 d) (:set 7 e) (:set 7 h) (:set 7 l) (:set 7 @hl) (:set 7 a)))
 
- (specops #xED (op0 &optional op1) *assembler-prototype-z80*
+ (specops #xED00 (op0 &optional op1) *assembler-prototype-z80*
   ;; the ED__ table of z80 instructions
-  ((:tabular :cross-adding :matcher match-ops))
+  ((:tabular :cross-adding :matcher match-ops) (:duplex . of-decoder))
   ((      ) (#x0     ) (#x1      ) (#x2       ) (#x3       ) (#x4 ) (#x5  ) (#x6  ) (#x7     ) (#x8     ) (#x9      ) (#xA       ) (#xB       ) (#xC ) (#xD  ) (#xE  ) (#xF    ))
-  ((#xED40) (:in b @c) (:out @c b) (:sbc hl bc) (:ld @xx bc) (:neg) (:retn) (:im 0) (:ld  i a) (:in c @c) (:out @c c) (:adc hl bc) (:ld bc @xx) (:neg) (:reti) ()      (:ld r a))
-  ((#xED50) (:in d @c) (:out @c d) (:sbc hl de) (:ld @xx de) (:neg) (:retn) (:im 1) (:ld  a i) (:in e @c) (:out @c e) (:adc hl de) (:ld de @xx) (:neg) (:retn) (:im 2) (:ld a r))
-  ((#xED60) (:in h @c) (:out @c h) (:sbc hl hl) (:ld @xx hl) (:neg) (:retn) ()      (:rrd    ) (:in l @c) (:out @c l) (:adc hl hl) (:ld hl @xx) (:neg) (:retn) ()      (:rld   ))
-  ((#xED70) (:in f @c) (:out @c 0) (:sbc hl sp) (:ld @xx sp) (:neg) (:retn) ()      ()         (:in a @c) (:out @c a) (:adc hl sp) (:ld sp @xx) (:neg) (:reti))
-  ((#xEDA0) (:ldi    ) (:cpi     ) (:ini      ) (:outi     ) ()     ()      ()      ()         (:ldd    ) (:cpd     ) (:ind      ) (:outd     ))
-  ((#xEDB0) (:ldir   ) (:cpir    ) (:inir     ) (:otir     ) ()     ()      ()      ()         (:lddr   ) (:cpdr    ) (:indr     ) (:otdr     )))
+  ((#x40) (:in b @c) (:out @c b) (:sbc hl bc) (:ld @xx bc) (:neg) (:retn) (:im 0) (:ld  i a) (:in c @c) (:out @c c) (:adc hl bc) (:ld bc @xx) (:neg) (:reti) ()      (:ld r a))
+  ((#x50) (:in d @c) (:out @c d) (:sbc hl de) (:ld @xx de) (:neg) (:retn) (:im 1) (:ld  a i) (:in e @c) (:out @c e) (:adc hl de) (:ld de @xx) (:neg) (:retn) (:im 2) (:ld a r))
+  ((#x60) (:in h @c) (:out @c h) (:sbc hl hl) (:ld @xx hl) (:neg) (:retn) ()      (:rrd    ) (:in l @c) (:out @c l) (:adc hl hl) (:ld hl @xx) (:neg) (:retn) ()      (:rld   ))
+  ((#x70) (:in f @c) (:out @c 0) (:sbc hl sp) (:ld @xx sp) (:neg) (:retn) ()      ()         (:in a @c) (:out @c a) (:adc hl sp) (:ld sp @xx) (:neg) (:reti))
+  ((#xA0) (:ldi    ) (:cpi     ) (:ini      ) (:outi     ) ()     ()      ()      ()         (:ldd    ) (:cpd     ) (:ind      ) (:outd     ))
+  ((#xB0) (:ldir   ) (:cpir    ) (:inir     ) (:otir     ) ()     ()      ()      ()         (:lddr   ) (:cpdr    ) (:indr     ) (:otdr     )))
 
 ;; (cb-logicop-specs (:rlc :rrc :rl :rr :sla :sra :sll :srl) (:b :c :d :e :h :l (:hl) :a))
 ;; (cb-bitop-specs   (:bit :res :set)                        (:b :c :d :e :h :l (:hl) :a))

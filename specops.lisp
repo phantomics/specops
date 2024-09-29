@@ -221,7 +221,7 @@
 
 (defclass mas-based (memory-access-scheme)
   ((%base :accessor mas-base
-          :initform nil
+rt          :initform nil
           :initarg  :base))
   (:documentation "A class encompassing memory access schemes with a base register."))
 
@@ -236,6 +236,12 @@
            :initform nil
            :initarg  :displ))
   (:documentation "A class encompassing memory access schemes with a displacement value."))
+
+(defclass mas-scaling-displaced (mas-displaced)
+  ((%scale :accessor mas-sdisp-scale
+           :initform nil
+           :initarg  :scale))
+  (:documentation "A class encompassing memory access schemes with a displacement value that may be scaled; i.e. multiplied by a power of two."))
 
 (defclass assembler ()
   ((%name    :accessor   asm-name
@@ -312,6 +318,9 @@
 
 ;; (defgeneric clause-processor (assembler assembler-symbol)
 ;;   (:documentation "Process opcode specification clauses for an assembler."))
+
+(defgeneric extend-clauses (assembler mnemonic operands body params)
+  (:documentation "Extend opcode specification clauses for an assembler."))
 
 (defgeneric clause-processor (assembler action mnemonic operands body params)
   (:documentation "Process opcode specification clauses for an assembler."))
@@ -401,29 +410,6 @@
                  symbol operands (cons (cons :assembler-sym assembler) params)
                  operations)))
 
-;; (defmethod clause-processor ((assembler assembler) assembler-symbol)
-;;   (declare (ignore assembler))
-;;   (lambda (mnemonic operands body params)
-;;     (let ((args (gensym))
-;;           (wrap-body (or (rest (assoc :wrap-body params)) #'identity))
-;;           (api-access-sym (asm-program-api assembler))
-;;           (api-access (asm-program-api-access assembler)))
-;;       ;; (flet ((add-alias (form)
-;;       ;;          (let ((items (gensym)))
-;;       ;;            (if (not (assoc :type-matcher params))
-;;       ;;                form `(labels ((,(second (assoc :type-matcher params)) (&rest ,items)
-;;       ;;                                 (intersection ,items (types-of ,assembler-symbol))))
-;;       ;;                        ,form)))))
-;;       ;; (print (list :mn mnemonic body))
-;;       ;; (print (list :aa api-access wrap-body body))
-;;       `(of-lexicon ,(rest (assoc :assembler-sym params))
-;;                    ;; ,assembler-symbol
-;;                    ,(intern (string mnemonic) "KEYWORD")
-;;                    ;; ,(add-alias `
-;;                    (lambda ,(cons api-access-sym operands)
-;;                      (flet ((,api-access (&rest ,args) (apply ,api-access-sym ,args)))
-;;                        ,@(funcall wrap-body body)))))))
-
 (defmethod clause-processor :around ((assembler assembler) action mnemonic operands params body)
   (declare (ignore assembler))
   ;; (print (list :pa params))
@@ -432,9 +418,9 @@
         (api-access-sym (asm-program-api assembler))
         (api-access (asm-program-api-access assembler))
         (operands (case action (of-lexicon operands) (t))))
-    (print (list :abc action mnemonic operands body))
+    ;; (print (list :abc action mnemonic operands body))
     (multiple-value-bind (content key is-constant) (call-next-method)
-      (print (list :gg content key action))
+      ;; (print (list :gg content key action params operands))
       (list action (rest (assoc :assembler-sym params))
             key ;; (intern (string mnemonic) "KEYWORD")
             ;; (let ((content (funcall wrap-body (call-next-method))))
@@ -443,8 +429,12 @@
                    (flet ((,api-access (&rest ,args) (apply ,api-access-sym ,args)))
                      ,@(funcall wrap-body content))))))))
 
-(defmethod clause-processor ((assembler assembler) action mnemonic operands params body)
+(defmethod extend-clauses ((assembler assembler) mnemonic operands params body)
   (declare (ignore assembler mnemonic operands params))
+  body)
+
+(defmethod clause-processor ((assembler assembler) action mnemonic operands params body)
+  (declare (ignore assembler action operands params))
   (values body mnemonic))
 
 ;; (defmethod clause-processor ((assembler assembler) mnemonic operands body params)
@@ -487,68 +477,86 @@
 ;; (defun process-clause-matrix (assembler asm-sym operands matrix params)
 
 (defun process-clause-matrix (assembler op-symbol operands params operations)
-  (let ((clauses))
+  (let ((clauses) (prefixes) (opcode-base (if (numberp op-symbol) op-symbol 0)))
     (flet ((encoder-and-maybe-decoder-for (clause)
-             (let ((encoder (clause-processor assembler 'of-lexicon (first clause) operands params clause)))
-               ;; (print (list :cl clause))
+             (let* ((xtclause (if (not (listp (second clause)))
+                                  nil (extend-clauses assembler (first clause)
+                                                      operands params (rest clause))))
+                    (encoder (clause-processor assembler 'of-lexicon (first clause)
+                                               operands params (or xtclause (rest clause)))))
+               (print (list :xx xtclause))
                (if (not (assoc :duplex params))
-                   encoder `(progn ,encoder ,@(loop :for c :in (rest clause)
-                                                    :collect (clause-processor assembler
-                                                                               (rest (assoc :duplex params))
-                                                                               (first clause)
-                                                                               operands params c)))))))
+                   encoder `(progn ,encoder ,@(loop :for c :in (or xtclause (rest clause))
+                                                    :collect (clause-processor
+                                                              assembler (rest (assoc :duplex params))
+                                                              (first clause)
+                                                              operands params c)))))))
+      ;; (print (list :oo opcode-base))
       (loop :for row :in (rest operations) :for row-index :from 0
             :do (loop :for cell :in (rest row) :for cellx :in (cdar operations) :for col-index :from 0
-                      :do (let ((opcode (+ (first cellx) (caar row))))
-                            (destructuring-bind (&optional ins &rest opr) cell
-                              (when ins (if (assoc ins clauses)
-                                            (when (not (atom (second (assoc ins clauses))))
-                                              ;; don't push an item if it's another possible
-                                              ;; opcode for an instruction without operands,
-                                              ;; as it's redundant and it interferes with the
-                                              ;; clause organization
-                                              (push (list opr opcode) (rest (assoc ins clauses))))
-                                            (push (if opr (list ins (list opr opcode))
-                                                      (list ins opcode))
-                                                  clauses)))))))
+                      :do (let ((opcode (+ opcode-base (first cellx) (caar row))))
+                            (if (symbolp cell)
+                                (case cell
+                                  ;; prefix clauses desigate a particular code as a prefix, which
+                                  ;; should be shifted and added to the next word to designate
+                                  ;; a prefixed opcode; this is used for opcodes as in the
+                                  ;; CB__ and ED__ tables of Z80 instructions
+                                  (:prefix (push `(of-decoder ,(rest (assoc :assembler-sym params))
+                                                              ,opcode :prefix)
+                                                 prefixes)))
+                                (destructuring-bind (&optional ins &rest opr) cell
+                                  (when ins (if (assoc ins clauses)
+                                                (when (not (atom (second (assoc ins clauses))))
+                                                  ;; don't push an item if it's another possible
+                                                  ;; opcode for an instruction without operands,
+                                                  ;; as it's redundant and it interferes with the
+                                                  ;; clause organization
+                                                  (push (list opr opcode) (rest (assoc ins clauses))))
+                                                (push (if opr (list ins (list opr opcode))
+                                                          (list ins opcode))
+                                                      clauses))))))))
       ;; (print (list :clau clauses params))
       ;; (loop :for c :in clauses :collect (decode (clause-processor assembler (first c) operands params c)))
       ;; (loop :for c :in clauses :collect (encoder-and-maybe-decoder-for c))
-      (mapcar #'encoder-and-maybe-decoder-for clauses))))
+      (append (mapcar #'encoder-and-maybe-decoder-for clauses)
+              prefixes))))
 
 (defmethod specify-ops ((assembler assembler) op-symbol operands params operations)
   "A simple scheme for implementing operations - the (specop) content is directly placed within functions in the lexicon hash table."
-  (let ((asm-sym (rest (assoc :assembler-sym params))))
-    ;; (print (list :par params))
-    (cond ((assoc :combine params)
-           (destructuring-bind (co-symbol join-by indexer &rest combinators)
-               (rest (assoc :combine params))
-             (cons 'progn (loop :for co :in combinators :for i :from 0
-                                :collect (let ((comp-sym (case join-by
-                                                           (:appending (intern (format nil "~a~a" op-symbol co)
-                                                                               "KEYWORD"))))
-                                               (index (funcall (case indexer (:by-index #'identity))
-                                                               i)))
-                                           (clause-processor
-                                            assembler 'of-lexicon comp-sym operands
-                                            (append (list (cons :wrap-body
-                                                                (lambda (body)
-                                                                  `((let ((,co-symbol ,index))
-                                                                      ,@body)))))
-                                                    params)
-                                             operations))))))
-          ((assoc :tabular params)
-           (destructuring-bind (mode &rest properties) (rest (assoc :tabular params))
-             (case mode (:cross-adding
-                         (cons 'progn (process-clause-matrix assembler op-symbol
-                                                             operands params operations))))))
-          ;; ((and (not operands) (= 1 (length operations)))
-          ;;  ;; `(setf (gethash ,(intern (string op-symbol) "KEYWORD")
-          ;;  ;;                 (asm-lexicon ,asm-sym))
-          ;;  ;;        ,(first operations))
-          ;;  `(of-lexicon ,asm-sym ,(intern (string op-symbol) "KEYWORD")
-          ;;               ,(first operations)))
-          (t (clause-processor assembler 'of-lexicon op-symbol operands params operations)))))
+  ;; (print (list :par params))
+  (cond ((assoc :combine params)
+         ;; combinatoric parameters are used to specify mnemonics and opcodes that can be derived
+         ;; by combining lists of base components, such as the Xcc conditional instructions seen
+         ;; in many ISAs, where many different conditions share a common numeric and mnemonic base
+         (destructuring-bind (co-symbol join-by indexer &rest combinators)
+             (rest (assoc :combine params))
+           (cons 'progn (loop :for co :in combinators :for i :from 0
+                              :collect (let ((comp-sym (case join-by
+                                                         (:appending (intern (format nil "~a~a" op-symbol co)
+                                                                             "KEYWORD"))))
+                                             (index (funcall (case indexer (:by-index #'identity))
+                                                             i)))
+                                         (clause-processor
+                                          assembler 'of-lexicon comp-sym operands
+                                          (append (list (cons :wrap-body
+                                                              (lambda (body)
+                                                                `((let ((,co-symbol ,index)) ,@body)))))
+                                                  params)
+                                          operations))))))
+        ((assoc :tabular params)
+         ;; tabular parameters are used to specify many opcodes for ISAs like Z80 and 6502 along
+         ;; with more recent one-byte instruction sets like WebAssembly
+         (destructuring-bind (mode &rest properties) (rest (assoc :tabular params))
+           (case mode (:cross-adding
+                       (cons 'progn (process-clause-matrix assembler op-symbol
+                                                           operands params operations))))))
+        ;; ((and (not operands) (= 1 (length operations)))
+        ;;  ;; `(setf (gethash ,(intern (string op-symbol) "KEYWORD")
+        ;;  ;;                 (asm-lexicon ,asm-sym))
+        ;;  ;;        ,(first operations))
+        ;;  `(of-lexicon ,asm-sym ,(intern (string op-symbol) "KEYWORD")
+        ;;               ,(first operations)))
+        (t (clause-processor assembler 'of-lexicon op-symbol operands params operations))))
 
 ;; (defmethod compose :around ((assembler assembler) params expression)
 ;;   (destructuring-bind (op &rest props) expression
@@ -588,6 +596,7 @@
                     (abs offset))))))
 
 (defmethod compose ((assembler assembler) params expression)
+  "The top-level method for assembly. Generates a byte vector from a list of instructions formatted as small lists."
   (let* ((unit (asm-breadth assembler))
          (codes (make-array *default-segment* :element-type (list 'unsigned-byte unit)
                                               :initial-element 0 :adjustable t :fill-pointer 0))
@@ -624,8 +633,6 @@
                                       (dotimes (i breadth) (add-value 0)))
                                     (serialize code unit #'add-value))))))))
       (setf codes-length (fill-pointer codes))
-      ;; 00000000 00000000
-      ;; 000AAAAA AAAAAAAA
       
       (loop :for tag-spec :in (getf props :tag-points)
             :do (destructuring-bind (symbol bit-offset field-length index) tag-spec
@@ -657,6 +664,7 @@
   (%assemble (symbol-value assembler) assembler params expressions))
 
 (defmethod interpret ((assembler assembler) params array)
+  "The top-level method for disassembly. Composes a list of instructions from a byte vector according to the properties of a given ISA."
   (let* ((etype (let ((element-type (array-element-type array)))
                   (unless (and (listp element-type)
                                (eq 'unsigned-byte (first element-type)))
@@ -673,7 +681,7 @@
                            (incf value (aref array (+ c from))))
                  value)))
       (loop :while (< point (1- (length array)))
-            :do (let* ((match) (this-interval) (ipatterns) (total 0) (sub-count 0)
+            :do (let* ((match) (this-interval) (ipatterns) (sub-count 0)
                        (reader (lambda (in)
                                  (lambda (count)
                                    (let ((this-count sub-count))
