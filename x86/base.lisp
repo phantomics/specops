@@ -179,18 +179,25 @@
                   (i (logand #b111 (regix (mas-index mac))))
                   (b (logand #b111 (regix (mas-base mac)))))))
 
-(defun determine-pfrsize (width op0 op1 mode)
-  (case mode
-    (:r16 (if (eq width :d) #x66 nil))
-    (:p16 (if (eq width :d) #x66 nil))
-    (:p32 (if (eq width :w) #x66 nil))
-    (:l64 (if (eq width :w) #x66 nil))))
+(defun determine-pfsize (width op0 op1 mode)
+  (let ((reg-size (case mode
+                    (:r16 (eq width :d))
+                    (:p16 (eq width :d))
+                    (:p32 (eq width :w))
+                    (:l64 (eq width :w))))
+        (adr-size (case mode
+                    (:l64 (or (and (typep op0 'mas-x86)
+                                   (mas-x86-half-width op0))
+                              (and (typep op1 'mas-x86)
+                                   (mas-x86-half-width op1)))))))
+    (if reg-size (if adr-size #x6766 #x66)
+        (if adr-size #x67 nil)))
 
-(defun determine-pfasize (width op0 op1 mode)
-  (case mode
-    (:r16 (if (eq width :d) #x67 nil))
-    (:p32 (if (eq width :w) #x67 nil))
-    (:l64 (if (eq width :w) #x67 nil))))
+;; (defun determine-pfasize (width op0 op1 mode)
+;;   (case mode
+;;     (:r16 (if (eq width :d) #x67 nil))
+;;     (:p32 (if (eq width :w) #x67 nil))
+;;     (:l64 (if (eq width :w) #x67 nil))))
 
 (defun determine-pfrex (width op0 op1)
   (let ((flags (+ (if (eq :q width) 8 0) ;; 8-bit indicates 64-bit width
