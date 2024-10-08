@@ -6,9 +6,10 @@
            #:reg-name #:reg-index #:reg-width
            #:memory-access-scheme
            #:mas-based #:mas-base #:mas-indexed #:mas-index #:mas-displaced #:mas-displ
+           #:mas-scaling-displaced #:mas-sdisp-scale
            #:assembler #:assembler-encoding #:assembler-masking
            #:asm-name #:asm-type #:asm-storage #:asm-lexicon
-           #:asm-domains #:asm-reserve #:asm-breadth #:asm-joiner
+           #:asm-domains #:asm-reserve #:asm-breadth #:asm-joiner #:asm-exmodes
            #:asm-enc-breadth #:asm-enc-decoder #:asm-msk-segment #:asm-msk-battery
            #:join #:joinw #:of-program
            #:flipbits #:masque #:unmasque #:mqbase
@@ -18,3 +19,4 @@
            #:assemble #:specops
            #:match-types #:to-tag
            ))
+    

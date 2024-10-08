@@ -100,17 +100,19 @@
               ;; shift the number to the left unless this is the last digit
               (unless (= ix (1- (length string))) (setf base (ash base 1)))
               (incf bits))
-    (values (loop :for pair :in (rest (assoc :static params)) ;; values
-                  :do (destructuring-bind (sym value) pair
-                        (let* ((insym (intern (string-upcase sym) "KEYWORD"))
-                               (index (loop :for s :in symbols :for ix :from 0
-                                            :when (eq s insym) :return ix)))
-                          ;; (when reverse-match (push insym static-segments))
-                          (if index (incf base (ash value (nth index segments)))
-                              (error "Invalid key for static base value increment."))))
-                  :finally (return base))
-            (cons 0 (loop :for s :in segments :collect (abs (- s bits))))
-            symbols bits)))
+    (let ((segments (cons 0 (loop :for s :in segments :collect (abs (- s bits))))))
+      ;; (print (list :seg segments))
+      (values (loop :for pair :in (rest (assoc :static params)) ;; values
+                    :do (destructuring-bind (sym value) pair
+                          (let* ((insym (intern (string-upcase sym) "KEYWORD"))
+                                 (index (loop :for s :in symbols :for ix :from 0
+                                              :when (eq s insym) :return ix)))
+                            ;; (when reverse-match (push insym static-segments))
+                            (if index (incf base (ash value (nth index segments)))
+                                (error "Invalid key for static base value increment."))))
+                    :finally (return base))
+              ;; (cons 0 (loop :for s :in segments :collect (abs (- s bits))))
+              segments symbols bits))))
 
 (defmacro masque (string &rest assignments)
   (let* ((base-sym (gensym))
@@ -173,11 +175,13 @@
 ;;                 ;; (when reverse-match (push insym static-segments))
 ;;                 (incf base (ash number (nth index segments)))))))
 
+;; (flet ((,api-access (&rest ,args) (apply ,api-access-sym ,args)))
+
 (defmacro mqbase (name opcsym mnesym args string &body body)
   ;; this is a currying macro for masque, allowing the creation
   ;; of a specialized masque with static contents for some fields
   (destructuring-bind (static-specs clauses &optional disassembler) body
-    (let ((dsarg (gensym))
+    (let ((dsarg (gensym)) (flargs (gensym))
           (static-form (loop :for ss :in static-specs
                              :collect (if (not (eq :static (first ss)))
                                           (list 'quote ss)
@@ -185,12 +189,14 @@
                                                                  :collect `(list ',(first spec)
                                                                                  ,(second spec))))))))
       `(defmacro ,name (,opcsym ,mnesym)
-         (list (list 'lambda ',args
-                     (append (list 'masque ,string)
-                             ;; generate a template incorporating the :static values
-                             ;; into a (masque) expansion within the defined macro
-                             (list (list ,@static-form))
-                             ',clauses))
+         (list (list 'lambda ',(cons 'program-api args) ;; TODO - gensym for args
+                     (list 'flet '((of-program (&rest ,flargs) (apply program-api ,flargs)))
+                           ;; '(declare (ignorable of-program))
+                           (append (list 'masque ,string)
+                                   ;; generate a template incorporating the :static values
+                                   ;; into a (masque) expansion within the defined macro
+                                   (list (list ,@static-form))
+                                   ',clauses)))
                ,@(if (not disassembler)
                      nil `((list 'lambda (list ',dsarg)
                                  (list 'unmasque ,string ',dsarg (list ,@static-form)
@@ -221,7 +227,7 @@
 
 (defclass mas-based (memory-access-scheme)
   ((%base :accessor mas-base
-rt          :initform nil
+          :initform nil
           :initarg  :base))
   (:documentation "A class encompassing memory access schemes with a base register."))
 
@@ -264,12 +270,16 @@ rt          :initform nil
              :initform   nil
              :initarg    :reserve)
    (%breadth :accessor   asm-breadth
-             :initform   8
-             :initarg    :breadth)
-   (%joiner  :accessor   asm-joiner
              :allocation :class
-             :initform   #'joinb
-             :initarg    :joiner)
+             :initform   16
+             :initarg    :breadth)
+   ;; (%joiner  :accessor   asm-joiner
+   ;;           :allocation :class
+   ;;           :initform   #'joinb
+   ;;           :initarg    :joiner)
+   (%exmodes :accessor   asm-exmodes
+             :initform   nil
+             :initarg    :exmodes)
    (%pro-api :accessor   asm-program-api
              :allocation :class
              :initform   'program-api
@@ -298,7 +308,7 @@ rt          :initform nil
 (defgeneric types-of (assembler)
   (:documentation "Fetch an assembler's types."))
 
-(defgeneric %derive-domains (assembler &rest params)
+(defgeneric %derive-domains (assembler &rest params) ;; TODO: Remove this method
   (:documentation "Determine storage domains for a given assembler."))
 
 (defgeneric of-lexicon (assembler key &optional value)
@@ -325,7 +335,7 @@ rt          :initform nil
 (defgeneric clause-processor (assembler action mnemonic operands body params)
   (:documentation "Process opcode specification clauses for an assembler."))
 
-(defgeneric locate (assembler assembler-sym params)
+(defgeneric locate (assembler items)
   (:documentation "Locate available storage for use by a program."))
 
 (defgeneric reserve (assembler &rest params)
@@ -381,7 +391,7 @@ rt          :initform nil
   (append (call-next-method)
           (asm-type assembler)))
 
-(defmethod %derive-domains ((assembler assembler) &rest params)
+(defmethod %derive-domains ((assembler assembler) &rest params) ;; TODO: remove
   (let ((derived-ranges))
     (loop :for p :in params
           :do (destructuring-bind (qualifier &rest bindings) p
@@ -398,7 +408,7 @@ rt          :initform nil
                                          :unless (member i (rest (assoc key (asm-reserve assembler))))
                                            :collect i))))))
 
-(defmacro derive-domains (assembler &rest params)
+(defmacro derive-domains (assembler &rest params) ;; TODO: remove
   `(%derive-domains ,assembler ,@(loop :for p :in params :collect `(quote ,p))))
 
 (defmacro specops (symbol operands assembler &body items)
@@ -427,6 +437,7 @@ rt          :initform nil
             (if is-constant content
                 `(lambda ,(cons api-access-sym operands)
                    (flet ((,api-access (&rest ,args) (apply ,api-access-sym ,args)))
+                     (declare (ignorable ,api-access))
                      ,@(funcall wrap-body content))))))))
 
 (defmethod extend-clauses ((assembler assembler) mnemonic operands params body)
@@ -435,7 +446,8 @@ rt          :initform nil
 
 (defmethod clause-processor ((assembler assembler) action mnemonic operands params body)
   (declare (ignore assembler action operands params))
-  (values body mnemonic))
+  (values body ;; mnemonic
+          (intern (string mnemonic) "KEYWORD")))
 
 ;; (defmethod clause-processor ((assembler assembler) mnemonic operands body params)
 ;;   (declare (ignore assembler))
@@ -523,7 +535,6 @@ rt          :initform nil
 
 (defmethod specify-ops ((assembler assembler) op-symbol operands params operations)
   "A simple scheme for implementing operations - the (specop) content is directly placed within functions in the lexicon hash table."
-  ;; (print (list :par params))
   (cond ((assoc :combine params)
          ;; combinatoric parameters are used to specify mnemonics and opcodes that can be derived
          ;; by combining lists of base components, such as the Xcc conditional instructions seen
@@ -547,6 +558,7 @@ rt          :initform nil
          ;; tabular parameters are used to specify many opcodes for ISAs like Z80 and 6502 along
          ;; with more recent one-byte instruction sets like WebAssembly
          (destructuring-bind (mode &rest properties) (rest (assoc :tabular params))
+           (declare (ignore properties))
            (case mode (:cross-adding
                        (cons 'progn (process-clause-matrix assembler op-symbol
                                                            operands params operations))))))
@@ -590,10 +602,45 @@ rt          :initform nil
 (defmethod locate-relative ((assembler assembler) location-spec program-props)
   ;; (print (list :aea location-spec program-props))
   (destructuring-bind (label bit-offset field-length index) location-spec
+    (declare (ignore bit-offset))
     (let ((offset (- (rest (assoc label (getf program-props :marked-points))) index)))
       (if (not (minusp offset)) ;; two's complement conversion
           offset (+ (ash 1 (1- field-length))
                     (abs offset))))))
+
+;; (defmethod locate ((assembler assembler) location-spec program-props)
+;;   ;; (print (list :aea location-spec program-props))
+;;   (destructuring-bind (label bit-offset field-length index) location-spec
+;;     (asm-domains)
+;;     (let ((offset (- (rest (assoc label (getf program-props :marked-points))) index)))
+;;       (if (not (minusp offset)) ;; two's complement conversion
+;;           offset (+ (ash 1 (1- field-length))
+;;                     (abs offset))))))
+
+(defmethod locate ((assembler assembler) items)
+  (let ((reserved) (domains (asm-domains assembler)))
+    (loop :for item :in items
+          :collect (destructuring-bind (symbol type &key bind &allow-other-keys) item
+                     (let* ((type-spec (getf domains type))
+                            (rset (assoc type reserved))
+                            (out-item (if bind (typecase type-spec
+                                                 (list     (and (position bind type-spec :test #'eq)
+                                                                bind))
+                                                 (function (funcall type-spec bind)))
+                                          (let ((options (set-difference type-spec (rest rset))))
+                                            ;; (print (list :aa domains type-spec (rest rset)))
+                                            (nth (random (length options)) options)))))
+                       (unless rset
+                         (push (setf rset (list type)) reserved))
+                       (when (and bind out-item)
+                         (when (not (member out-item type-spec))
+                           (error "The member ~a of type ~a is not available in this assembler's domain."
+                                  bind type))
+                         (when (member out-item (rest (assoc type reserved)))
+                           (error "The member ~a of type ~a has already been reserved." bind type)))
+                       (if out-item (push out-item (rest (assoc type reserved)))
+                           (error "Unable to reserve member ~a of type ~a." bind type))
+                       (list symbol out-item))))))
 
 (defmethod compose ((assembler assembler) params expression)
   "The top-level method for assembly. Generates a byte vector from a list of instructions formatted as small lists."
@@ -604,6 +651,8 @@ rt          :initform nil
          (two-power (floor (log unit 2)))
          (api-access (lambda (mode &rest args)
                        (case mode
+                         (:exmode (or (rest (assoc :exmode params))
+                                      (first (asm-exmodes assembler))))
                          (:label (destructuring-bind (offset-bits field-length symbol) args
                                    (typecase symbol
                                      (integer symbol)
@@ -622,24 +671,27 @@ rt          :initform nil
                   (symbol (push (cons item (fill-pointer codes)) (getf props :marked-points)))
                   (list   (destructuring-bind (instruction &rest operands) item
                             (let ((build-instruction (of-lexicon assembler instruction)))
+                              ;; (print (list :bi build-instruction))
                               (multiple-value-bind (code properties)
                                   (if (not (functionp build-instruction))
                                       build-instruction (apply build-instruction api-access operands))
-                                (if (functionp code)
+                                (if (functionp code) ;; TODO: remove this clause
                                     (let ((breadth (or (getf properties :breadth) 0)))
                                       (push (append (list (fill-pointer codes) code)
                                                     properties)
                                             (getf props :tag-points))
                                       (dotimes (i breadth) (add-value 0)))
-                                    (serialize code unit #'add-value))))))))
+                                    (if (listp code)
+                                        (loop :for item :in code :when item
+                                              :do (serialize item unit #'add-value))
+                                        (serialize code unit #'add-value)))))))))
       (setf codes-length (fill-pointer codes))
       
       (loop :for tag-spec :in (getf props :tag-points)
             :do (destructuring-bind (symbol bit-offset field-length index) tag-spec
                   (let ((value (locate-relative assembler tag-spec props))
                         (unaligned-bits (logand bit-offset (1- (ash 1 two-power)))))
-                    (setf (fill-pointer codes)
-                          (+ index (ash bit-offset (- two-power))))
+                    (setf (fill-pointer codes) (+ index (ash bit-offset (- two-power))))
                     (unless (zerop unaligned-bits)
                       (let ((first-original (aref codes (fill-pointer codes))))
                         (serialize (+ first-original (ash value (- (- field-length
@@ -652,13 +704,12 @@ rt          :initform nil
         output))))
 
 (defmethod %assemble ((assembler assembler) assembler-sym params expressions)
-  (let ((compose-params))
-    `(let ,(if (not (rest (assoc :store (rest params))))
-               nil (locate assembler assembler-sym (rest (assoc :store (rest params)))))
-       (compose ,assembler-sym ,compose-params
-                (list ,@(loop :for e :in expressions
-                              :collect (if (not (and (listp e) (keywordp (first e))))
-                                           e (cons 'list e))))))))
+  `(let ,(if (not (rest (assoc :store (rest params))))
+             nil (locate assembler (rest (assoc :store (rest params)))))
+     (compose ,assembler-sym ',params
+              (list ,@(loop :for e :in expressions
+                            :collect (if (not (and (listp e) (keywordp (first e))))
+                                         e (cons 'list e)))))))
 
 (defmacro assemble (assembler params &rest expressions)
   (%assemble (symbol-value assembler) assembler params expressions))
@@ -703,7 +754,7 @@ rt          :initform nil
 
 (defmethod interpret-element or ((assembler assembler-masking) ipattern reader)
   (let ((match))
-    (loop  :until match :for unmasker :being :the :hash-values :of (asm-msk-battery assembler)
+    (loop :until match :for unmasker :being :the :hash-values :of (asm-msk-battery assembler)
           :do (let ((attempt (funcall unmasker ipattern reader)))
                 (when attempt (setf match attempt))))
    match))
@@ -717,6 +768,19 @@ rt          :initform nil
 (defmacro to-tag (function &rest properties)
   (list 'values function (cons 'list properties)))
 
+(defmacro define-extension (symbol assembler output-sym input-bindings &body body)
+  (let ((input (gensym)) (params (gensym)))
+    `(defun ,symbol (,input &optional ,params)
+       (funcall (lambda ,(cons output-sym input-bindings) ,@body)
+                (cons (compose ,assembler ,params ,input) ,input)))))
+
+;; (define-extension lock-inst #'joinb bytes (instruction &rest operands)
+;;   (declare (ignore operands))
+;;   (if (not (position instruction #(:add)))
+;;       (error "Ineligible instruction for use with lock prefix.")
+;;       )
+;;   )
+  
 ;; (defmethod interpret or ((assembler assembler-encoding) params array)
 ;;   (let* ((etype (let ((element-type (array-element-type array)))
 ;;                   (unless (eq 'unsigned-byte (first element-type))

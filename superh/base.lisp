@@ -4,58 +4,56 @@
 
 (defvar *superh-layout*)
 
-(defclass superh-mas (mas-based mas-indexed mas-displaced)
-  ((%qualifier :accessor superh-mas-qualifier
+(defclass mas-superh (mas-based mas-indexed mas-displaced)
+  ((%qualifier :accessor mas-superh-qualifier
                :initform nil
                :initarg  :qualifier)))
 
-(defclass superh-mas-postinc (superh-mas)
+(defclass mas-superh-postinc (mas-superh)
   ())
 
-(defclass superh-mas-predecr (superh-mas)
+(defclass mas-superh-predecr (mas-superh)
   ())
 
-(defclass superh-mas-bd (superh-mas mas-displaced)
+(defclass mas-superh-bd (mas-superh mas-displaced)
   ())
 
-(defclass superh-mas-pc (mas-displaced)
+(defclass mas-superh-pc (mas-displaced)
   ())
 
 (defun @ (base)
-  (make-instance 'superh-mas :base base))
+  (make-instance 'mas-superh :base base))
 
 (defun @+ (base)
-  (make-instance 'superh-mas :base base :qualifier :postinc))
+  (make-instance 'mas-superh :base base :qualifier :postinc))
 
 (defun -@ (base)
-  (make-instance 'superh-mas :base base :qualifier :predecr))
+  (make-instance 'mas-superh :base base :qualifier :predecr))
 
 (defun @0 (index)
-  (make-instance 'superh-mas :base :r0 :index index))
+  (make-instance 'mas-superh :base :r0 :index index))
 
 (defun @> (base displacement)
-  (make-instance 'superh-mas :base base :displ displacement))
+  (make-instance 'mas-superh :base base :displ displacement))
 
 (defun @pc (displacement)
-  (make-instance 'superh-mas :base :pc :displ displacement))
+  (make-instance 'mas-superh :base :pc :displ displacement))
 
 (defun @gb (displacement)
-  (make-instance 'superh-mas :base :gbr :displ displacement))
+  (make-instance 'mas-superh :base :gbr :displ displacement))
 
 (defun @gbr0 ()
-  (make-instance 'superh-mas :base :gbr :index :r0))
+  (make-instance 'mas-superh :base :gbr :index :r0))
 
 (defun @@tbr (displacement)
-  (make-instance 'superh-mas :base :tbr :displ displacement :qualifier :x4))
+  (make-instance 'mas-superh :base :tbr :displ displacement :qualifier :x4))
 
 (setf *superh-layout*
-      (list :gpr  #(:r0  :r1  :r2  :r3  :r4  :r5  :r6  :r7
-                    :r8  :r9  :r10 :r11 :r12 :r13 :r14 :r15)
-            :gprb #(:rb0 :rb1 :rb2 :rb3 :rb4 :rb5 :rb6 :rb7)
-            :fpr  #(:f0  :f1  :f2  :f3  :f4  :f5  :f6  :f7
-                    :f8  :f9  :f10 :f11 :f12 :f13 :f14 :f15)
-            :spr  #(:sr :gbr :vbr :mach :macl :pr :pc)
-            :dspr #(:dsr :a0 :x0 :x1 :y0 :y1)))
+      (list :gpr  '(:r0  :r1  :r2  :r3  :r4  :r5  :r6  :r7 :r8  :r9  :r10 :r11 :r12 :r13 :r14 :r15)
+            :fpr  '(:f0  :f1  :f2  :f3  :f4  :f5  :f6  :f7 :f8  :f9  :f10 :f11 :f12 :f13 :f14 :f15)
+            :gprb '(:rb0 :rb1 :rb2 :rb3 :rb4 :rb5 :rb6 :rb7)
+            :spr  '(:sr :gbr :vbr :mach :macl :pr :pc)
+            :dspr '(:dsr :a0 :x0 :x1 :y0 :y1)))
 
 (defclass assembler-superh (assembler-masking)
   ((%storage :accessor   asm-storage
@@ -83,25 +81,22 @@
              :initarg    :joiner)))
 
 (defun gprix (index)
-  (aref (getf *superh-layout* :gpr) index))
+  (position index (getf *superh-layout* :gpr)))
 
 (defun gprbix (index)
-  (aref (getf *superh-layout* :gprb) index))
+  (position index (getf *superh-layout* :gprb)))
 
 (defun fprix (index)
-  (aref (getf *superh-layout* :fpr) index))
+  (position index (getf *superh-layout* :fpr)))
 
 (defun gpr-p (item)
-  (and (keywordp item)
-       (position item (getf *superh-layout* :gpr))))
+  (and (keywordp item) (gprix item)))
 
 (defun gprb-p (item)
-  (and (keywordp item)
-       (position item (getf *superh-layout* :gprb))))
+  (and (keywordp item) (gprbix item)))
 
 (defun fpr-p (item)
-  (and (keywordp item)
-       (position item (getf *superh-layout* :fpr))))
+  (and (keywordp item) (fprix item)))
 
 (deftype gpr  () `(satisfies gpr-p))
 
@@ -110,47 +105,47 @@
 (deftype fpr  () `(satisfies fpr-p))
 
 (defun mas-simple-p  (item)
-  (and (typep item 'superh-mas)
+  (and (typep item 'mas-superh)
        (not (mas-displ item))
-       (not (superh-mas-qualifier item))))
+       (not (mas-superh-qualifier item))))
 
 (defun mas-predecr-p (item)
-  (and (typep item 'superh-mas)
-       (eq :predecr (superh-mas-qualifier item))))
+  (and (typep item 'mas-superh)
+       (eq :predecr (mas-superh-qualifier item))))
 
 (defun mas-postinc-p (item)
-  (and (typep item 'superh-mas)
-       (eq :postinc (superh-mas-qualifier item))))
+  (and (typep item 'mas-superh)
+       (eq :postinc (mas-superh-qualifier item))))
 
 (defun mas-b+rzero-p (item)
-  (and (typep item 'superh-mas)
+  (and (typep item 'mas-superh)
        (eq :r0 (mas-base item))
        (typep (mas-index item) 'gpr)))
 
 (defun mas-bs+disp-p (item)
-  (and (typep item 'superh-mas)
+  (and (typep item 'mas-superh)
        (mas-displ item)
        (typep (mas-base item) 'gpr)))
 
 (defun mas-pc+disp-p (item)
-  (and (typep item 'superh-mas)
+  (and (typep item 'mas-superh)
        (mas-displ item)
        (eq :pc (mas-base item))))
 
 (defun mas-gb+disp-p (item)
-  (and (typep item 'superh-mas)
+  (and (typep item 'mas-superh)
        (mas-displ item)
        (eq :gbr (mas-base item))))
 
 (defun mas-gb+rzro-p (item)
-  (and (typep item 'superh-mas)
+  (and (typep item 'mas-superh)
        (eq :gbr (mas-base  item))
        (eq :r0  (mas-index item))))
 
 (defun mas-tb+dis4-p (item)
-  (and (typep item 'superh-mas)
+  (and (typep item 'mas-superh)
        (eq :tbr (mas-base item))
-       (eq :x4  (superh-mas-qualifier item))
+       (eq :x4  (mas-superh-qualifier item))
        (mas-displ item)))
 
 (deftype mas-simple  () `(satisfies mas-simple-p))
@@ -174,10 +169,10 @@
 (deftype mas-tb+dis4 () `(satisfies mas-tb+dis4-p))
 
 (defun drv-gpr (index)
-  (aref (getf *superh-layout* :gpr) index))
+  (nth index (getf *superh-layout* :gpr)))
 
 (defun drv-gprb (index)
-  (aref (getf *superh-layout* :gprb) index))
+  (nth index (getf *superh-layout* :gprb)))
 
 (defun rs16 (number)
   (ash number -16))

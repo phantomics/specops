@@ -4,6 +4,11 @@
 
 (setf *assembler-prototype-m68k* (make-instance 'assembler-m68k))
 
+;; (defmacro specop (symbol operands &body params)
+;;   (cons 'specops (append (list (intern (string symbol) "KEYWORD")
+;;                                operands '*assembler-prototype-m68k*)
+;;                          params)))
+
 (defmacro specop (symbol operands &body params)
   (cons 'specops (append (list symbol operands '*assembler-prototype-m68k*) params)))
 

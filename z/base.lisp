@@ -36,6 +36,17 @@
 ;; (defclass z-vcregister (z-register)
 ;;   ())
 
+(defvar *z-layout*
+  (list :gpr '(:r0  :r1  :r2  :r3  :r3  :r5  :r6  :r7  :r8  :r9  :r10 :r11 :r12 :r13 :r14 :r15)
+        :vcr '(:v0  :v1  :v2  :v3  :v4  :v5  :v6  :v7  :v8  :v9  :v10 :v11 :v12 :v13 :v14 :v15
+               :v16 :v17 :v18 :v19 :v20 :v21 :v22 :v23 :v24 :v25 :v26 :v27 :v28 :v29 :v30 :v31)))
+
+(defun rix (item)
+  (if (integerp item)
+      item (if (keywordp item)
+               (or (position item (getf *z-layout* :gpr))
+                   (position item (getf *z-layout* :vcr))))))
+
 (defclass z-mas (mas-based mas-indexed mas-displaced)
   ())
 
@@ -82,7 +93,7 @@
   (logand #xFFF (mas-displ z-mas)))
 
 ;; (defmethod z-vcr-loix ((z-vcregister z-vcregister))
-;;   (logand #xF (reg-index z-vcregister)))
+;;   (logand #xF (rix z-vcregister)))
 
 (defun z-vcr-loix (index)
   (logand #xF index))
@@ -96,88 +107,6 @@
 ;; (defvar *z-storage*)
 (defvar *assembler-prototype-z*)
 
-;; (setf *z-storage*
-;;       (list :gpr (vector (make-instance 'z-gpregister :name :r0  :index  0)
-;;                          (make-instance 'z-gpregister :name :r1  :index  1)
-;;                          (make-instance 'z-gpregister :name :r2  :index  2)
-;;                          (make-instance 'z-gpregister :name :r3  :index  3)
-;;                          (make-instance 'z-gpregister :name :r4  :index  4)
-;;                          (make-instance 'z-gpregister :name :r5  :index  5)
-;;                          (make-instance 'z-gpregister :name :r6  :index  6)
-;;                          (make-instance 'z-gpregister :name :r7  :index  7)
-;;                          (make-instance 'z-gpregister :name :r8  :index  8)
-;;                          (make-instance 'z-gpregister :name :r9  :index  9)
-;;                          (make-instance 'z-gpregister :name :r10 :index 10)
-;;                          (make-instance 'z-gpregister :name :r11 :index 11)
-;;                          (make-instance 'z-gpregister :name :r12 :index 12)
-;;                          (make-instance 'z-gpregister :name :r13 :index 13)
-;;                          (make-instance 'z-gpregister :name :r14 :index 14)
-;;                          (make-instance 'z-gpregister :name :r15 :index 15))
-;;             :fpr (vector (make-instance 'z-fpregister :name :f0  :index  0)
-;;                          (make-instance 'z-fpregister :name :f1  :index  1)
-;;                          (make-instance 'z-fpregister :name :f2  :index  2)
-;;                          (make-instance 'z-fpregister :name :f3  :index  3)
-;;                          (make-instance 'z-fpregister :name :f4  :index  4)
-;;                          (make-instance 'z-fpregister :name :f5  :index  5)
-;;                          (make-instance 'z-fpregister :name :f6  :index  6)
-;;                          (make-instance 'z-fpregister :name :f7  :index  7)
-;;                          (make-instance 'z-fpregister :name :f8  :index  8)
-;;                          (make-instance 'z-fpregister :name :f9  :index  9)
-;;                          (make-instance 'z-fpregister :name :f10 :index 10)
-;;                          (make-instance 'z-fpregister :name :f11 :index 11)
-;;                          (make-instance 'z-fpregister :name :f12 :index 12)
-;;                          (make-instance 'z-fpregister :name :f13 :index 13)
-;;                          (make-instance 'z-fpregister :name :f14 :index 14)
-;;                          (make-instance 'z-fpregister :name :f15 :index 15))
-;;             :ctr (vector (make-instance 'z-ctregister :name :d0 :index  0)
-;;                          (make-instance 'z-ctregister :name :d1 :index  1)
-;;                          (make-instance 'z-ctregister :name :d2 :index  2)
-;;                          (make-instance 'z-ctregister :name :d3 :index  3)
-;;                          (make-instance 'z-ctregister :name :d4 :index  4)
-;;                          (make-instance 'z-ctregister :name :d5 :index  5)
-;;                          (make-instance 'z-ctregister :name :d6 :index  6)
-;;                          (make-instance 'z-ctregister :name :d7 :index  7)
-;;                          (make-instance 'z-ctregister :name :d7 :index  8)
-;;                          (make-instance 'z-ctregister :name :d7 :index  9)
-;;                          (make-instance 'z-ctregister :name :d7 :index 10)
-;;                          (make-instance 'z-ctregister :name :d7 :index 11)
-;;                          (make-instance 'z-ctregister :name :d7 :index 12)
-;;                          (make-instance 'z-ctregister :name :d7 :index 13)
-;;                          (make-instance 'z-ctregister :name :d7 :index 14)
-;;                          (make-instance 'z-ctregister :name :d7 :index 15))
-;;             :acr (vector (make-instance 'z-acregister :name :a0 :index 0)
-;;                          (make-instance 'z-acregister :name :a1 :index 1)
-;;                          (make-instance 'z-acregister :name :a2 :index 2)
-;;                          (make-instance 'z-acregister :name :a3 :index 3)
-;;                          (make-instance 'z-acregister :name :a4 :index 4)
-;;                          (make-instance 'z-acregister :name :a5 :index 5)
-;;                          (make-instance 'z-acregister :name :a6 :index 6)
-;;                          (make-instance 'z-acregister :name :a7 :index 7)
-;;                          (make-instance 'z-acregister :name :a7 :index 8)
-;;                          (make-instance 'z-acregister :name :a7 :index 9)
-;;                          (make-instance 'z-acregister :name :a7 :index 10)
-;;                          (make-instance 'z-acregister :name :a7 :index 11)
-;;                          (make-instance 'z-acregister :name :a7 :index 12)
-;;                          (make-instance 'z-acregister :name :a7 :index 13)
-;;                          (make-instance 'z-acregister :name :a7 :index 14)
-;;                          (make-instance 'z-acregister :name :a7 :index 15))
-;;             :vcr (vector (make-instance 'z-vcregister :name :a0 :index 0)
-;;                          (make-instance 'z-vcregister :name :a1 :index 1)
-;;                          (make-instance 'z-vcregister :name :a2 :index 2)
-;;                          (make-instance 'z-vcregister :name :a3 :index 3)
-;;                          (make-instance 'z-vcregister :name :a4 :index 4)
-;;                          (make-instance 'z-vcregister :name :a5 :index 5)
-;;                          (make-instance 'z-vcregister :name :a6 :index 6)
-;;                          (make-instance 'z-vcregister :name :a7 :index 7)
-;;                          (make-instance 'z-vcregister :name :a7 :index 8)
-;;                          (make-instance 'z-vcregister :name :a7 :index 9)
-;;                          (make-instance 'z-vcregister :name :a7 :index 10)
-;;                          (make-instance 'z-vcregister :name :a7 :index 11)
-;;                          (make-instance 'z-vcregister :name :a7 :index 12)
-;;                          (make-instance 'z-vcregister :name :a7 :index 13)
-;;                          (make-instance 'z-vcregister :name :a7 :index 14)
-;;                          (make-instance 'z-vcregister :name :a7 :index 15))))
-
 (defclass assembler-z (assembler-masking)
   ((%storage :accessor   asm-storage
              :allocation :class
@@ -190,6 +119,10 @@
    (%domains :accessor   asm-domains
              :initform   nil
              :initarg    :domains)
+   (%breadth :accessor   asm-breadth
+             :allocation :class
+             :initform   16
+             :initarg    :breadth)
    (%joiner  :accessor   asm-joiner
              :allocation :class
              :initform   #'joinw
@@ -216,10 +149,10 @@
 
 ;; (defun vrmsbits (v1 &optional v2 v3 v4)
 ;;   "Get most significant bits from indices of vector registers passed as operands to a vector instruction. Used to populate the RXB fields of vector instruction codes."
-;;   (+ (if v1 (ash (logand #b10000 (reg-index v1)) -1) 0)
-;;      (if v2 (ash (logand #b10000 (reg-index v2)) -2) 0)
-;;      (if v3 (ash (logand #b10000 (reg-index v3)) -3) 0)
-;;      (if v4 (ash (logand #b10000 (reg-index v4)) -4) 0)))
+;;   (+ (if v1 (ash (logand #b10000 (rix v1)) -1) 0)
+;;      (if v2 (ash (logand #b10000 (rix v2)) -2) 0)
+;;      (if v3 (ash (logand #b10000 (rix v3)) -3) 0)
+;;      (if v4 (ash (logand #b10000 (rix v4)) -4) 0)))
 
 (defun vrmsbits (v1 &optional v2 v3 v4)
   "Get most significant bits from indices of vector registers passed as operands to a vector instruction. Used to populate the RXB fields of vector instruction codes."
@@ -230,10 +163,20 @@
 
 (defmacro specop-z (mnemonic format opcode)
   (destructuring-bind (assemble-fn &optional disassemble-fn) (macroexpand (list format opcode mnemonic))
-    `(progn (specops ,mnemonic nil *assembler-prototype-z* ,assemble-fn)
+    `(progn (of-lexicon *assembler-prototype-z* ,(intern (string mnemonic) "KEYWORD")
+                        ,assemble-fn)
             ,@(if (not disassemble-fn)
                   nil `((of-battery *assembler-prototype-z* ,(intern (string mnemonic) "KEYWORD")
                                     ,disassemble-fn))))))
+
+#|
+
+(assemble *assembler-prototype-z* ()
+  (:adr 1 1) (:sr 10 7))
+
+|#
+
+
 
 ;; IBM's docs count the operands from 1 and these functions do the same
 
@@ -265,13 +208,13 @@
 (mqbase zformat-ri-a opc mne (r1 i2)
     "AAAAAAAA.RRRRZZZZ.IIIIIIII.IIIIIIII"
   ((:static (a (rs4 opc)) (z (lo4 opc))))
-  ((r (reg-index r1)) (i i2))
+  ((r (rix r1)) (i i2))
   (list mne r i))
 
 (mqbase zformat-ri-b opc mne (r1 ri2)
     "AAAAAAAA.RRRRZZZZ.IIIIIIII.IIIIIIII"
   ((:static (a (rs4 opc)) (z (lo4 opc))))
-  ((r (reg-index r1)) (i (of-program :label 16 16 ri2)))
+  ((r (rix r1)) (i (of-program :label 16 16 ri2)))
   (list mne r i))
 
 (mqbase zformat-ri-c opc mne (m1 ri2)
@@ -283,58 +226,58 @@
 (mqbase zformat-rie-a opc mne (r1 i2 m3)
     "AAAAAAAA.RRRR0000.IIIIIIII.IIIIIIII.MMMM0000.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (reg-index r1)) (i i2) (m m3))
+  ((r (rix r1)) (i i2) (m m3))
   (list mne r i m))
 
 (mqbase zformat-rie-b opc mne (r1 r2 m3 ri4)
     "AAAAAAAA.RRRRSSSS.IIIIIIII.IIIIIIII.MMMM0000.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (reg-index r1)) (s (reg-index r2))
+  ((r (rix r1)) (s (rix r2))
    (i (of-program :label 16 16 ri4)) (m m3))
   (list mne r s m i))
 
 (mqbase zformat-rie-c opc mne (r1 i2 m3 ri4)
     "AAAAAAAA.RRRRMMMM.IIIIIIII.IIIIIIII.JJJJJJJJ.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (reg-index r1)) (m m3)
+  ((r (rix r1)) (m m3)
    (i (of-program :label 16 16 ri4)) (j i2))
   (list mne r j m i))
 
 (mqbase zformat-rie-d opc mne (r1 i2 r3)
     "AAAAAAAA.RRRRSSSS.IIIIIIII.IIIIIIII.00000000.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (reg-index r1)) (s (reg-index r3)) (i i2))
+  ((r (rix r1)) (s (rix r3)) (i i2))
   (list mne r i s))
 
 (mqbase zformat-rie-e opc mne (r1 ri2 r3)
     "AAAAAAAA.RRRRSSSS.IIIIIIII.IIIIIIII.00000000.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (reg-index r1)) (s (reg-index r3))
+  ((r (rix r1)) (s (rix r3))
    (i (of-program :label 16 16 ri2)))
   (list mne r i s))
 
 (mqbase zformat-rie-f opc mne (r1 r2 i3 i4 i5)
     "AAAAAAAA.RRRRSSSS.IIIIIIII.JJJJJJJJ.KKKKKKKK.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (reg-index r1)) (s (reg-index r2)) (i i3) (j i4) (k i5))
+  ((r (rix r1)) (s (rix r2)) (i i3) (j i4) (k i5))
   (list mne r s i j k))
 
 (mqbase zformat-rie-g opc mne (r1 i2 m3)
     "AAAAAAAA.RRRRMMMM.IIIIIIII.IIIIIIII.00000000.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (reg-index r1)) (m m3) (i i2))
+  ((r (rix r1)) (m m3) (i i2))
   (list mne r i m))
 
 (mqbase zformat-ril-a opc mne (r1 i2)
     "AAAAAAAA.RRRRZZZZ.IIIIIIII.IIIIIIII.IIIIIIII.IIIIIIII"
   ((:static (a (rs4 opc)) (z (lo4 opc))))
-  ((r (reg-index r1)) (i i2))
+  ((r (rix r1)) (i i2))
   (list mne r i))
 
 (mqbase zformat-ril-b opc mne (r1 ri2)
     "AAAAAAAA.RRRRZZZZ.IIIIIIII.IIIIIIII.IIIIIIII.IIIIIIII"
   ((:static (a (rs4 opc)) (z (lo4 opc))))
-  ((r (reg-index r1)) (i (of-program :label 16 32 ri2)))
+  ((r (rix r1)) (i (of-program :label 16 32 ri2)))
   (list mne r i))
 
 (mqbase zformat-ril-c opc mne (m1 ri2)
@@ -346,83 +289,83 @@
 (mqbase zformat-ris opc mne (r1 i2 m3 bd4)
     "AAAAAAAA.RRRRMMMM.BBBBDDDD.DDDDDDDD.IIIIIIII.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (reg-index r1)) (m m3)
+  ((r (rix r1)) (m m3)
    (b (mas-base bd4)) (d (mas-displ bd4)) (i i2))
   (list mne r i m (derive-mas b nil d)))
 
 (mqbase zformat-rr opc mne (r1 r2)
     "AAAAAAAA.RRRRSSSS"
   ((:static (a opc)))
-  ((r (reg-index r1)) (s (reg-index r2)))
+  ((r (rix r1)) (s (rix r2)))
   (list mne r s))
 
 (mqbase zformat-rrd opc mne (r1 r2 r3)
     "AAAAAAAA.AAAAAAAA.QQQQ0000.RRRRSSSS"
   ((:static (a opc)))
-  ((q (reg-index r1)) (r (reg-index r2)) (s (reg-index r3)))
+  ((q (rix r1)) (r (rix r2)) (s (rix r3)))
   (list mne q r s))
 
 (mqbase zformat-rre opc mne (r1 r2)
     "AAAAAAAA.AAAAAAAA.00000000.RRRRSSSS"
   ((:static (a opc)))
-  ((r (reg-index r1)) (s (reg-index r2)))
+  ((r (rix r1)) (s (rix r2)))
   (list mne r s))
 
 (mqbase zformat-rrf-a opc mne (r1 r2 r3 m4)
     "AAAAAAAA.AAAAAAAA.QQQQMMMM.RRRRSSSS"
   ((:static (a opc)))
-  ((q (reg-index r3)) (m m4) (r (reg-index r1)) (s (reg-index r2)))
+  ((q (rix r3)) (m m4) (r (rix r1)) (s (rix r2)))
   (list mne r s q m))
 
 (mqbase zformat-rrf-b opc mne (r1 r2 r3 m4)
     "AAAAAAAA.AAAAAAAA.QQQQMMMM.RRRRSSSS"
   ((:static (a opc)))
-  ((q (reg-index r3)) (m m4) (r (reg-index r1)) (s (reg-index r2)))
+  ((q (rix r3)) (m m4) (r (rix r1)) (s (rix r2)))
   (list mne r s q m))
 
 (mqbase zformat-rrf-c opc mne (r1 r2 m3 m4)
     "AAAAAAAA.AAAAAAAA.MMMMNNNN.RRRRSSSS"
   ((:static (a opc)))
-  ((m m3) (n m4) (r (reg-index r1)) (s (reg-index r2)))
+  ((m m3) (n m4) (r (rix r1)) (s (rix r2)))
   (list mne r s m n))
 
 (mqbase zformat-rrf-d opc mne (r1 r2 m3 m4)
     "AAAAAAAA.AAAAAAAA.MMMMNNNN.RRRRSSSS"
   ((:static (a opc)))
-  ((m m3) (n m4) (r (reg-index r1)) (s (reg-index r2)))
+  ((m m3) (n m4) (r (rix r1)) (s (rix r2)))
   (list mne r s m n))
 
 (mqbase zformat-rrf-e opc mne (r1 r2 m3 m4)
     "AAAAAAAA.AAAAAAAA.MMMMNNNN.RRRRSSSS"
   ((:static (a opc)))
-  ((m m3) (n m4) (r (reg-index r1)) (s (reg-index r2)))
+  ((m m3) (n m4) (r (rix r1)) (s (rix r2)))
   (list mne r s m n))
 
 (mqbase zformat-rrs opc mne (r1 r2 m3 bd4)
     "AAAAAAAA.RRRRSSSS.BBBBDDDD.DDDDDDDD.MMMM0000.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (reg-index r1)) (s (reg-index r2))
+  ((r (rix r1)) (s (rix r2))
    (b (mas-base bd4)) (d (mas-displ bd4)) (m m3))
   (list mne r s m (derive-mas b nil d)))
 
 (mqbase zformat-rs-a opc mne (r1 bd2 r3)
     "AAAAAAAA.RRRRSSSS.BBBBDDDD.DDDDDDDD"
   ((:static (a opc)))
-  ((r (reg-index r1)) (s (reg-index r3))
+  ((r (rix r1)) (s (rix r3))
    (b (mas-base bd2)) (d (mas-displ bd2)))
   (list mne r (derive-mas b nil d) s))
 
 (mqbase zformat-rs-b opc mne (r1 bd2 m3)
     "AAAAAAAA.RRRRMMMM.BBBBDDDD.DDDDDDDD"
   ((:static (a opc)))
-  ((r (reg-index r1)) (m m3)
+  ((r (rix r1)) (m m3)
    (b (mas-base bd2)) (d (mas-displ bd2)))
   (list mne r (derive-mas b nil d) m))
 
 (mqbase zformat-rsi opc mne (r1 ri2 r3)
     "AAAAAAAA.RRRRSSSS.IIIIIIII.IIIIIIII"
   ((:static (a opc)))
-  ((r (reg-index r1)) (s (reg-index r3)) (i (of-program :label 16 16 ri2)))
+  ((r (rix r1)) (s (rix r3)) (i (of-program :label 16 16 ri2)))
   (list mne r i s))
 
 (mqbase zformat-rsl-a opc mne (bld1)
@@ -440,21 +383,21 @@
 (mqbase zformat-rsy-a opc mne (r1 bdd2 r3)
     "AAAAAAAA.RRRRSSSS.BBBBDDDD.DDDDDDDD.HHHHHHHH.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (reg-index r1)) (s (reg-index r3))
+  ((r (rix r1)) (s (rix r3))
    (b (mas-base bdd2)) (d (z-masd-lo12 bdd2)) (h (z-masd-rs12 bdd2)))
   (list mne r (derive-mas b nil (add-longdisp h d)) s))
 
 (mqbase zformat-rsy-b opc mne (r1 bdd2 m3)
     "AAAAAAAA.RRRRMMMM.BBBBDDDD.DDDDDDDD.HHHHHHHH.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (reg-index r1)) (m m3)
+  ((r (rix r1)) (m m3)
    (b (mas-base bdd2)) (d (z-masd-lo12 bdd2)) (h (z-masd-rs12 bdd2)))
   (list mne r (derive-mas b nil (add-longdisp h d)) m))
 
 (mqbase zformat-rx-a opc mne (r1 bdx2)
     "AAAAAAAA.RRRRXXXX.BBBBDDDD.DDDDDDDD"
   ((:static (a opc)))
-  ((r (reg-index r1))
+  ((r (rix r1))
    (x (mas-index bdx2)) (b (mas-base bdx2)) (d (mas-displ bdx2)))
   (list mne r (derive-mas b x d)))
 
@@ -467,22 +410,22 @@
 (mqbase zformat-rxe opc mne (r1 bdx2 m3)
     "AAAAAAAA.RRRRXXXX.BBBBDDDD.DDDDDDDD.MMMM0000.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (reg-index r1))
+  ((r (rix r1))
    (x (mas-index bdx2)) (b (mas-base bdx2)) (d (mas-displ bdx2)) (m m3))
   (list mne r (derive-mas b x d) m))
 
 (mqbase zformat-rxf opc mne (r1 bdx2 r3)
     "AAAAAAAA.RRRRXXXX.BBBBDDDD.DDDDDDDD.SSSS0000.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (reg-index r3))
+  ((r (rix r3))
    (x (mas-index bdx2)) (b (mas-base bdx2)) (d (mas-displ bdx2))
-   (s (reg-index r1)))
+   (s (rix r1)))
   (list mne r (derive-mas b x d) s))
 
 (mqbase zformat-rxy-a opc mne (r1 bddx2)
     "AAAAAAAA.RRRRXXXX.BBBBDDDD.DDDDDDDD.HHHHHHHH.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (reg-index r1)) (x (mas-index bddx2))
+  ((r (rix r1)) (x (mas-index bddx2))
    (b (mas-base bddx2)) (d (z-masd-lo12 bddx2)) (h (z-masd-rs12 bddx2)))
   (list mne r (derive-mas b x (add-longdisp h d))))
 
@@ -551,7 +494,7 @@
 (mqbase zformat-ss-d opc mne (r1 bd2 bd3 r4)
     "AAAAAAAA.RRRRSSSS.BBBBDDDD.DDDDDDDD.EEEEFFFF.FFFFFFFF"
   ((:static (a opc))) ;; ?? how does this work ??
-  ((r (reg-index r1)) (s r4)
+  ((r (rix r1)) (s r4)
    (b (mas-base bd2)) (d (mas-displ bd2))
    (e (mas-base bd3)) (f (mas-displ bd3)))
   (list mne r (derive-mas b nil d) (derive-mas e nil f) s))
@@ -559,7 +502,7 @@
 (mqbase zformat-ss-e opc mne (r1 bd2 r3 bd4)
     "AAAAAAAA.RRRRSSSS.BBBBDDDD.DDDDDDDD.EEEEFFFF.FFFFFFFF"
   ((:static (a opc)))
-  ((r (reg-index r1)) (s (reg-index r3))
+  ((r (rix r1)) (s (rix r3))
    (b (mas-base bd2)) (d (mas-displ bd2))
    (e (mas-base bd4)) (f (mas-displ bd4)))
   (list mne r (derive-mas b nil d) s (derive-mas e nil f)))
@@ -582,7 +525,7 @@
 (mqbase zformat-ssf opc mne (bd1 bd2 r3)
     "AAAAAAAA.RRRRZZZZ.BBBBDDDD.DDDDDDDD.EEEEFFFF.FFFFFFFF"
   ((:static (a (rs4 opc)) (z (lo4 opc))))
-  ((r (reg-index r3))
+  ((r (rix r3))
    (b (mas-base bd1)) (d (mas-displ bd1))
    (e (mas-base bd2)) (f (mas-displ bd2)))
   (list mne (derive-mas b nil d) (derive-mas e nil f) r))
@@ -643,7 +586,7 @@
 (mqbase zformat-vri-i opc mne (v1 r2 i3 m4)
     "AAAAAAAA.VVVVRRRR.00000000.MMMMIIII.IIIIYYYY.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((v (z-vcr-loix v1)) (r (reg-index r2))
+  ((v (z-vcr-loix v1)) (r (rix r2))
    (m m4) (i i3) (y (vrmsbits v1)))
   (list mne (derive-vra 0 v y) r i m))
 
@@ -687,7 +630,7 @@
 (mqbase zformat-vrr-f opc mne (v1 r2 r3)
     "AAAAAAAA.VVVVRRRR.SSSS0000.00000000.0000YYYY.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((v (z-vcr-loix v1)) (r (reg-index r2)) (s (reg-index r3)) (y (vrmsbits v1)))
+  ((v (z-vcr-loix v1)) (r (rix r2)) (s (rix r3)) (y (vrmsbits v1)))
   (list mne (derive-vra 0 v y) r s))
 
 (mqbase zformat-vrr-g opc mne (v1)
@@ -705,7 +648,7 @@
 (mqbase zformat-vrr-i opc mne (r1 v2 m3 m4)
     "AAAAAAAA.RRRRVVVV.00000000.MMMMNNNN.0000YYYY.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (reg-index r1)) (v (z-vcr-loix v2))
+  ((r (rix r1)) (v (z-vcr-loix v2))
    (m m3) (n m4) (y (vrmsbits nil v2)))
   (list mne r (derive-vra 1 v y) m n))
 
@@ -720,7 +663,7 @@
 (mqbase zformat-vrs-b opc mne (v1 bd2 r3 m4)
     "AAAAAAAA.VVVVRRRR.BBBBDDDD.DDDDDDDD.MMMMYYYY.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((v (z-vcr-loix v1)) (r (reg-index r3))
+  ((v (z-vcr-loix v1)) (r (rix r3))
    (b (mas-base bd2)) (d (mas-displ bd2))
    (m m4) (y (vrmsbits v1)))
   (list mne (derive-vra 0 v y) (derive-mas b nil d) r m))
@@ -728,7 +671,7 @@
 (mqbase zformat-vrs-c opc mne (r1 bd2 v3 m4)
     "AAAAAAAA.RRRRVVVV.BBBBDDDD.DDDDDDDD.MMMMYYYY.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (reg-index r1)) (v (z-vcr-loix v3))
+  ((r (rix r1)) (v (z-vcr-loix v3))
    (b (mas-base bd2)) (d (mas-displ bd2))
    (m m4) (y (vrmsbits nil nil v3)))
   (list mne r (derive-mas b nil d) (derive-vra 2 v y) m))
@@ -736,7 +679,7 @@
 (mqbase zformat-vrs-d opc mne (v1 bd2 r3)
     "AAAAAAAA.0000RRRR.BBBBDDDD.DDDDDDDD.VVVVYYYY.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (reg-index r3)) (b (mas-base bd2)) (d (mas-displ bd2))
+  ((r (rix r3)) (b (mas-base bd2)) (d (mas-displ bd2))
    (v (z-vcr-loix v1)) (y (vrmsbits v1)))
   (list mne (derive-vra 0 v y) (derive-mas b nil d) r))
 

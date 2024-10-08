@@ -5,9 +5,9 @@
 (defvar *m68k-layout*)
 
 (setf *m68k-layout*
-      (list :gpr #(:d0 :d1 :d2 :d3 :d4 :d5 :d6 :d7)
-            :adr #(:a0 :a1 :a2 :a3 :a4 :a5 :a6 :a7)
-            :spr #(:usp :sr :ccr)))
+      (list :gpr '(:d0 :d1 :d2 :d3 :d4 :d5 :d6 :d7)
+            :adr '(:a0 :a1 :a2 :a3 :a4 :a5 :a6 :a7)
+            :spr '(:usp :sr :ccr)))
 
 (defclass m68k-mas (mas-based mas-indexed mas-displaced)
   ((%qualifier :accessor m68k-mas-qualifier
@@ -54,7 +54,7 @@
              :initform   (make-hash-table :test #'eq)
              :initarg    :battery)
    (%domains :accessor   asm-domains
-             :initform   nil
+             :initform   *m68k-layout*
              :initarg    :domains)
    (%breadth :accessor   asm-breadth
              :allocation :class
@@ -65,8 +65,8 @@
              :initform   #'joinw
              :initarg    :joiner)))
 
-(defmethod initialize-instance :after ((assembler assembler-m68k) &key)
-  (derive-domains assembler (t (:gpr 8) (:adr 8))))
+;; (defmethod initialize-instance :after ((assembler assembler-m68k) &key)
+;;   (derive-domains assembler (t (:gpr 8) (:adr 8))))
 
 (defun determine-width (width &optional prefix)
   (if prefix
@@ -106,21 +106,17 @@
 ;;        (:index       #b110)))
 ;;     (t               #b111)))
 
-(defun derive-location (addressing-mode index &key base displacement)
-  (case addressing-mode
-    (#b000 (aref (getf *m68k-layout* :gpr) index))
-    (#b001 (aref (getf *m68k-layout* :adr) index))
-    (#b011 (list '@+ (aref (getf *m68k-layout* :adr) index)))
-    (#b100 (list '-@ (aref (getf *m68k-layout* :adr) index)))
-    (#b101 (list '@~ (aref (getf *m68k-layout* :adr) base) nil displacement))))
+(defun gprix (index)
+  (position index (getf *m68k-layout* :gpr)))
+
+(defun adrix (index)
+  (position index (getf *m68k-layout* :adr)))
 
 (defun gpr-p (item)
-  (and (keywordp item)
-       (position item (getf *m68k-layout* :gpr))))
+  (and (keywordp item) (gprix item)))
 
 (defun adr-p (item)
-  (and (keywordp item)
-       (position item (getf *m68k-layout* :adr))))
+  (and (keywordp item) (adrix item)))
 
 (deftype gpr () `(satisfies gpr-p))
 
@@ -150,6 +146,14 @@
 
 (deftype location    () `(satisfies location-p))
 
+(defun derive-location (addressing-mode index &key base displacement)
+  (case addressing-mode
+    (#b000 (nth index (getf *m68k-layout* :gpr)))
+    (#b001 (nth index (getf *m68k-layout* :adr)))
+    (#b011 (list '@+ (nth index (getf *m68k-layout* :adr))))
+    (#b100 (list '-@ (nth index (getf *m68k-layout* :adr))))
+    (#b101 (list '@~ (nth base (getf *m68k-layout* :adr)) nil displacement))))
+
 (defmethod of-storage ((assembler assembler-m68k) key)
   (if (typep key 'm68k-mas)
       (values (position (mas-base key) (getf (asm-storage assembler) :adr))
@@ -160,34 +164,34 @@
       (multiple-value-bind (index type) (call-next-method)
         (values index (case type (:gpr #b000) (:adr #b001))))))
 
-(defmethod locate ((assembler assembler-m68k) asm-sym items)
-  (let ((domains (copy-tree (asm-domains assembler)))
-        (bound (loop :for item :in items :when (member :bind item :test #'eq) :collect item))
-        (unbound (loop :for item :in items :unless (member :bind item :test #'eq) :collect item)))
-    ;; (print (list :bu bound unbound domains))
+;; (defmethod locate ((assembler assembler-m68k) asm-sym items)
+;;   (let ((domains (copy-tree (asm-domains assembler)))
+;;         (bound (loop :for item :in items :when (member :bind item :test #'eq) :collect item))
+;;         (unbound (loop :for item :in items :unless (member :bind item :test #'eq) :collect item)))
+;;     ;; (print (list :bu bound unbound domains))
     
-    (append (loop :for item :in bound
-                  :collect (destructuring-bind (symbol type &rest params) item
-                             ;; (print (list :dom domains))
-                             ;; (print (list :par params type (getf *m68k-storage* type)))
-                             (let ((bind-position (getf params :bind)))
-                               (setf (rest (assoc type domains))
-                                     (remove bind-position (rest (assoc type domains))))
-                               (list symbol `(reserve ,asm-sym ,type ,bind-position)))))
-            (loop :for item :in unbound
-                  :collect (destructuring-bind (symbol type &rest params) item
-                             (declare (ignore params))
-                             (list symbol (let ((random-index
-                                                  (nth (random (length (rest (assoc type domains))))
-                                                       (rest (assoc type domains)))))
-                                            (setf (rest (assoc type domains))
-                                                  (remove random-index (rest (assoc type domains))))
-                                            `(reserve ,asm-sym ,type ,random-index))))))))
+;;     (append (loop :for item :in bound
+;;                   :collect (destructuring-bind (symbol type &rest params) item
+;;                              ;; (print (list :dom domains))
+;;                              ;; (print (list :par params type (getf *m68k-storage* type)))
+;;                              (let ((bind-position (getf params :bind)))
+;;                                (setf (rest (assoc type domains))
+;;                                      (remove bind-position (rest (assoc type domains))))
+;;                                (list symbol `(reserve ,asm-sym ,type ,bind-position)))))
+;;             (loop :for item :in unbound
+;;                   :collect (destructuring-bind (symbol type &rest params) item
+;;                              (declare (ignore params))
+;;                              (list symbol (let ((random-index
+;;                                                   (nth (random (length (rest (assoc type domains))))
+;;                                                        (rest (assoc type domains)))))
+;;                                             (setf (rest (assoc type domains))
+;;                                                   (remove random-index (rest (assoc type domains))))
+;;                                             `(reserve ,asm-sym ,type ,random-index))))))))
 
-(defmethod reserve ((assembler assembler-m68k) &rest params)
-  (destructuring-bind (type index &rest _) params
-    (declare (ignore _))
-    (aref (getf (asm-storage assembler) type) index)))
+;; (defmethod reserve ((assembler assembler-m68k) &rest params)
+;;   (destructuring-bind (type index &rest _) params
+;;     (declare (ignore _))
+;;     (aref (getf (asm-storage assembler) type) index)))
 
 #|
 

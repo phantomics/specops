@@ -10,5 +10,5 @@
   :components ((:file "package")
                (:file "base")
                (:file "templates")
-               ;; (:file "ops.main")
+               (:file "ops.main")
                ))

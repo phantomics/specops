@@ -4,7 +4,7 @@
 
 (specops 0 (op0 &optional op1) *assembler-prototype-z80*
   ;; the main table of z80 instructions; this is permuted by replacing H, L, HL and @HL operands to
-  ;; manifest the DD__ and FD__ instruction tables expressing IX and IY operations
+  ;; manifest the DD__ and FD__ instruction tables expressing IX and IY operations`
   ((:tabular :cross-adding :matcher match-ops) (:duplex . of-decoder))
   ((    ) (#x0       ) (#x1       ) (#x2        ) (#x3        ) (#x4        ) (#x5       ) (#x6        ) (#x7       ) (#x8       ) (#x9       ) (#xA        ) (#xB      ) (#xC        ) (#xD     ) (#xE       ) (#xF     ))
   ((#x00) (:nop      ) (:ld  bc xx) (:ld  @bc  a) (:inc     bc) (:inc      b) (:dec     b) (:ld     b x) (:rlca     ) (:ex af -af) (:add hl bc) (:ld   a @bc) (:dec   bc) (:inc      c) (:dec   c) (:ld  c   x) (:rrca   ))
@@ -48,7 +48,7 @@
  (specops #xED00 (op0 &optional op1) *assembler-prototype-z80*
   ;; the ED__ table of z80 instructions
   ((:tabular :cross-adding :matcher match-ops) (:duplex . of-decoder))
-  ((      ) (#x0     ) (#x1      ) (#x2       ) (#x3       ) (#x4 ) (#x5  ) (#x6  ) (#x7     ) (#x8     ) (#x9      ) (#xA       ) (#xB       ) (#xC ) (#xD  ) (#xE  ) (#xF    ))
+  ((    ) (#x0     ) (#x1      ) (#x2       ) (#x3       ) (#x4 ) (#x5  ) (#x6  ) (#x7     ) (#x8     ) (#x9      ) (#xA       ) (#xB       ) (#xC ) (#xD  ) (#xE  ) (#xF    ))
   ((#x40) (:in b @c) (:out @c b) (:sbc hl bc) (:ld @xx bc) (:neg) (:retn) (:im 0) (:ld  i a) (:in c @c) (:out @c c) (:adc hl bc) (:ld bc @xx) (:neg) (:reti) ()      (:ld r a))
   ((#x50) (:in d @c) (:out @c d) (:sbc hl de) (:ld @xx de) (:neg) (:retn) (:im 1) (:ld  a i) (:in e @c) (:out @c e) (:adc hl de) (:ld de @xx) (:neg) (:retn) (:im 2) (:ld a r))
   ((#x60) (:in h @c) (:out @c h) (:sbc hl hl) (:ld @xx hl) (:neg) (:retn) ()      (:rrd    ) (:in l @c) (:out @c l) (:adc hl hl) (:ld hl @xx) (:neg) (:retn) ()      (:rld   ))
