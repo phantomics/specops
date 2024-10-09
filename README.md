@@ -2,7 +2,7 @@
 ### To Specify Operations
 #### An Assembler Framework For Common Lisp
 
-The landscape of computing is split along many axes. Some programs are written to be easily readable by humans, while others are written for the most efficient possible evaluation. Different software models prioritize different metrics of performance, and users are further divided between many different varieties of computer hardware, each with distinct features which are exposed in different ways to programmers working at higher levels of abstraction.
+The landscape of computing is split along many axes. Some programs are written to be easily readable by humans, while others are written for the fastest possible evaluation. Different software models prioritize different metrics of performance, and users are further divided between many different varieties of computer hardware, each with distinct features which are exposed in different ways to programmers working at higher levels of abstraction.
 
 What kind of tool or design pattern could bridge these divides? In an increasingly heterogenous computing ecosystem, the task of bringing into concert various kinds of hardware has come into a stronger focus. The SpecOps assembler framework offers a possible answer to this challenge. It leverages the expressive power of Common Lisp to specify assembly and disassembly functions for multiple computer architectures.
 
