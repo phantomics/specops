@@ -191,7 +191,7 @@
                               (and (typep op1 'mas-x86)
                                    (mas-x86-half-width op1)))))))
     (if reg-size (if adr-size #x6766 #x66)
-        (if adr-size #x67 nil)))
+        (if adr-size #x67 nil))))
 
 ;; (defun determine-pfasize (width op0 op1 mode)
 ;;   (case mode
@@ -291,7 +291,7 @@
              :initarg    :domains)
    (%exmodes :accessor   asm-exmodes
              :allocation :class
-             :initform   '(:r16 :p16 :p32 :l64)
+             :initform   '(:l64 :p32 :p16 :r16)
              :initarg    :exmodes)))
 
 (defmethod qualify-ops ((assembler assembler-x86) operands form order)
@@ -350,6 +350,12 @@
                                                                 (rest (assoc :priority params))))
                                         (cons 'list manifest))))
                (t "Invalid operation.")))))))
+
+(defun w (width value)
+  (if (and (not (zerop (ash value (ash (1- width) 3)))))
+      (cons width value)
+      (if (zerop (ash value (ash width 3)))
+          value (logand value (1- (ash 1 width))))))
 
 ;; (defmethod initialize-instance :after ((assembler assembler-x86) &key)
 ;;   (derive-domains assembler (t (:gpr  8))
@@ -600,9 +606,3 @@
 ;;         (:store(abc :gpr) (def :gpr :binding-series :a) (vec :vcr)))
 ;;  (:mov abc 10)
 ;;  (:mov def 33))
-
-(defun w (width value)
-  (if (and (not (zerop (ash value (ash (1- width) 3)))))
-      (cons width value)
-      (if (zerop (ash value (ash width 3)))
-          value (logand value (1- (ash 1 width))))))

@@ -56,12 +56,12 @@
   ((    rex #x05            (w 4 op1)) ((:w :q) (:gpr :a) (:imm   )))
   ;; ((           #x80 modz0 sib0      op1 ) ((:w :b) (:gxm   ) (:imm  )))
   ((sz? rex #x80 modz0 sib0      op1 ) ((:w :b) (:gxm   ) (:imm  8)))
-  ((sz? rex #x81 modz0 sib0 (w 2 op1)) ((:w :w) (:gxm   ) (:imm 16)))
-  ((sz? rex #x81 modz0 sib0 (w 4 op1)) ((:w :d) (:gxm   ) (:imm 32)))
-  ((sz? rex #x81 modz0 sib0 (w 4 op1)) ((:w :q) (:gxm   ) (:imm 64)))
   ((sz? rex #x83 modz0 sib0      op1 ) ((:w :w) (:gxm   ) (:imm  8)))
   ((sz? rex #x83 modz0 sib0      op1 ) ((:w :d) (:gxm   ) (:imm  8)))
   ((sz? rex #x83 modz0 sib0      op1 ) ((:w :q) (:gxm   ) (:imm  8)))
+  ((sz? rex #x81 modz0 sib0 (w 2 op1)) ((:w :w) (:gxm   ) (:imm 16)))
+  ((sz? rex #x81 modz0 sib0 (w 4 op1)) ((:w :d) (:gxm   ) (:imm 32)))
+  ((sz? rex #x81 modz0 sib0 (w 4 op1)) ((:w :q) (:gxm   ) (:imm 64)))
   ;; ((           #x00 mod10 sib0          ) ((:w :b) (:gxm   ) (:gpr  )))
   ((sz? rex #x00 mod10 sib0          ) ((:w :b) (:gxm   ) (:gpr   )))
   ((sz? rex #x01 mod10 sib0          ) ((:w :w) (:gxm   ) (:gpr   )))
@@ -178,10 +178,10 @@
   ((sz? rex #xF7 mod40 sib0) ((:w :d) (:gxm 32)))
   ((sz? rex #xF7 mod40 sib0) ((:w :q) (:gxm 64))))
 
-(specops aam (&optional op0) *assembler-prototype-x86*
-  ((:priority    0))
-  ((#xD4   op0) ((:imm  8)))
-  ((#xD40A    )  ()))
+;; (specops aam (&optional op0) *assembler-prototype-x86*
+;;   ((:priority    0))
+;;   ((#xD4   op0) ((:imm  8)))
+;;   ((#xD40A    )  ()))
 
 (specops div (w op0) *assembler-prototype-x86*
   ((:provisions
@@ -427,7 +427,7 @@
 
 (specops jcxz (w op0) *assembler-prototype-x86*
   ((:priority 0       1))
-  ((#xE3op0) ((:w :b) (:imm  8))))
+  ((#xE3 op0) ((:w :b) (:imm  8))))
 
 (specops jecxz (w op0) *assembler-prototype-x86*
   ((:priority  0       1))
@@ -475,12 +475,12 @@
 
 ;; ...more to come
 
-(specops ret (op0) *assembler-prototype-x86*
-  ((:priority  0))
-  ((#xC2 op0) ((:imm 16))) ;; needs work
-  ((#xCA op0) ((:imm 16)))
-  ((#xC3 op0))
-  ((#xCB op0)))
+;; (specops ret (op0) *assembler-prototype-x86*
+;;   ((:priority  0))
+;;   ((#xC2 op0) ((:imm 16))) ;; needs work
+;;   ((#xCA op0) ((:imm 16)))
+;;   ((#xC3 op0))
+;;   ((#xCB op0)))
 
 (specops lea (w op0 op1) *assembler-prototype-x86*
   ((:provisions

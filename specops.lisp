@@ -704,15 +704,19 @@
         output))))
 
 (defmethod %assemble ((assembler assembler) assembler-sym params expressions)
-  `(let ,(if (not (rest (assoc :store (rest params))))
-             nil (locate assembler (rest (assoc :store (rest params)))))
+  `(let ,(if (not (rest (assoc :store params)))
+             nil (locate assembler (rest (assoc :store params))))
      (compose ,assembler-sym ',params
               (list ,@(loop :for e :in expressions
                             :collect (if (not (and (listp e) (keywordp (first e))))
                                          e (cons 'list e)))))))
 
-(defmacro assemble (assembler params &rest expressions)
-  (%assemble (symbol-value assembler) assembler params expressions))
+(defmacro assemble (assembler &rest expressions)
+  (let* ((params (if (not (and (listp (first expressions))
+                               (caar expressions) (listp (caar expressions))))
+                     nil (first expressions)))
+         (expressions (if (not params) expressions (rest expressions))))
+    (%assemble (symbol-value assembler) assembler params expressions)))
 
 (defmethod interpret ((assembler assembler) params array)
   "The top-level method for disassembly. Composes a list of instructions from a byte vector according to the properties of a given ISA."
