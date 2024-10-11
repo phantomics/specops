@@ -1,19 +1,17 @@
 # SpecOps
-#### To Specify Operations,
-#### Augment Assembly Processes,
-#### And Unite Systems Electronic and Semantic
-### An Assembler Framework For Common Lisp
+### To Specify Operations
+#### An Assembler Framework For Common Lisp
 
 The computing landscape is split along many axes. Some programs are written to be easily readable by humans, while others are written for the fastest possible evaluation. Different software models prioritize different performance metrics and systems are further divided between many different varieties of computer hardware, each with distinct features which are exposed in different ways to programmers.
 
 What kind of tool or design pattern could bridge these divides? In an increasingly heterogenous computing ecosystem, the task of bringing into concert various kinds of hardware has come into a stronger focus. The SpecOps assembler framework aims to meet this challenge, leveraging the expressive potential of Common Lisp to specify assembly and disassembly functions for multiple computer architectures, and augment  with tools of symbolic programming.
 
 
-### Basic Use
+### Basic Use: Motorola 68000
 
 Assembling computer instructions is in essence a fairly simple task - numbers are added together to compose larger numbers expressing the different operations available within a given computer architecture. These numbers are placed in a linear structure, cross-references and other special expressions within the code are reconciled and it is given whatever additional formatting extensions are required for it to be evaluated on the target computer system. The result is a complete program ready for use.
 
-Let's see how this looks in practice and assemble some code for the Motorola 68K processor, a classic CPU used in notable computers including the Commodore Amiga, early Apple Macintosh models, the Sharp X68K, the Atari ST, the Sega Genesis/Mega Drive game console, and many arcade game systems.
+Let's see how this looks in practice and assemble some code for the Motorola 68000 processor, a classic CPU used in notable computers including the Commodore Amiga, early Apple Macintosh models, the Sharp X68K, the Atari ST, the Sega Genesis/Mega Drive game console, and many arcade game systems.
 
 ```lisp
 ;; load the SpecOps M68K module
@@ -58,7 +56,7 @@ This is the implementation of the `ADDI` operation from the SpecOps M68K module.
 
 The `(masque)` macro is frequently used within SpecOps to model binary formats. It's easy to read and generates efficient code: a series of operations incrementing a base value by masked and shifted integers to generate an output number expressing an instruction. A primary goal of SpecOps is the development of tools like this that can support assembly tasks for many different systems.
 
-### Another Architecture
+### Another Architecture: Intel X86
 
 Let's take a look at assembly for a complex, contemporary hardware platform: the Intel X86 CPU family. Powering vast numbers of personal computer systems and servers, it's known as a daunting target for assembly due to its many variations and complex variable-length encoding.
 
@@ -135,8 +133,91 @@ An architecture like M68K is relatively simple to assemble for, but X86 requires
 
 When this macro expands, the `(:provisions)` form populates a `(symbol-macrolet)` form assigning the various bytes. The operand symbols are determined by the second argument to the macro, in this case `(w op0 op1)`. Each of the lines following the parameters expresses one possible encoding, with the first form in the line containing a list of values that may be present in the output instruction. The `sz?` symbol may express the `#x66` register size prefix and/or the `#x67` address size prefix if appropriate conditions are in place, such as an operation targeting a 16-bit-wide register in the 64-bit long execution mode. The `rex` symbol may express the REX prefix required for 64-bit wide operations or in many cases. This prefix is followed by the opcode, which in many cases may be followed by MOD and SIB bytes and sometimes by an immediate integer value. The `(w)` forms encapsulating some of these immediate specifications determine that in those cases, the immediate value must be 2 or 4 bytes wide even if the operand value would fit into a smaller width.
 
-The second form in each line specifies the kinds of operands that determine the use of the encoding. For instance, the first line determines that the `#x04` opcode will be used in the case of an 8-bit wide operation `(:w :b)` whose first operand is the general-purpose register series A `(:gpr :a)` and whose second operand is an immediate value `(:imm   )`, implicitly an 8-bit value since the operation's given width is 8 bits. The `(:priority)` form determines the order in which the operands will be tested. First, the operation's width will be checked, then the second argument's type will be checked, and finally the first operand's type will be checked. Careful selection of priorities can speed up the encoding dispatch.
+The second form in each line specifies the kinds of operands that determine the use of the encoding. For instance, the first line determines that the `#x04` opcode will be used in the case of an 8-bit wide operation `(:w :b)` whose first operand is the general-purpose register series A `(:gpr :a)` and whose second operand is an immediate value `(:imm   )`, implicitly an 8-bit value since the operation's given width is 8 bits. The `(:priority)` form determines the order in which the operands will be tested. First, the operation's width will be checked, then the second argument's type will be checked, and finally the first operand's type will be checked. A proper priority order can speed up the encoding dispatch.
 
+### A More Consistent Approach: IBM System Z
+
+Not all complex instruction sets are as challenging to implement as X86. IBM's System Z is an even older architecture, originally released as System/360 in 1968. This lineage of mainframe computers hosted the first true operating system software and their instruction set has retained backward compatibility for every version since its inception, even as the memory bus has grown from 24 to 64 bits.
+
+System Z instructions are structured according to a set of formats. Each format specifies not only the layout of the bit fields (which are always nibble-aligned) but their specific purposes. Thus, an instruction where the latter byte is an immediate integer value and an instruction where the latter byte is a memory offset are considered to belong to two different formats, even if their structure is otherwise identical.
+
+Following is an example of assembly for a very simple System Z program:
+
+```lisp
+;; load the SpecOps System Z module
+
+* (asdf:load-system 'specops.z) (in-package :specops.z)
+...system loads...
+
+* (assemble *assembler-prototype-z*
+    (:lhi 1 10)          ;; LHI 1,10
+    (:lhi 2 20)          ;; LHI 2,20
+    (:lhi 3 3)           ;; LHI 3, 2
+    (:lr  4 1)           ;; LR  4, 1
+    (:ar  4 2)           ;; AR  4, 2
+    (:mr  4 3)           ;; MR  4, 3
+    (:sll 4 (@ 0 1))     ;; SLL 4, 1(0)
+    (:st  4 (@ 7 8 90))) ;; ST  4,90(8,7)
+#(42776 10 42792 20 42808 3 6209 6722 7235 35136 1 20552 28762)
+```
+
+This program loads some numbers into registers, performs arithmetic operations on them and stores the result in memory. The output is a vector of 16-bit numbers -- because all Z instructions are either 2, 4 or 6 bytes, dividing the output into 16-bit blocks makes the most sense. Below are the above instructions' specifications from the SpecOps System Z module:
+
+```lisp
+(specop-z ar      zformat-rr    #x001A) 
+
+(specop-z lhi     zformat-ri-a  #x0A78)
+
+(specop-z lr      zformat-rr    #x0018)
+
+(specop-z mr      zformat-rr    #x001C)
+
+(specop-z sll     zformat-rs-a  #x0089)
+
+(specop-z st      zformat-rx-a  #x0050)
+```
+
+Each operation spec is one line - a far cry from X86. Thanks to the regular structure of System Z instructions, they can be implemented simply as associations of opcodes and formats. Let's now take a look at the formats used for the above instructions:
+
+```lisp
+(mqbase zformat-rr opc mne (r1 r2)
+    "AAAAAAAA.RRRRSSSS"
+  ((:static (a opc)))
+  ((r (rix r1)) (s (rix r2)))
+  (list mne r s))
+ 
+(mqbase zformat-ri-a opc mne (r1 i2)
+    "AAAAAAAA.RRRRZZZZ.IIIIIIII.IIIIIIII"
+  ((:static (a (rs4 opc)) (z (lo4 opc))))
+  ((r (rix r1)) (i i2))
+  (list mne r i))
+
+(mqbase zformat-rs-a opc mne (r1 bd2 &optional r3)
+    "AAAAAAAA.RRRRSSSS.BBBBDDDD.DDDDDDDD"
+  ((:static (a opc)))
+  ((r (rix r1)) (s (if r3 (rix r3) 0)) (b (mas-base bd2)) (d (mas-displ bd2)))
+  (list mne r (derive-mas b nil d) s))
+
+(mqbase zformat-rx-a opc mne (r1 bdx2)
+    "AAAAAAAA.RRRRXXXX.BBBBDDDD.DDDDDDDD"
+  ((:static (a opc)))
+  ((r (rix r1)) (x (mas-index bdx2)) (b (mas-base bdx2)) (d (mas-displ bdx2)))
+  (list mne r (derive-mas b x d)))
+```
+
+The RR format, one of the most common formats, addresses two registers along with the opcode. The four-bit fields allow for a file of 16 general-purpose registers. The RI-A format addresses one register, an immediate value and a 12-bit opcode split into A and Z fields in the `(masque)` bitfield scheme. The RS-A and RX-A formats both address registers and memory locations composed of a base register, displacement value and optionally (as in format RX-A) an index register. Lacking the index register field, format RS-A may address a second general-purpose register, but in the case of the instruction SLL that second register field is unused and should contain zeroes.
+
+### Metaprogramming Specification Support
+
+Let's take a closer look at the macros above - these aren't the `(masque)` seen before, but something called `(mqbase)`. This is essentially a currying macro for functions built around `(masque)`. The `(specop-z)` macro ...
+
+### Duplex Operation
+
+There's one more element of the `(mqbase)` macros yet to be addressed - the `(list)` form at the end. This doesn't specify how these formats are assembled but how they're disassembled. A major goal of SpecOps is to facilitate "duplex" specificatons that express rules both for assembling and disassembling code. Along with generating an assembly function, `(mqbase)` produces a disassembly function that can derive assembly code from a vector of words. The words in the vector are put through a series of tests comparing their contents to the static opcode fields in the instruction formats, with the variable fields specifying addresses and immediate values masked off. When a word or word series is found to match an instruction, the values of the non-opcode fields are derived from the binary and used to populate a list expressing the instruction.  System Z's regularity makes it simple to support such duplex operation, but some architectures require a more explicit format.
+
+### Input and Output: Hitachi Super-H
+
+RISC (Reduced Instruction Set Computing) hardware architectures are known for executing code at consistently high speeds, but this often comes at the expense of elegance in instruction design. Platforms like ARM and M68K can be haphazard in their ordering of bit fields so as to fit all the needed information into a fixed width. A standout in this sector is the Super-H architecture, originally designed by Hitachi. This line of CPUs powered the Sega Saturn, Sega Dreamcast and a wide range of arcade game hardware along with mechanical control systems on many vehicles. Super-H uses mostly 16-bit instructions (with a few 32-bit extensions added later) with all fields nibble-aligned.
 
 ## License
 

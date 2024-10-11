@@ -292,22 +292,16 @@
   ((q (rix r3)) (m m4) (r (rix r1)) (s (rix r2)))
   (list mne r s q m))
 
-(mqbase zformat-rrf-c opc mne (r1 r2 m3 m4)
+(mqbase zformat-rrf-c opc mne (r1 r2 &optional m3 m4)
     "AAAAAAAA.AAAAAAAA.MMMMNNNN.RRRRSSSS"
   ((:static (a opc)))
-  ((m m3) (n m4) (r (rix r1)) (s (rix r2)))
+  ((m (or m3 0)) (n (or m4 0)) (r (rix r1)) (s (rix r2)))
   (list mne r s m n))
 
-(mqbase zformat-rrf-d opc mne (r1 r2 m3 m4)
+(mqbase zformat-rrf-e opc mne (r1 r2 &optional m3 m4)
     "AAAAAAAA.AAAAAAAA.MMMMNNNN.RRRRSSSS"
   ((:static (a opc)))
-  ((m m3) (n m4) (r (rix r1)) (s (rix r2)))
-  (list mne r s m n))
-
-(mqbase zformat-rrf-e opc mne (r1 r2 m3 m4)
-    "AAAAAAAA.AAAAAAAA.MMMMNNNN.RRRRSSSS"
-  ((:static (a opc)))
-  ((m m3) (n m4) (r (rix r1)) (s (rix r2)))
+  ((m (or m3 0)) (n (or m4 0)) (r (rix r1)) (s (rix r2)))
   (list mne r s m n))
 
 (mqbase zformat-rrs opc mne (r1 r2 m3 bd4)
@@ -316,10 +310,10 @@
   ((r (rix r1)) (s (rix r2)) (b (mas-base bd4)) (d (mas-displ bd4)) (m m3))
   (list mne r s m (derive-mas b nil d)))
 
-(mqbase zformat-rs-a opc mne (r1 bd2 r3)
+(mqbase zformat-rs-a opc mne (r1 bd2 &optional r3)
     "AAAAAAAA.RRRRSSSS.BBBBDDDD.DDDDDDDD"
   ((:static (a opc)))
-  ((r (rix r1)) (s (rix r3)) (b (mas-base bd2)) (d (mas-displ bd2)))
+  ((r (rix r1)) (s (if r3 (rix r3) 0)) (b (mas-base bd2)) (d (mas-displ bd2)))
   (list mne r (derive-mas b nil d) s))
 
 (mqbase zformat-rs-b opc mne (r1 bd2 m3)
