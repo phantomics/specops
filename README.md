@@ -26,7 +26,7 @@ Let's see how this looks in practice and assemble some code for the Motorola 68K
 #(1537 10)
 ```
 
-In this case, the M68K `ADDI` operation is being used to add an immediate value of 10 to the register d1. The isntruction is expressed as the Lisp form `(:addi :b 10 :d1)`. The output is rendered as a vector of 16-bit integers, since all M68K instructions are divided into 16-bit segments. Prior to the single `ADDI` instruction, the assembelr macro takes as its argument `*assembler-prototype-m68k*`, an assembler class instance expressing default properties for an M68K code assembler. Let's take a closer look at what was output.
+In this case, the M68K `ADDI` operation is being used to add an immediate value of 10 to the register d1. The instruction is expressed as the Lisp form `(:addi :b 10 :d1)`. The output is rendered as a vector of 16-bit integers, since all M68K instructions are divided into 16-bit segments. Prior to the single `ADDI` instruction, the assembelr macro takes as its argument `*assembler-prototype-m68k*`, an assembler class instance expressing default properties for an M68K code assembler. Let's take a closer look at what was output.
 
 ```lisp
 * (write (assemble *assembler-prototype-m68k*
