@@ -1,6 +1,6 @@
 ;;;; base.lisp
 
-(in-package #:specops.z)
+(in-package #:specops.system-z)
 
 ;; this keyword-referenced register file doesn't reflect standard practice in writing
 ;; Z assembly, where typically registers are referenced simply by numeric indices, but it is
@@ -178,7 +178,7 @@
 
 |#
 
-
+(setf *assembler-prototype-z* (make-instance 'assembler-z))
 
 ;; IBM's docs count the operands from 1 and these functions do the same
 

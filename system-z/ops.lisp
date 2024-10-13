@@ -1,6 +1,6 @@
 ;;;; ops.lisp
 
-(in-package #:specops.z)
+(in-package #:specops.system-z)
 
 (specop-z a       zformat-rx-a  #x005A)
 

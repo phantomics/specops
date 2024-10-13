@@ -33,7 +33,6 @@ In this case, the M68K `ADDI` operation is being used to add an immediate value 
          :base 2)
 #(11000000001 1010)
 #(1537 10)
-NIL
 ```
 
 The `ADDI` instruction is 16 bits long, like all M68K instructions, and is formatted according to the scheme `00000110.SSMMMXXX`. The initial byte of value 6 is the opcode. In the next byte, the 2-bit field S indicates the size of the data being operated upon - in this case a byte, as represented by the encoded value 0 and the `:b` keyword passed in the instruction form. The M field is the addressing mode (0 in this case) indicating that the instruction is addressing a data register. The X field determines the location being addressed. Its value of 1, along with the 0 value in the M field, indicates that the operation is addressing the data register 1. The following 16-bit word contains the value 10, which the instruction adds to the value in that data register.
