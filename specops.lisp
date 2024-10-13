@@ -437,7 +437,8 @@
             (if is-constant content
                 `(lambda ,(cons api-access-sym operands)
                    (flet ((,api-access (&rest ,args) (apply ,api-access-sym ,args)))
-                     (declare (ignorable ,api-access))
+                     (declare (ignorable (function ,api-access)))
+                     ;; (declare (ignorable ,api-access))
                      ,@(funcall wrap-body content))))))))
 
 (defmethod extend-clauses ((assembler assembler) mnemonic operands params body)
@@ -496,7 +497,7 @@
                                                       operands params (rest clause))))
                     (encoder (clause-processor assembler 'of-lexicon (first clause)
                                                operands params (or xtclause (rest clause)))))
-               (print (list :xx xtclause))
+               ;; (print (list :xx xtclause))
                (if (not (assoc :duplex params))
                    encoder `(progn ,encoder ,@(loop :for c :in (or xtclause (rest clause))
                                                     :collect (clause-processor

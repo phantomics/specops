@@ -838,7 +838,7 @@
   (masque "0100NNNN.10010100" ;; divs R0,Rn
             (n (gprix op1))))
 
-(readops divs (word read)
+(readops divs (word read) ;; divs R0,Rn
   (unmasque "0100NNNN.10010100" word (n)
     (list :divs :r0 (drv-gpr n))))
 
@@ -849,7 +849,7 @@
   (masque "0100NNNN.10000100" ;; divu R0,Rn
             (n (gprix op1))))
 
-(readops divu (word read)
+(readops divu (word read) ;; divu R0,Rn
   (unmasque "0100NNNN.10000100" word (n)
     (list :divu :r0 (drv-gpr n))))
 
@@ -878,7 +878,7 @@
 (specops dt (op0)
   ((:for-types :sh2 :sh3 :sh4 :sh4a :sh2a))
   (assert (and (match-types op0  gpr)) (op0)
-          "DT may take only .")
+          "DT may take only a general-purpose register as its operand.")
   (masque "0100NNNN.00010000" ;; dt Rn
           (n (gprix op0))))
 
@@ -1124,7 +1124,7 @@
   (masque "0100NNNN.00011011" ;; tas.b @Rn
           (gprix (mas-base op0))))
 
-(readops tas.b (word read)
+(readops tas.b (word read) ;; tas.b @Rn
   (unmasque "0100NNNN.00011011" word (n)
     (list :tas :b (list '@ (drv-gpr n)))))
 
@@ -1134,14 +1134,14 @@
          (masque "0010NNNN.MMMM1000" ;; tst Rm,Rn
                  (n (gprix op1)) (m (gprix op0))))
         ((and (eq op1 :r0) (typep op0 'integer))
-         (masque "11001000.IIIIIIII" ;; or #imm,R0
+         (masque "11001000.IIIIIIII" ;; tst #imm,R0
                  (i op0)))))
 
 (readops tst (word read) ;; tst Rm,Rn
   (unmasque "0010NNNN.MMMM1000" word (n m)
     (list :tst (drv-gpr m) (drv-gpr n))))
 
-(readops tst (word read) ;; or #imm,R0
+(readops tst (word read) ;; tst #imm,R0
   (unmasque "11001000.IIIIIIII" word (i)
     (list :tst i :r0)))
 
@@ -1152,18 +1152,9 @@
   (masque "11001100.IIIIIIII" ;; tst.b #imm,@(R0,GBR)
           (i op0)))
 
-(readops tstb (word read)
+(readops tstb (word read) ;; tst.b #imm,@(R0,GBR)
   (unmasque "11001100.IIIIIIII" word (i)
     (list :tstb i '(@gbr0))))
-
-(specops tst (op0 op1)
-  ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
-  (cond ((match-types op0 op1  gpr gpr)
-         (masque "0010NNNN.MMMM1000" ;; tst Rm,Rn
-                 (n (gprix op1)) (m (gprix op0))))
-        ((and (eq op1 :r0) (typep op0 'integer))
-         (masque "11001000.IIIIIIII" ;; or #imm,R0
-                 (i op0)))))
 
 (specops xor (op0 op1)
   ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
