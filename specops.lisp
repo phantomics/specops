@@ -710,35 +710,16 @@
                                      (read-words (+ point this-count in) count)))))
                        (ivindex (min (1- (length intervals)) (- (length array) point 1)))
                        (pattern (read-words point (aref intervals ivindex))))
-                  (print (list :dd deltas))
-                  ;; (loop :for ix :below ivindex
-                  ;;       :do (unless (zerop ix)
-                  ;;             (setf pattern (ash pattern (* etype (- (- (aref intervals ivix)
-                  ;;                                                       (aref intervals (1+ ivix))))))))
-                  ;;           (let ((match? (interpret-element assembler pattern
-                  ;;                                            (funcall reader (aref intervals ivix)))))
-                  ;;             (when match? (setf match         match?
-                  ;;                                this-interval (aref intervals ivix)))))
-                  (loop :for ix :from (min (1- (length intervals)) (- (length array) point 1)) :downto 0
-                        :do (let* ((interval (aref intervals ix))
-                                   (pattern (read-words point interval))
-                                   (match? (interpret-element assembler pattern (funcall reader interval))))
+                  ;; (print (list :dd deltas))
+                  
+                  (loop :for ix :below ivindex :for delta :in deltas
+                        :do (setf pattern (ash pattern (- delta)))
+                            (let ((match? (interpret-element assembler pattern
+                                                             (funcall reader (aref intervals ix)))))
                               (when match? (setf match         match?
-                                                 this-interval interval))))
-                  ;; (loop :for ix :from (length intervals) :downto (max 0 (- (length array) point))
-                  ;;       :for iv :across intervals
-                  ;;       :do (let ((pattern (read-words point iv)))))
-                  ;; (loop :for in :in intervals :when (> (length array) (+ 1 point in))
-                  ;;       :do (push (read-words point in) ipatterns))
-                  ;; (print (list :ip ipatterns))
-                  ;; (loop :for in :in (reverse intervals) :for ip :in ipatterns ;; :until match
-                  ;;       :do (let ((match? (interpret-element assembler ip (funcall reader in))))
-                  ;;             (when match?
-                  ;;               (setf match match?
-                  ;;                     this-interval in))))
-                  ;; (print (list match point (length array)))
+                                                 this-interval (aref intervals ix)))))
+                 
                   (if match (progn (push match disassembled)
-                                   ;; (print (list :mm match point sub-count this-interval))
                                    (setf point (+ point sub-count this-interval)))
                       ;; (progn (push nil disassembled)
                       ;;        (setf point (+ point sub-count this-interval)))
@@ -746,7 +727,25 @@
                       )))
       (reverse disassembled))))
 
-;; figured out why the disassembler sometimes doesn't work - the static check is entirely for the lower byte so the longer check fails.
+;; (loop :for ix :from (min (1- (length intervals)) (- (length array) point 1)) :downto 0
+;;       :do (let* ((interval (aref intervals ix))
+;;                  (pattern (read-words point interval))
+;;                  (match? (interpret-element assembler pattern (funcall reader interval))))
+;;             (when match? (setf match         match?
+;;                                this-interval interval))))
+
+;; (loop :for ix :from (length intervals) :downto (max 0 (- (length array) point))
+;;       :for iv :across intervals
+;;       :do (let ((pattern (read-words point iv)))))
+;; (loop :for in :in intervals :when (> (length array) (+ 1 point in))
+;;       :do (push (read-words point in) ipatterns))
+;; (print (list :ip ipatterns))
+;; (loop :for in :in (reverse intervals) :for ip :in ipatterns ;; :until match
+;;       :do (let ((match? (interpret-element assembler ip (funcall reader in))))
+;;             (when match?
+;;               (setf match match?
+;;                     this-interval in))))
+;; (print (list match point (length array)))
 
 (defmethod interpret-element or ((assembler assembler-encoding) ipattern reader)
   (let ((match (gethash ipattern (asm-enc-decoder assembler))))

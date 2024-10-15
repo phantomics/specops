@@ -25,7 +25,9 @@ Let's see how this looks in practice and assemble some code for the Motorola 680
 #(1537 10)
 ```
 
-In this case, the M68K `ADDI` operation is being used to add an immediate value of 10 to the register d1. The instruction is expressed as the Lisp form `(:addi :b 10 :d1)`. The output is rendered as a vector of 16-bit integers, since all M68K instructions are divided into 16-bit segments. Prior to the single `ADDI` instruction, the assembelr macro takes as its argument `*assembler-prototype-m68k*`, an assembler class instance expressing default properties for an M68K code assembler. Let's take a closer look at what was output.
+In this case, the M68K `ADDI` operation is being used to add an immediate value of 10 to the register d1. The instruction is expressed as the Lisp form `(:addi :b 10 :d1)`. SpecOps accepts input in the form of Lisp lists whose structure is patterned after standard assembly input for a given architecture. Other formats, including more standard assembly syntax, may be supported through the use of a frontend text parser that converts input into the list format expected by SpecOps modules.
+
+The assembler's output is rendered as a vector of 16-bit integers, since all M68K instructions are divided into 16-bit segments. Prior to the single `ADDI` instruction, the assembler macro takes as its argument `*assembler-prototype-m68k*`, an assembler class instance expressing default properties for an M68K code assembler. Let's take a closer look at what it returned above.
 
 ```lisp
 * (write (assemble *assembler-prototype-m68k*
@@ -228,14 +230,14 @@ Let's take a look at how disassembly is done in SpecOps. Following from the last
 OUTPUT
 
 * (setf output (assemble *assembler-prototype-z*
-                         (:lhi 1 10)           ;; LHI 1,10
-                         (:lhi 2 20)           ;; LHI 2,20
-                         (:lhi 3 3)            ;; LHI 3, 2
-                         (:lr  4 1)            ;; LR  4, 1
-                         (:ar  4 2)            ;; AR  4, 2
-                         (:mr  4 3)            ;; MR  4, 3
-                         (:sll 4 (@% 1))       ;; SLL 4, 1(0)
-                         (:st  4 (@ 7 8 90)))) ;; ST  4,90(8,7)
+                 (:lhi 1 10)           ;; LHI 1,10
+                 (:lhi 2 20)           ;; LHI 2,20
+                 (:lhi 3 3)            ;; LHI 3, 2
+                 (:lr  4 1)            ;; LR  4, 1
+                 (:ar  4 2)            ;; AR  4, 2
+                 (:mr  4 3)            ;; MR  4, 3
+                 (:sll 4 (@% 1))       ;; SLL 4, 1(0)
+                 (:st  4 (@ 7 8 90)))) ;; ST  4,90(8,7)
 #(42776 10 42792 20 42808 3 6209 6722 7235 35136 1 20552 28762)
 
 * (interpret *assembler-prototype-z* nil output)
@@ -243,7 +245,7 @@ OUTPUT
  (:SLL 4 (@ 0 1) 0) (:ST 4 (@ 7 8 90)))
 ```
 
-The `(interpret)` macro is the main tool for disassembly in Specops. Given a vector of encoded instructions, it will convert them to code in the format of SpecOps. Note that said vectors need to be of the appropriate integer types. If you copy and paste the text of the vector above into a Common Lisp REPL and attempt to disassemble it, it will typically be evaluated as a T-type vector rather than having the type `(unsigned-byte 16)` as System Z code should. This will cause disassembly to fail. 
+The `(interpret)` macro is the main tool for disassembly in SpecOps. Given a vector of encoded instructions, it will convert them to code in the same format in which it's input. Note that said vectors need to be of the appropriate integer types. If you copy and paste the text of the vector above into a Common Lisp REPL and attempt to disassemble it, it will typically be evaluated as a T-type vector rather than having the type `(unsigned-byte 16)` as System Z code should. This will cause disassembly to fail. 
 
 ## Mirrored Specs: Hitachi Super-H
 
