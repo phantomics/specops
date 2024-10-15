@@ -47,7 +47,7 @@
              :initarg    :decoder)
    (%segment :accessor   asm-msk-segment
              :allocation :class
-             :initform   '(2)
+             :initform   '(1)
              :initarg    :segment)
    (%battery :accessor   asm-msk-battery
              :allocation :class
@@ -196,12 +196,12 @@
 #|
 
 (assemble *assembler-prototype-m68k*
-  (:with (:store (abc :gpr) (def :gpr)))
+  ((:store (abc :gpr) (def :gpr)))
   (:addi :b 10 abc)
   (:addi :b 330 def))
 
 (assemble *assembler-prototype-m68k*
-        (:with (:store (abc :gpr) (def :gpr)))
+        ((:store (abc :gpr) (def :gpr)))
         (:addi :b 10 abc)
         :hello
         (:nop)

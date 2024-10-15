@@ -116,7 +116,7 @@
              :initform   #'joinw
              :initarg    :joiner)
    (%segment :accessor   asm-msk-segment
-             :initform   '(2 4 6)
+             :initform   '(1 2 3)
              :initarg    :breadth)
    (%battery :accessor   asm-msk-battery
              :allocation :class

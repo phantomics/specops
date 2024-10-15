@@ -139,7 +139,7 @@ The `(:priority)` form determines the order in which the operands will be tested
 
 ## A More Consistent Approach: IBM System Z
 
-Not all complex instruction sets are as challenging to implement as X86. IBM's System Z is an even older architecture, originally released as System/360 in 1965. This lineage of mainframe computers hosted the first true operating system software and their instruction set has retained backward compatibility for every version since its inception, even as the memory bus has grown from 24 to 64 bits.
+Not all complex instruction sets are as challenging to implement as X86. IBM's System Z is an even older architecture, originally released as System/360 in 1965. This lineage of mainframe computers hosted the first true operating system software and their instruction set has retained backward compatibility for every version since its inception, even as its memory addresses have grown from 24 to 31 to 64 bits.
 
 System Z instructions are structured according to a set of formats. Each format specifies not only the layout of the bit fields (which are always nibble-aligned) but their specific purposes. Thus, an instruction where the latter byte is an immediate integer value and an instruction where the latter byte is a memory offset are considered to belong to two different formats, even if their structure is otherwise identical.
 
@@ -218,6 +218,32 @@ Also of note in the above assembly code is the presence of `(@)` and `(@%)` form
 ### Duplex Operation
 
 There's one more element of the `(mqbase)` macros yet to be addressed - the `(list)` form at the end. This doesn't specify how these formats are assembled but how they're disassembled. A major goal of SpecOps is to facilitate "duplex" specificatons that express rules both for assembling and disassembling code. Along with generating an assembly function, `(mqbase)` produces a disassembly function that can derive assembly code from a vector of words. The words in the vector are put through a series of tests comparing their contents to the static opcode fields in the instruction formats, with the variable fields specifying addresses and immediate values masked off. When a word or word series is found to match an instruction, the values of the non-opcode fields are derived from the binary and used to populate a list expressing the instruction.  System Z's regularity makes it simple to support such duplex operation, but some architectures require a more explicit format.
+
+### Disassembly in Practice
+
+Let's take a look at how disassembly is done in SpecOps. Following from the last assembly example:
+
+```lisp
+* (defvar output)
+OUTPUT
+
+* (setf output (assemble *assembler-prototype-z*
+                         (:lhi 1 10)           ;; LHI 1,10
+                         (:lhi 2 20)           ;; LHI 2,20
+                         (:lhi 3 3)            ;; LHI 3, 2
+                         (:lr  4 1)            ;; LR  4, 1
+                         (:ar  4 2)            ;; AR  4, 2
+                         (:mr  4 3)            ;; MR  4, 3
+                         (:sll 4 (@% 1))       ;; SLL 4, 1(0)
+                         (:st  4 (@ 7 8 90)))) ;; ST  4,90(8,7)
+#(42776 10 42792 20 42808 3 6209 6722 7235 35136 1 20552 28762)
+
+* (interpret *assembler-prototype-z* nil output)
+((:LHI 1 10) (:LHI 2 20) (:LHI 3 3) (:LR 4 1) (:AR 4 2) (:MR 4 3)
+ (:SLL 4 (@ 0 1) 0) (:ST 4 (@ 7 8 90)))
+```
+
+The `(interpret)` macro is the main tool for disassembly in Specops. Given a vector of encoded instructions, it will convert them to code in the format of SpecOps. Note that said vectors need to be of the appropriate integer types. If you copy and paste the text of the vector above into a Common Lisp REPL and attempt to disassemble it, it will typically be evaluated as a T-type vector rather than having the type `(unsigned-byte 16)` as System Z code should. This will cause disassembly to fail. 
 
 ## Mirrored Specs: Hitachi Super-H
 
