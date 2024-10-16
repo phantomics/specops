@@ -17,11 +17,11 @@
                ((match-types op0 op1  mas-bs+disp gpr)
                 (case w
                   (:b (masque "0011NNNN.MMMM0001.0100DDDD.DDDDDDDD" ;; mov.b @(disp12,Rm),Rn
-                              (n (gprix (mas-base op1))) (m (gprix op0)) (d (mas-displ op1))))
+                              (n (gprix (mas-base op1))) (m (gprix op0)) (d (mas-displ op0))))
                   (:w (masque "0011NNNN.MMMM0001.0101DDDD.DDDDDDDD" ;; mov.w @(disp12,Rm),Rn
-                              (n (gprix (mas-base op1))) (m (gprix op0)) (d (mas-displ op1))))
+                              (n (gprix (mas-base op1))) (m (gprix op0)) (d (mas-displ op0))))
                   (:l (masque "0011NNNN.MMMM0001.0110DDDD.DDDDDDDD" ;; mov.l @(disp12,Rm),Rn
-                              (n (gprix (mas-base op1))) (m (gprix op0)) (d (mas-displ op1))))))))
+                              (n (gprix (mas-base op1))) (m (gprix op0)) (d (mas-displ op0))))))))
         ((match-types op0 op1  gpr gpr)
          (assert (eq w :l) (op0)
                  "MOVing data between registers can only be done at width L (32 bits).")
@@ -326,8 +326,6 @@
 (readops mov.l (word read) ;; mov.l @(disp12,Rm),Rn
   (unmasque "0011NNNN.MMMM0001.0110DDDD.DDDDDDDD" word (n m d)
     (list :mov :l (list '@> (drv-gpr m) d) (drv-gpr n))))
-
-;;;
 
 (specops movi20 (w op0 op1)
   ((:for-types :sh2a))
@@ -1694,12 +1692,12 @@
                   (progn (assert (matching-types :sh3 :sh4 :sh4a :privileged) ()
                                  "LDC @Rm+,Rn_BANK is incompatible with this architecture type.")
                          (masque "0100MMMM.1NNN0111" ;; ldc.l @Rm+,Rn_BANK
-                                 (m (gprix op0)) (n (gprbix op1))))
+                                 (m (mas-base op0)) (n (gprbix op1))))
                   (error "Invalid operands for LDC."))))))))
     
 (readops ldc (word read) ;; ldc Rm,SR
   (unmasque "0100MMMM.00001110" word (m)
-    (list :ldc (drv-gprb m) :sr)))
+    (list :ldc (drv-gpr m) :sr)))
 
 (readops ldc.l (word read) ;; ldc.l @Rm+,SR
   (unmasque "0100MMMM.00000111" word (m)
@@ -1707,11 +1705,11 @@
 
 (readops ldc (word read) ;; ldc Rm,TBR
   (unmasque "0100MMMM.01001010" word (m)
-    (list :ldc (drv-gprb m) :tbr)))
+    (list :ldc (drv-gpr m) :tbr)))
 
 (readops ldc (word read) ;; ldc Rm,GBR
   (unmasque "0100MMMM.00011110" word (m)
-    (list :ldc (drv-gprb m) :gbr)))
+    (list :ldc (drv-gpr m) :gbr)))
 
 (readops ldc.l (word read) ;; ldc.l @Rm+,GBR
   (unmasque "0100MMMM.00010111" word (m)
@@ -1719,7 +1717,7 @@
 
 (readops ldc (word read) ;; ldc Rm,VBR
   (unmasque "0100MMMM.00101110" word (m)
-    (list :ldc (drv-gprb m) :vbr)))
+    (list :ldc (drv-gpr m) :vbr)))
 
 (readops ldc.l (word read) ;; ldc.l @Rm+,VBR
   (unmasque "0100MMMM.00100111" word (m)
@@ -1727,7 +1725,7 @@
 
 (readops ldc (word read) ;; ldc Rm,MOD
   (unmasque "0100MMMM.01011110" word (m)
-    (list :ldc (drv-gprb m) :mod)))
+    (list :ldc (drv-gpr m) :mod)))
 
 (readops ldc.l (word read) ;; ldc.l @Rm+,MOD
   (unmasque "0100MMMM.01010111" word (m)
@@ -1735,7 +1733,7 @@
 
 (readops ldc (word read) ;; ldc Rm,RE
   (unmasque "0100MMMM.01111110" word (m)
-    (list :ldc (drv-gprb m) :re)))
+    (list :ldc (drv-gpr m) :re)))
 
 (readops ldc.l (word read) ;; ldc.l @Rm+,RE
   (unmasque "0100MMMM.01110111" word (m)
@@ -1743,7 +1741,7 @@
 
 (readops ldc (word read) ;; ldc Rm,RS
   (unmasque "0100MMMM.01101110" word (m)
-    (list :ldc (drv-gprb m) :rs)))
+    (list :ldc (drv-gpr m) :rs)))
 
 (readops ldc.l (word read) ;; ldc.l @Rm+,RS
   (unmasque "0100MMMM.01100111" word (m)
@@ -1751,7 +1749,7 @@
 
 (readops ldc (word read) ;; ldc Rm,SGR
   (unmasque "0100MMMM.00111010" word (m)
-    (list :ldc (drv-gprb m) :sgr)))
+    (list :ldc (drv-gpr m) :sgr)))
 
 (readops ldc.l (word read) ;; ldc.l @Rm+,SGR
   (unmasque "0100MMMM.00110110" word (m)
@@ -1759,7 +1757,7 @@
 
 (readops ldc (word read) ;; ldc Rm,SSR
   (unmasque "0100MMMM.00111110" word (m)
-    (list :ldc (drv-gprb m) :ssr)))
+    (list :ldc (drv-gpr m) :ssr)))
 
 (readops ldc.l (word read) ;; ldc.l @Rm+,SSR
   (unmasque "0100MMMM.00110111" word (m)
@@ -1767,7 +1765,7 @@
 
 (readops ldc (word read) ;; ldc Rm,SPC
   (unmasque "0100MMMM.01001110" word (m)
-    (list :ldc (drv-gprb m) :spc)))
+    (list :ldc (drv-gpr m) :spc)))
 
 (readops ldc.l (word read) ;; ldc.l @Rm+,SPC
   (unmasque "0100MMMM.01000111" word (m)
@@ -1775,7 +1773,7 @@
 
 (readops ldc (word read) ;; ldc Rm,DBR
   (unmasque "0100MMMM.11111010" word (m)
-    (list :ldc (drv-gprb m) :dbr)))
+    (list :ldc (drv-gpr m) :dbr)))
 
 (readops ldc.l (word read) ;; ldc.l @Rm+,DBR
   (unmasque "0100MMMM.11110110" word (m)
@@ -1783,7 +1781,7 @@
 
 (readops ldc (word read) ;; ldc Rm,Rn_BANK
   (unmasque "0100MMMM.1NNN1110" word (m n)
-    (list :ldc (drv-gprb m) (drv-gprb n))))
+    (list :ldc (drv-gpr m) (drv-gprb n))))
 
 (readops ldc.l (word read) ;; ldc.l @Rm+,Rn_BANK
   (unmasque "0100MMMM.1NNN0111" word (m n)
@@ -1882,15 +1880,15 @@
                     (m (gprix (mas-base op1)))))
            (:x1   (assert (matching-types :dsp) ()
                           "LDS.L @Rm+,X1 incompatible with this architecture type.")
-            (masque "0100MMMM.10010110" ;; lds.l @Rm+,X0
+            (masque "0100MMMM.10010110" ;; lds.l @Rm+,X1
                     (m (gprix (mas-base op1)))))
            (:y0   (assert (matching-types :dsp) ()
                           "LDS.L @Rm+,Y0 incompatible with this architecture type.")
-            (masque "0100NNNN.10100110" ;; lds.l @Rm+,Y0
+            (masque "0100MMMM.10100110" ;; lds.l @Rm+,Y0
                     (m (gprix (mas-base op1)))))
            (:y1   (assert (matching-types :dsp) ()
                           "LDS.L @Rm+,Y1 incompatible with this architecture type.")
-            (masque "0100NNNN.10110110" ;; lds.l @Rm+,Y1
+            (masque "0100MMMM.10110110" ;; lds.l @Rm+,Y1
                     (m (gprix (mas-base op1))))))))))
 
 (readops lds (word read) ;; lds Rm,MACH
@@ -1938,7 +1936,7 @@
     (list :lds (drv-gpr m) :x0)))
 
 (readops lds.l (word read) ;; lds.l @Rm+,X0
-  (unmasque "0100NNNN.10000110" word (m)
+  (unmasque "0100MMMM.10000110" word (m)
     (list :lds :l (list '@+ (drv-gpr m)) :x0)))
 
 (readops lds (word read) ;; lds Rm,X1
@@ -2109,619 +2107,563 @@
   (unmasque "0100NNNN.11100001" word (n)
     (list :stbank :r0 (list '@ (drv-gpr n)))))
 
-(specops stc (w op0 op1)
-  ;; stc SR,Rn
-  ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a :privileged))
-  (address (op0 op1) (index0 index1)
-    (masque "0000NNNN.00000010"
-            )))
+(specops stc (op0 op1 &optional op2)
+  ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a :dsp :privileged))
+  (typecase op0
+    (gpr
+     (case op0
+       (:sr
+        (masque "0000NNNN.00000010" ;; stc SR,Rn
+                (n (gprix op1))))
+       (:tbr (assert (matching-types                           :sh2a) ()
+                     "LDC Rm,TBR incompatible with this architecture type.")
+        (masque "0000NNNN.01001010" ;; stc TBR,Rn
+                (n (gprix op1))))
+       (:gbr (assert (matching-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a) ()
+                     "LDC Rm,GBR incompatible with this architecture type.")
+        (masque "0000NNNN.00010010" ;; stc GBR,Rn
+                (n (gprix op1))))
+       (:vbr
+        (masque "0000NNNN.00100010" ;; stc VBR,Rn
+                (n (gprix op1))))
+       (:mod (assert (matching-types :dsp) ()
+                     "LDC Rm,MOD incompatible with this architecture type.")
+        (masque "0000NNNN.01010010" ;; stc MOD,Rn
+                (n (gprix op1))))
+       (:re  (assert (matching-types :dsp) ()
+                     "LDC Rm,RE incompatible with this architecture type.")
+        (masque "0000NNNN.01110010" ;; stc RE,Rn
+                (n (gprix op1))))
+       (:rs  (assert (matching-types :dsp) ()
+                     "LDC Rm,RS incompatible with this architecture type.")
+        (masque "0000NNNN.01100010" ;; stc RS,Rn
+                (n (gprix op1))))
+       (:sgr (assert (matching-types           :sh4a :privileged) ()
+                     "LDC Rm,SGR incompatible with this architecture type.")
+        (masque "0000NNNN.00111010" ;; stc SGR,Rn
+                (n (gprix op1))))
+       (:ssr (assert (matching-types :sh3 :sh4 :sh4a :privileged) ()
+                     "LDC Rm,SSR incompatible with this architecture type.")
+        (masque "0000NNNN.00110010" ;; stc SSR,Rn
+                (n (gprix op1))))
+       (:spc (assert (matching-types :sh3 :sh4 :sh4a :privileged) ()
+                     "LDC Rm,SPC incompatible with this architecture type.")
+        (masque "0000NNNN.01000010" ;; stc SPC,Rn
+                (n (gprix op1))))
+       (:dbr (assert (matching-types      :sh4 :sh4a :privileged) ()
+                     "LDC Rm,DBR incompatible with this architecture type.")
+        (masque "0000NNNN.11111010" ;; stc DBR,Rn
+                (n (gprix op1))))
+       (t (if (typep op1 'gprb)
+              (progn (assert (matching-types :sh3 :sh4 :sh4a :privileged) ()
+                             "LDC Rm,Rn_BANK is incompatible with this architecture type.")
+                     (masque "0000NNNN.1MMM0010" ;; stc Rm_BANK,Rn
+                             (n (gprix op1)) (m (gprbix op0))))
+              (error "Invalid operands for LDC.")))))
+    (mas-predecr
+     (if (not (eq op0 :l))
+         (error "STC only works at width L.")
+         (case op1
+           (:sr
+            (masque "0100NNNN.00000011" ;; stc.l SR,@-Rn
+                    (n (gprix (mas-base op2)))))
+           (:gbr (assert (matching-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a) ()
+                         "LDC.L @Rm+,GBR incompatible with this architecture type.")
+            (masque "0100NNNN.00010011" ;; stc.l GBR,@-Rn
+                    (n (gprix (mas-base op2)))))
+           (:vbr
+            (masque "0100NNNN.00100011" ;; stc.l VBR,@-Rn
+                    (n (gprix (mas-base op2)))))
+           (:mod (assert (matching-types :dsp) ()
+                         "LDC.L @Rm+,MOD incompatible with this architecture type.")
+            (masque "0100NNNN.01010011" ;; stc.l MOD,@-Rn
+                    (n (gprix (mas-base op2)))))
+           (:re  (assert (matching-types :dsp) ()
+                         "LDC.L @Rm+,RE incompatible with this architecture type.")
+            (masque "0100NNNN.01110011" ;; stc.l RE,@-Rn
+                    (n (gprix (mas-base op2)))))
+           (:rs  (assert (matching-types :dsp) ()
+                         "LDC.L @Rm+,RS incompatible with this architecture type.")
+            (masque "0100NNNN.01100011" ;; stc.l RS,@-Rn
+                    (n (gprix (mas-base op2)))))
+           (:sgr (assert (matching-types           :sh4a :privileged) ()
+                         "LDC.L @Rm+,SGR incompatible with this architecture type.")
+            (masque "0100NNNN.00110010" ;; stc.l SGR,@-Rn
+                    (n (gprix (mas-base op2)))))
+           (:ssr (assert (matching-types :sh3 :sh4 :sh4a :privileged) ()
+                         "LDC.L @Rm+,SSR incompatible with this architecture type.")
+            (masque "0100NNNN.00110011" ;; stc.l SSR,@-Rn
+                    (n (gprix (mas-base op2)))))
+           (:spc (assert (matching-types      :sh4 :sh4a :privileged) ()
+                         "LDC.L @Rm+,SPC incompatible with this architecture type.")
+            (masque "0100NNNN.01000011" ;; stc.l SPC,@-Rn
+                    (n (gprix (mas-base op2)))))
+           (:dbr (assert (matching-types      :sh4 :sh4a :privileged) ()
+                         "LDC.L @Rm+,DBR incompatible with this architecture type.")
+            (masque "0100NNNN.11110010" ;; stc.l DBR,@-Rn
+                    (n (gprix (mas-base op2)))))
+           (t (if (typep op1 'gprb)
+                  (progn (assert (matching-types :sh3 :sh4 :sh4a :privileged) ()
+                                 "LDC @Rm+,Rn_BANK is incompatible with this architecture type.")
+                         (masque "0100NNNN.1MMM0011" ;; stc.l Rm_BANK,@-Rn
+                                 (n (mas-base op1)) (m (gprbix op0))))
+                  (error "Invalid operands for LDC."))))))))
 
-(readops stc (word read)
-  (unmasque "0000NNNN.00000010" word ()
-    (list :stc )))
+(readops stc (word read) ;; stc SR,Rn
+  (unmasque "0000NNNN.00000010" word (n)
+    (list :stc :sr (drv-gpr n))))
 
-(specops stc.l (w op0 op1)
-  ;; stc.l SR,@-Rn
-  ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a :privileged))
-  (address (op0 op1) (index0 index1)
-    (masque "0100NNNN.00000011"
-            )))
+(readops stc.l (word read) ;; stc.l SR,@-Rn
+  (unmasque "0100NNNN.00000011" word (n)
+    (list :stc :l :sr (list '-@ (drv-gpr n)))))
 
-(readops stc.l (word read)
-  (unmasque "0100NNNN.00000011" word ()
-    (list :stc.l )))
+(readops stc (word read) ;; stc TBR,Rn
+  (unmasque "0000NNNN.01001010" word (n)
+    (list :stc :tbr (drv-gpr n))))
 
-(specops stc (w op0 op1)
-  ;; stc TBR,Rn
-  ((:for-types :sh2a))
-  (address (op0 op1) (index0 index1)
-    (masque "0000NNNN.01001010"
-            )))
+(readops stc (word read) ;; stc GBR,Rn
+  (unmasque "0000NNNN.00010010" word (n)
+    (list :stc :gbr (drv-gpr n))))
 
-(readops stc (word read)
-  (unmasque "0000NNNN.01001010" word ()
-    (list :stc )))
+(readops stc.l (word read) ;; stc.l GBR,@-Rn
+  (unmasque "0100NNNN.00010011" word (n)
+    (list :stc :l :gbr (list '-@ (drv-gpr n)))))
 
-(specops stc (w op0 op1)
-  ;; stc GBR,Rn
-  ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
-  (address (op0 op1) (index0 index1)
-    (masque "0000NNNN.00010010"
-            )))
+(readops stc (word read) ;; stc VBR,Rn
+  (unmasque "0000NNNN.00100010" word (n)
+    (list :stc :vbr (drv-gpr n))))
 
-(readops stc (word read)
-  (unmasque "0000NNNN.00010010" word ()
-    (list :stc )))
+(readops stc.l (word read) ;; stc.l VBR,@-Rn
+  (unmasque "0100NNNN.00100011" word (n)
+    (list :stc :l :vbr (list '-@ (drv-gpr n)))))
 
-(specops stc.l (w op0 op1)
-  ;; stc.l GBR,@-Rn
-  ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
-  (address (op0 op1) (index0 index1)
-    (masque "0100NNNN.00010011"
-            )))
+(readops stc (word read) ;; stc MOD,Rn
+  (unmasque "0000NNNN.01010010" word (n)
+    (list :stc :mod (drv-gpr n))))
 
-(readops stc.l (word read)
-  (unmasque "0100NNNN.00010011" word ()
-    (list :stc.l )))
+(readops stc.l (word read) ;; stc.l MOD,@-Rn
+  (unmasque "0100NNNN.01010011" word (n)
+    (list :stc :l :mod (list '-@ (drv-gpr n)))))
 
-(specops stc (w op0 op1)
-  ;; stc VBR,Rn
-  ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a :privileged))
-  (address (op0 op1) (index0 index1)
-    (masque "0000NNNN.00100010"
-            )))
+(readops stc (word read) ;; stc RE,Rn
+  (unmasque "0000NNNN.01110010" word (n)
+    (list :stc :re (drv-gpr n))))
 
-(readops stc (word read)
-  (unmasque "0000NNNN.00100010" word ()
-    (list :stc )))
+(readops stc.l (word read) ;; stc.l RE,@-Rn
+  (unmasque "0100NNNN.01110011" word (n)
+    (list :stc :l :re (list '-@ (drv-gpr n)))))
 
-(specops stc.l (w op0 op1)
-  ;; stc.l VBR,@-Rn
-  ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a :privileged))
-  (address (op0 op1) (index0 index1)
-    (masque "0100NNNN.00100011"
-            )))
+(readops stc (word read) ;; stc RS,Rn
+  (unmasque "0000NNNN.01100010" word (n)
+    (list :stc :rs (drv-gpr n))))
 
-(readops stc.l (word read)
-  (unmasque "0100NNNN.00100011" word ()
-    (list :stc.l )))
+(readops stc.l (word read) ;; stc.l RS,@-Rn
+  (unmasque "0100NNNN.01100011" word (n)
+    (list :stc :l :rs (list '-@ (drv-gpr n)))))
 
-(specops stc (w op0 op1)
-  ;; stc MOD,Rn
-  ((:for-types :dsp))
-  (address (op0 op1) (index0 index1)
-    (masque "0000NNNN.01010010"
-            )))
+(readops stc (word read) ;; stc SGR,Rn
+  (unmasque "0000NNNN.00111010" word (n)
+    (list :stc :sgr (drv-gpr n))))
 
-(readops stc (word read)
-  (unmasque "0000NNNN.01010010" word ()
-    (list :stc )))
+(readops stc.l (word read) ;; stc.l SGR,@-Rn
+  (unmasque "0100NNNN.00110010" word (n)
+    (list :stc :l :sgr (list '-@ (drv-gpr n)))))
 
-(specops stc.l (w op0 op1)
-  ;; stc.l MOD,@-Rn
-  ((:for-types :dsp))
-  (address (op0 op1) (index0 index1)
-    (masque "0100NNNN.01010011"
-            )))
+(readops stc (word read) ;; stc SSR,Rn
+  (unmasque "0000NNNN.00110010" word (n)
+    (list :stc :ssr (drv-gpr n))))
 
-(readops stc.l (word read)
-  (unmasque "0100NNNN.01010011" word ()
-    (list :stc.l )))
+(readops stc.l (word read) ;; stc.l SSR,@-Rn
+  (unmasque "0100NNNN.00110011" word (n)
+    (list :stc :l :ssr (list '-@ (drv-gpr n)))))
 
-(specops stc (w op0 op1)
-  ;; stc RE,Rn
-  ((:for-types :dsp))
-  (address (op0 op1) (index0 index1)
-    (masque "0000NNNN.01110010"
-            )))
+(readops stc (word read) ;; stc SPC,Rn
+  (unmasque "0000NNNN.01000010" word (n)
+    (list :stc :spc (drv-gpr n))))
 
-(readops stc (word read)
-  (unmasque "0000NNNN.01110010" word ()
-    (list :stc )))
-
-(specops stc.l (w op0 op1)
-  ;; stc.l RE,@-Rn
-  ((:for-types :dsp))
-  (address (op0 op1) (index0 index1)
-    (masque "0100NNNN.01110011"
-            )))
-
-(readops stc.l (word read)
-  (unmasque "0100NNNN.01110011" word ()
-    (list :stc.l )))
-
-(specops stc (w op0 op1)
-  ;; stc RS,Rn
-  ((:for-types :dsp))
-  (address (op0 op1) (index0 index1)
-    (masque "0000NNNN.01100010"
-            )))
-
-(readops stc (word read)
-  (unmasque "0000NNNN.01100010" word ()
-    (list :stc )))
-
-(specops stc.l (w op0 op1)
-  ;; stc.l RS,@-Rn
-  ((:for-types :dsp))
-  (address (op0 op1) (index0 index1)
-    (masque "0100NNNN.01100011"
-            )))
-
-(readops stc.l (word read)
-  (unmasque "0100NNNN.01100011" word ()
-    (list :stc.l )))
-
-(specops stc (w op0 op1)
-  ;; stc SGR,Rn
-  ((:for-types :sh4 :sh4a :privileged))
-  (address (op0 op1) (index0 index1)
-    (masque "0000NNNN.00111010"
-            )))
-
-(readops stc (word read)
-  (unmasque "0000NNNN.00111010" word ()
-    (list :stc )))
-
-(specops stc.l (w op0 op1)
-  ;; stc.l SGR,@-Rn
-  ((:for-types :sh4 :sh4a :privileged))
-  (address (op0 op1) (index0 index1)
-    (masque "0100NNNN.00110010"
-            )))
-
-(readops stc.l (word read)
-  (unmasque "0100NNNN.00110010" word ()
-    (list :stc.l )))
-
-(specops stc (w op0 op1)
-  ;; stc SSR,Rn
-  ((:for-types :sh3 :sh4 :sh4a :privileged))
-  (address (op0 op1) (index0 index1)
-    (masque "0000NNNN.00110010"
-            )))
-
-(readops stc (word read)
-  (unmasque "0000NNNN.00110010" word ()
-    (list :stc )))
-
-(specops stc.l (w op0 op1)
-  ;; stc.l SSR,@-Rn
-  ((:for-types :sh3 :sh4 :sh4a :privileged))
-  (address (op0 op1) (index0 index1)
-    (masque "0100NNNN.00110011"
-            )))
-
-(readops stc.l (word read)
-  (unmasque "0100NNNN.00110011" word ()
-    (list :stc.l )))
-
-(specops stc (w op0 op1)
-  ;; stc SPC,Rn
-  ((:for-types :sh3 :sh4 :sh4a :privileged))
-  (address (op0 op1) (index0 index1)
-    (masque "0000NNNN.01000010"
-            )))
-
-(readops stc (word read)
-  (unmasque "0000NNNN.01000010" word ()
-    (list :stc )))
-
-(specops stc.l (w op0 op1)
-  ;; stc.l SPC,@-Rn
-  ((:for-types :sh3 :sh4 :sh4a :privileged))
-  (address (op0 op1) (index0 index1)
-    (masque "0100NNNN.01000011"
-            )))
-
-(readops stc.l (word read)
+(readops stc.l (word read) ;; stc.l SPC,@-Rn
   (unmasque "0100NNNN.01000011" word ()
-    (list :stc.l )))
+    (list :stc :l :spc (list '-@ (drv-gpr n)))))
 
-(specops stc (w op0 op1)
-  ;; stc DBR,Rn
-  ((:for-types :sh4 :sh4a :privileged))
-  (address (op0 op1) (index0 index1)
-    (masque "0000NNNN.11111010"
-            )))
+(readops stc (word read) ;; stc DBR,Rn
+  (unmasque "0000NNNN.11111010" word (n)
+    (list :stc :dbr (drv-gpr n))))
 
-(readops stc (word read)
-  (unmasque "0000NNNN.11111010" word ()
-    (list :stc )))
+(readops stc.l (word read) ;; stc.l DBR,@-Rn
+  (unmasque "0100NNNN.11110010" word (n)
+    (list :stc :l :dbr (list '-@ (drv-gpr n)))))
 
-(specops stc.l (w op0 op1)
-  ;; stc.l DBR,@-Rn
-  ((:for-types :sh4 :sh4a :privileged))
-  (address (op0 op1) (index0 index1)
-    (masque "0100NNNN.11110010"
-            )))
+(readops stc (word read) ;; stc Rm_BANK,Rn
+  (unmasque "0000NNNN.1MMM0010" word (n m)
+    (list :stc (drv-gprb m) (drv-gpr n))))
 
-(readops stc.l (word read)
-  (unmasque "0100NNNN.11110010" word ()
-    (list :stc.l )))
+(readops stc.l (word read) ;; stc.l Rm_BANK,@-Rn
+  (unmasque "0100NNNN.1MMM0011" word (n m)
+    (list :stc :l (drv-gprb m) (list '-@ (drv-gpr n)))))
 
-(specops stc (w op0 op1)
-  ;; stc Rm_BANK,Rn
-  ((:for-types :sh3 :sh4 :sh4a :privileged))
-  (address (op0 op1) (index0 index1)
-    (masque "0000NNNN.1MMM0010"
-            )))
+(specops sts (op0 op1 &optional op2)
+  ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a :dsp :privileged))
+  (typecase op1
+    (gpr
+     (case op0
+       (:mach (assert (matching-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a) ()
+                      "LDS Rm,MACH incompatible with this architecture type.")
+        (masque "0000NNNN.00001010" ;; sts MACH,Rn
+                (n (gprix op1))))
+       (:macl (assert (matching-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a) ()
+                      "LDS Rm,MACL incompatible with this architecture type.")
+        (masque "0000NNNN.00011010" ;; sts MACL,Rn
+                (n (gprix op1))))
+       (:pr   (assert (matching-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a) ()
+                      "LDS Rm,PR incompatible with this architecture type.")
+        (masque "0000NNNN.00101010" ;; sts PR,Rn
+                (n (gprix op1))))
+       (:dsr  (assert (matching-types :dsp) ()
+                      "LDS Rm,DSR incompatible with this architecture type.")
+        (masque "0000NNNN.01101010" ;; sts DSR,Rn
+                (n (gprix op1))))
+       (:a0   (assert (matching-types :dsp) ()
+                      "LDS Rm,A0 incompatible with this architecture type.")
+        (masque "0000NNNN.01111010" ;; sts A0,Rn
+                (n (gprix op1))))
+       (:x0   (assert (matching-types :dsp) ()
+                      "LDS Rm,X0 incompatible with this architecture type.")
+        (masque "0000NNNN.10001010" ;; sts X0,Rn
+                (n (gprix op1))))
+       (:x1   (assert (matching-types :dsp) ()
+                      "LDS Rm,X1 incompatible with this architecture type.")
+        (masque "0000NNNN.10011010" ;; sts X1,Rn
+                (n (gprix op1))))
+       (:y0   (assert (matching-types :dsp) ()
+                      "LDS Rm,Y0 incompatible with this architecture type.")
+        (masque "0000NNNN.10101010" ;; sts Y0,Rn
+                (n (gprix op1))))
+       (:y1   (assert (matching-types :dsp) ()
+                      "LDS Rm,Y1 incompatible with this architecture type.")
+        (masque "0000NNNN.10111010" ;; sts Y1,Rn
+                (n (gprix op1))))))
+    (mas-postinc
+     (if (not (eq op0 :l))
+         (error "LDS only works at width L.")
+         (case op1
+           (:mach (assert (matching-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a) ()
+                          "LDS.L @Rm+,MACH incompatible with this architecture type.")
+            (masque "0100NNNN.00000010" ;; sts.l MACH,@-Rn
+                    (n (gprix (mas-base op2)))))
+           (:macl (assert (matching-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a) ()
+                          "LDS.L @Rm+,MACL incompatible with this architecture type.")
+            (masque "0100NNNN.00010010" ;; sts.l MACL,@-Rn
+                    (n (gprix (mas-base op2)))))
+           (:pr   (assert (matching-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a) ()
+                          "LDS.L @Rm+,PR incompatible with this architecture type.")
+            (masque "0100NNNN.00100010" ;; sts.l PR,@-Rn
+                    (n (gprix (mas-base op2)))))
+           (:dsr  (assert (matching-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a) ()
+                          "LDS.L @Rm+,DSR incompatible with this architecture type.")
+            (masque "0100NNNN.01100010" ;; sts.l DSR,@-Rn
+                    (n (gprix (mas-base op2)))))
+           (:a0   (assert (matching-types :dsp) ()
+                          "LDS.L @Rm+,A0 incompatible with this architecture type.")
+            (masque "0100NNNN.01100010" ;; sts.l A0,@-Rn
+                    (n (gprix (mas-base op2)))))
+           (:x0   (assert (matching-types :dsp) ()
+                          "LDS.L @Rm+,X0 incompatible with this architecture type.")
+            (masque "0100NNNN.10000010" ;; sts.l X0,@-Rn
+                    (n (gprix (mas-base op2)))))
+           (:x1   (assert (matching-types :dsp) ()
+                          "LDS.L @Rm+,X1 incompatible with this architecture type.")
+            (masque "0100NNNN.10010010" ;; sts.l X1,@-Rn
+                    (n (gprix (mas-base op2)))))
+           (:y0   (assert (matching-types :dsp) ()
+                          "LDS.L @Rm+,Y0 incompatible with this architecture type.")
+            (masque "0100NNNN.10100010" ;; sts.l Y0,@-Rn
+                    (n (gprix (mas-base op2)))))
+           (:y1   (assert (matching-types :dsp) ()
+                          "LDS.L @Rm+,Y1 incompatible with this architecture type.")
+            (masque "0100NNNN.10110010" ;; sts.l Y1,@-Rn
+                    (n (gprix (mas-base op2))))))))))
 
-(readops stc (word read)
-  (unmasque "0000NNNN.1MMM0010" word ()
-    (list :stc )))
+(readops sts (word read) ;; sts MACH,Rn
+  (unmasque "0000NNNN.00001010" word (n)
+    (list :sts :mach (drv-gpr n))))
 
-(specops stc.l (w op0 op1)
-  ;; stc.l Rm_BANK,@-Rn
-  ((:for-types :sh3 :sh4 :sh4a :privileged))
-  (address (op0 op1) (index0 index1)
-    (masque "0100NNNN.1MMM0011"
-            )))
+(readops sts.l (word read) ;; sts.l MACH,@-Rn
+  (unmasque "0100NNNN.00000010" word (n)
+    (list :sts :l :mach (list '-@ (drv-gpr n)))))
 
-(readops stc.l (word read)
-  (unmasque "0100NNNN.1MMM0011" word ()
-    (list :stc.l )))
+(readops sts (word read) ;; sts MACL,Rn
+  (unmasque "0000NNNN.00011010" word (n)
+    (list :sts :macl (drv-gpr n))))
 
-(specops sts (w op0 op1)
-  ;; sts MACH,Rn
-  ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
-  (address (op0 op1) (index0 index1)
-    (masque "0000NNNN.00001010"
-            )))
+(readops sts.l (word read) ;; sts.l MACL,@-Rn
+  (unmasque "0100NNNN.00010010" word (n)
+    (list :sts :l :macl (list '-@ (drv-gpr n)))))
 
-(readops sts (word read)
-  (unmasque "0000NNNN.00001010" word ()
-    (list :sts )))
+(readops sts (word read) ;; sts PR,Rn
+  (unmasque "0000NNNN.00101010" word (n)
+    (list :sts :pr (drv-gpr n))))
 
-(specops sts.l (w op0 op1)
-  ;; sts.l MACH,@-Rn
-  ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
-  (address (op0 op1) (index0 index1)
-    (masque "0100NNNN.00000010"
-            )))
+(readops sts.l (word read) ;; sts.l PR,@-Rn
+  (unmasque "0100NNNN.00100010" word (n)
+    (list :sts :l :pr (list '-@ (drv-gpr n)))))
 
-(readops sts.l (word read)
-  (unmasque "0100NNNN.00000010" word ()
-    (list :sts.l )))
+(readops sts (word read) ;; sts DSR,Rn
+  (unmasque "0000NNNN.01101010" word (n)
+    (list :sts :dsr (drv-gpr n))))
 
-(specops sts (w op0 op1)
-  ;; sts MACL,Rn
-  ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
-  (address (op0 op1) (index0 index1)
-    (masque "0000NNNN.00011010"
-            )))
+(readops sts.l (word read) ;; sts.l DSR,@-Rn
+  (unmasque "0100NNNN.01100010" word (n)
+    (list :sts :l :dsr (list '-@ (drv-gpr n)))))
 
-(readops sts (word read)
-  (unmasque "0000NNNN.00011010" word ()
-    (list :sts )))
-
-(specops sts.l (w op0 op1)
-  ;; sts.l MACL,@-Rn
-  ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
-  (address (op0 op1) (index0 index1)
-    (masque "0100NNNN.00010010"
-            )))
-
-(readops sts.l (word read)
-  (unmasque "0100NNNN.00010010" word ()
-    (list :sts.l )))
-
-(specops sts (w op0 op1)
-  ;; sts PR,Rn
-  ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
-  (address (op0 op1) (index0 index1)
-    (masque "0000NNNN.00101010"
-            )))
-
-(readops sts (word read)
-  (unmasque "0000NNNN.00101010" word ()
-    (list :sts )))
-
-(specops sts.l (w op0 op1)
-  ;; sts.l PR,@-Rn
-  ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
-  (address (op0 op1) (index0 index1)
-    (masque "0100NNNN.00100010"
-            )))
-
-(readops sts.l (word read)
-  (unmasque "0100NNNN.00100010" word ()
-    (list :sts.l )))
-
-(specops sts (w op0 op1)
-  ;; sts DSR,Rn
-  ((:for-types :dsp))
-  (address (op0 op1) (index0 index1)
-    (masque "0000NNNN.01101010"
-            )))
-
-(readops sts (word read)
-  (unmasque "0000NNNN.01101010" word ()
-    (list :sts )))
-
-(specops sts.l (w op0 op1)
-  ;; sts.l DSR,@-Rn
-  ((:for-types :dsp))
-  (address (op0 op1) (index0 index1)
-    (masque "0100NNNN.01100010"
-            )))
-
-(readops sts.l (word read)
-  (unmasque "0100NNNN.01100010" word ()
-    (list :sts.l )))
-
-(specops sts (w op0 op1)
-  ;; sts A0,Rn
-  ((:for-types :dsp))
-  (address (op0 op1) (index0 index1)
-    (masque "0000NNNN.01111010"
-            )))
-
-(readops sts (word read)
-  (unmasque "0000NNNN.01111010" word ()
-    (list :sts )))
-
-(specops sts.l (w op0 op1)
-  ;; sts.l A0,@-Rn
-  ((:for-types :dsp))
-  (address (op0 op1) (index0 index1)
-    (masque "0100NNNN.01100010"
-            )))
+(readops sts (word read) ;; sts A0,Rn
+  (unmasque "0000NNNN.01111010" word (n)
+    (list :sts :ao (drv-gpr n))))
 
 (readops sts.l (word read)
-  (unmasque "0100NNNN.01100010" word ()
-    (list :sts.l )))
+  (unmasque "0100NNNN.01100010" word (n)
+    (list :sts :l :a0 (list '-@ (drv-gpr n)))))
 
-(specops sts (w op0 op1)
-  ;; sts X0,Rn
-  ((:for-types :dsp))
-  (address (op0 op1) (index0 index1)
-    (masque "0000NNNN.10001010"
-            )))
+(readops sts (word read) ;; sts X0,Rn
+  (unmasque "0000NNNN.10001010" word (n)
+    (list :sts :xo (drv-gpr n))))
 
-(readops sts (word read)
-  (unmasque "0000NNNN.10001010" word ()
-    (list :sts )))
+(readops sts.l (word read) ;; sts.l X0,@-Rn
+  (unmasque "0100NNNN.10000010" word (n)
+    (list :sts :l :x0 (list '-@ (drv-gpr n)))))
 
-(specops sts.l (w op0 op1)
-  ;; sts.l X0,@-Rn
-  ((:for-types :dsp))
-  (address (op0 op1) (index0 index1)
-    (masque "0100NNNN.10000010"
-            )))
+(readops sts (word read) ;; sts X1,Rn
+  (unmasque "0000NNNN.10011010" word (n)
+    (list :sts :x1 (drv-gpr n))))
 
-(readops sts.l (word read)
-  (unmasque "0100NNNN.10000010" word ()
-    (list :sts.l )))
+(readops sts.l (word read) ;; sts.l X1,@-Rn
+  (unmasque "0100NNNN.10010010" word (n)
+    (list :sts :l :x1 (list '-@ (drv-gpr n)))))
 
-(specops sts (w op0 op1)
-  ;; sts X1,Rn
-  ((:for-types :dsp))
-  (address (op0 op1) (index0 index1)
-    (masque "0000NNNN.10011010"
-            )))
+(readops sts (word read) ;; sts Y0,Rn
+  (unmasque "0000NNNN.10101010" word (n)
+    (list :sts :y0 (drv-gpr n))))
 
-(readops sts (word read)
-  (unmasque "0000NNNN.10011010" word ()
-    (list :sts )))
+(readops sts.l (word read) ;; sts.l Y0,@-Rn
+  (unmasque "0100NNNN.10100010" word (n)
+    (list :sts :l :y0 (list '-@ (drv-gpr n)))))
 
-(specops sts.l (w op0 op1)
-  ;; sts.l X1,@-Rn
-  ((:for-types :dsp))
-  (address (op0 op1) (index0 index1)
-    (masque "0100NNNN.10010010"
-            )))
+(readops sts (word read) ;; sts Y1,Rn
+  (unmasque "0000NNNN.10111010" word (n)
+    (list :sts :y1 (drv-gpr n))))
 
-(readops sts.l (word read)
-  (unmasque "0100NNNN.10010010" word ()
-    (list :sts.l )))
+(readops sts.l (word read) ;; sts.l Y1,@-Rn
+  (unmasque "0100NNNN.10110010" word (n)
+    (list :sts :l :y1 (list '-@ (drv-gpr n)))))
 
-(specops sts (w op0 op1)
-  ;; sts Y0,Rn
-  ((:for-types :dsp))
-  (address (op0 op1) (index0 index1)
-    (masque "0000NNNN.10101010"
-            )))
-
-(readops sts (word read)
-  (unmasque "0000NNNN.10101010" word ()
-    (list :sts )))
-
-(specops sts.l (w op0 op1)
-  ;; sts.l Y0,@-Rn
-  ((:for-types :dsp))
-  (address (op0 op1) (index0 index1)
-    (masque "0100NNNN.10100010"
-            )))
-
-(readops sts.l (word read)
-  (unmasque "0100NNNN.10100010" word ()
-    (list :sts.l )))
-
-(specops sts (w op0 op1)
-  ;; sts Y1,Rn
-  ((:for-types :dsp))
-  (address (op0 op1) (index0 index1)
-    (masque "0000NNNN.10111010"
-            )))
-
-(readops sts (word read)
-  (unmasque "0000NNNN.10111010" word ()
-    (list :sts )))
-
-(specops sts.l (w op0 op1)
-  ;; sts.l Y1,@-Rn
-  ((:for-types :dsp))
-  (address (op0 op1) (index0 index1)
-    (masque "0100NNNN.10110010"
-            )))
-
-(readops sts.l (word read)
-  (unmasque "0100NNNN.10110010" word ()
-    (list :sts.l )))
-
-(specops synco (w op0 op1)
-  ;; synco
+(specops synco ()
   ((:for-types :sh4a))
-  (address (op0 op1) (index0 index1)
-    (masque "00000000.10101011"
-            )))
+  (masque "00000000.10101011")) ;; synco
 
-(readops synco (word read)
-  (unmasque "00000000.10101011" word ()
-    (list :synco )))
+(readops (unmasque "00000000.10101011") (read)
+  (list :synco))
 
-(specops trapa (w op0 op1)
-  ;; trapa #imm
+(specops trapa (op0)
   ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
-  (address (op0 op1) (index0 index1)
-    (masque "11000011.IIIIIIII"
-            )))
+  (masque "11000011.IIIIIIII"
+          (i op0))) ;; trapa #imm
 
 (readops trapa (word read)
-  (unmasque "11000011.IIIIIIII" word ()
-    (list :trapa )))
+  (unmasque "11000011.IIIIIIII" word (i)
+    (list :trapa i)))
 
-;;; *** END SYSTEM FUNCTIONS - BEGIN FP
+;;; *** END SYSTEM FUNCTIONS - BEGIN FP FLOATING POINT FPR
 
-(specops fmov (w op0 op1)
-  ;; fmov FRm,FRn
-  ((:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
-  (address (op0 op1) (index0 index1)
-    (masque "1111NNNN.MMMM1100"
-            )))
+(specops fmov (op0 op1)
+    ((:type-matcher matching-types)
+     (:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
+  (cond ((match-types op0 op1  fpr fpr)
+         (masque "1111NNNN.MMMM1100" ;; fmov FRm,FRn
+                 (n (fprix op1)) (m (fprix op0))))
+        ((matching-types :sh4 :sh4a :sh2a)
+         (cond ((match-types op0 op1  dpr dpr)
+                (masque "1111NNN0.MMM01100" ;; fmov DRm,DRn
+                        (n (dprix op1)) (m (dprix op0))))))
+        ((matching-types :sh4 :sh4a)
+         (cond ((match-types op0 op1  dpr xdr)
+                (masque "1111NNN1.MMM01100" ;; fmov DRm,XDn
+                        (n (xdrix op1)) (m (dprix op0))))
+               ((match-types op0 op1  xdr dpr)
+                (masque "1111NNN0.MMM11100" ;; fmov XDm,DRn
+                        (n (dprix op1)) (m (xdrix op0))))
+               ((match-types op0 op1  xdr xdr)
+                (masque "1111NNN1.MMM11100" ;; fmov XDm,XDn
+                        (n (xdrix op1)) (m (xdrix op0))))))))
+
+(specops fmov.s (op0 op1)
+    ((:type-matcher matching-types)
+     (:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
+  (cond ((matching-types :sh2a)
+         (cond ((match-types op0 op1  mas-bs+disp fpr)
+                (masque "0011NNNN.MMMM0001.0111DDDD.DDDDDDDD" ;; fmov.s @(disp12,Rm),FRn
+                        (n (gprix (mas-base op1))) (m (gprix op0)) (d (mas-displ op0))))
+               ((match-types op0 op1  fpr mas-bs+disp)
+                (masque "0011NNNN.MMMM0001.0011DDDD.DDDDDDDD" ;; fmov.s FRm,@(disp12,Rn)
+                        (n (gprix (mas-base op1))) (m (gprix op0)) (d (mas-displ op1))))))
+        ((match-types op0 op1  mas-simple fpr)
+         (masque "1111NNNN.MMMM1000" ;; fmov.s @Rm,FRn
+                 (n (fprix op1)) (m (mas-base op0))))
+        ((match-types op0 op1  fpr mas-simple)
+         (masque "1111NNNN.MMMM1010" ;; fmov.s FRm,@Rn
+                 (n (mas-base op1)) (m (fprix op0))))
+        ((match-types op0 op1  mas-postinc fpr)
+         (masque "1111NNNN.MMMM1001" ;; fmov.s @Rm+,FRn
+                 (n (fprix op1)) (m (mas-base op0))))
+        ((match-types op0 op1  fpr mas-simple)
+         (masque "1111NNNN.MMMM1011" ;; fmov.s FRm,@-Rn
+                 (n (mas-base op1)) (m (fprix op0))))
+        ((match-types op0 op1  mas-b+rzero fpr)
+         (masque "1111NNNN.MMMM0110" ;; fmov.s @(R0,Rm),FRn
+                 (n (fprix op1)) (m (mas-base op0))))
+        ((match-types op0 op1  fpr mas-b+rzero)
+         (masque "1111NNNN.MMMM0111" ;; fmov.s FRm,@(R0,Rn)
+                 (n (mas-base op1)) (m (fprix op0))))
+        ((match-types op0 op1  mas-b+rzero fpr)
+         (masque "0011NNNN.MMMM0001.0111DDDD.DDDDDDDD" ;; fmov.s @(disp12,Rm),FRn
+                 (n (fprix op1)) (m (mas-base op0)) (d (mas-displ op0))))))
+
+;; (specops fmov (w op0 op1)
+;;   ;; fmov FRm,FRn
+;;   ((:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
+;;   (address (op0 op1) (index0 index1)
+;;     (masque "1111NNNN.MMMM1100"
+;;             )))
 
 (readops fmov (word read)
-  (unmasque "1111NNNN.MMMM1100" word ()
-    (list :fmov )))
+  (unmasque "1111NNNN.MMMM1100" word (n m)
+    (list :fmov (drv-fpr m) (drv-fpr n))))
 
-(specops fmov.s (w op0 op1)
-  ;; fmov.s @Rm,FRn
-  ((:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
-  (address (op0 op1) (index0 index1)
-    (masque "1111NNNN.MMMM1000"
-            )))
+;; (specops fmov.s (w op0 op1)
+;;   ;; fmov.s @Rm,FRn
+;;   ((:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
+;;   (address (op0 op1) (index0 index1)
+;;     (masque "1111NNNN.MMMM1000"
+;;             )))
 
 (readops fmov.s (word read)
   (unmasque "1111NNNN.MMMM1000" word ()
     (list :fmov.s )))
 
-(specops fmov.s (w op0 op1)
-  ;; fmov.s FRm,@Rn
-  ((:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
-  (address (op0 op1) (index0 index1)
-    (masque "1111NNNN.MMMM1010"
-            )))
+;; (specops fmov.s (w op0 op1)
+;;   ;; fmov.s FRm,@Rn
+;;   ((:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
+;;   (address (op0 op1) (index0 index1)
+;;     (masque "1111NNNN.MMMM1010"
+;;             )))
 
 (readops fmov.s (word read)
   (unmasque "1111NNNN.MMMM1010" word ()
     (list :fmov.s )))
 
-(specops fmov.s (w op0 op1)
-  ;; fmov.s @Rm+,FRn
-  ((:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
-  (address (op0 op1) (index0 index1)
-    (masque "1111NNNN.MMMM1001"
-            )))
+;; (specops fmov.s (w op0 op1)
+;;   ;; fmov.s @Rm+,FRn
+;;   ((:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
+;;   (address (op0 op1) (index0 index1)
+;;     (masque "1111NNNN.MMMM1001"
+;;             )))
 
 (readops fmov.s (word read)
   (unmasque "1111NNNN.MMMM1001" word ()
     (list :fmov.s )))
 
-(specops fmov.s (w op0 op1)
-  ;; fmov.s FRm,@-Rn
-  ((:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
-  (address (op0 op1) (index0 index1)
-    (masque "1111NNNN.MMMM1011"
-            )))
+;; (specops fmov.s (w op0 op1)
+;;   ;; fmov.s FRm,@-Rn
+;;   ((:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
+;;   (address (op0 op1) (index0 index1)
+;;     (masque "1111NNNN.MMMM1011"
+;;             )))
 
 (readops fmov.s (word read)
   (unmasque "1111NNNN.MMMM1011" word ()
     (list :fmov.s )))
 
-(specops fmov.s (w op0 op1)
-  ;; fmov.s @(R0,Rm),FRn
-  ((:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
-  (address (op0 op1) (index0 index1)
-    (masque "1111NNNN.MMMM0110"
-            )))
+;; (specops fmov.s (w op0 op1)
+;;   ;; fmov.s @(R0,Rm),FRn
+;;   ((:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
+;;   (address (op0 op1) (index0 index1)
+;;     (masque "1111NNNN.MMMM0110"
+;;             )))
 
 (readops fmov.s (word read)
   (unmasque "1111NNNN.MMMM0110" word ()
     (list :fmov.s )))
 
-(specops fmov.s (w op0 op1)
-  ;; fmov.s FRm,@(R0,Rn)
-  ((:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
-  (address (op0 op1) (index0 index1)
-    (masque "1111NNNN.MMMM0111"
-            )))
+;; (specops fmov.s (w op0 op1)
+;;   ;; fmov.s FRm,@(R0,Rn)
+;;   ((:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
+;;   (address (op0 op1) (index0 index1)
+;;     (masque "1111NNNN.MMMM0111"
+;;             )))
 
 (readops fmov.s (word read)
   (unmasque "1111NNNN.MMMM0111" word ()
     (list :fmov.s )))
 
-(specops fmov.s (w op0 op1)
-  ;; fmov.s @(disp12,Rm),FRn
-  ((:for-types :sh2a))
-  (address (op0 op1) (index0 index1)
-    (masque "0011NNNN.MMMM0001.0111DDDD.DDDDDDDD"
-            )))
+;; (specops fmov.s (w op0 op1)
+;;   ;; fmov.s @(disp12,Rm),FRn
+;;   ((:for-types :sh2a))
+;;   (address (op0 op1) (index0 index1)
+;;     (masque "0011NNNN.MMMM0001.0111DDDD.DDDDDDDD"
+;;             )))
 
 (readops fmov.s (word read)
   (unmasque "0011NNNN.MMMM0001.0111DDDD.DDDDDDDD" word ()
     (list :fmov.s )))
 
-(specops fmov.s (w op0 op1)
-  ;; fmov.s FRm,@(disp12,Rn)
-  ((:for-types :sh2a))
-  (address (op0 op1) (index0 index1)
-    (masque "0011NNNN.MMMM0001.0011DDDD.DDDDDDDD"
-            )))
+;; (specops fmov.s (w op0 op1)
+;;   ;; fmov.s FRm,@(disp12,Rn)
+;;   ((:for-types :sh2a))
+;;   (address (op0 op1) (index0 index1)
+;;     (masque "0011NNNN.MMMM0001.0011DDDD.DDDDDDDD"
+;;             )))
 
 (readops fmov.s (word read)
   (unmasque "0011NNNN.MMMM0001.0011DDDD.DDDDDDDD" word ()
     (list :fmov.s )))
-
-(specops fmov (w op0 op1)
-  ;; fmov DRm,DRn
-  ((:for-types :sh4 :sh4a :sh2a))
-  (address (op0 op1) (index0 index1)
-    (masque "1111NNN0.MMM01100"
-            )))
+ 
+;; (specops fmov (w op0 op1) 
+;;   ;; fmov DRm,DRn
+;;   ((:for-types :sh4 :sh4a :sh2a))
+;;   (address (op0 op1) (index0 index1)
+;;     (masque "1111NNN0.MMM01100"
+;;             )))
 
 (readops fmov (word read)
   (unmasque "1111NNN0.MMM01100" word ()
     (list :fmov )))
 
-(specops fmov (w op0 op1)
-  ;; fmov DRm,XDn
-  ((:for-types :sh4 :sh4a))
-  (address (op0 op1) (index0 index1)
-    (masque "1111NNN1.MMM01100"
-            )))
+;; (specops fmov (w op0 op1)
+;;   ;; fmov DRm,XDn
+;;   ((:for-types :sh4 :sh4a))
+;;   (address (op0 op1) (index0 index1)
+;;     (masque "1111NNN1.MMM01100"
+;;             )))
 
 (readops fmov (word read)
   (unmasque "1111NNN1.MMM01100" word ()
     (list :fmov )))
 
-(specops fmov (w op0 op1)
-  ;; fmov XDm,DRn
-  ((:for-types :sh4 :sh4a))
-  (address (op0 op1) (index0 index1)
-    (masque "1111NNN0.MMM11100"
-            )))
+;; (specops fmov (w op0 op1)
+;;   ;; fmov XDm,DRn
+;;   ((:for-types :sh4 :sh4a))
+;;   (address (op0 op1) (index0 index1)
+;;     (masque "1111NNN0.MMM11100"
+;;             )))
 
 (readops fmov (word read)
   (unmasque "1111NNN0.MMM11100" word ()
     (list :fmov )))
 
-(specops fmov (w op0 op1)
-  ;; fmov XDm,XDn
-  ((:for-types :sh4 :sh4a))
-  (address (op0 op1) (index0 index1)
-    (masque "1111NNN1.MMM11100"
-            )))
+;; (specops fmov (w op0 op1)
+;;   ;; fmov XDm,XDn
+;;   ((:for-types :sh4 :sh4a))
+;;   (address (op0 op1) (index0 index1)
+;;     (masque "1111NNN1.MMM11100"
+;;             )))
 
 (readops fmov (word read)
   (unmasque "1111NNN1.MMM11100" word ()

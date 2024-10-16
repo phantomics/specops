@@ -51,6 +51,11 @@
 (setf *superh-layout*
       (list :gpr  '(:r0  :r1  :r2  :r3  :r4  :r5  :r6  :r7 :r8  :r9  :r10 :r11 :r12 :r13 :r14 :r15)
             :fpr  '(:f0  :f1  :f2  :f3  :f4  :f5  :f6  :f7 :f8  :f9  :f10 :f11 :f12 :f13 :f14 :f15)
+            :dpr  '(:dr0  :dr2  :dr4  :dr6  :dr8  :dr10 :dr12 :dr14)
+            :fvr  '(:fv0 :fv4 :fv8 :fv12)
+            :xfr  '(:xf0  :xf1  :xf2  :xf3  :xf4  :xf5  :xf6  :xf7
+                    :xf8  :xf9  :xf10 :xf11 :xf12 :xf13 :xf14 :xf15)
+            :xdr  '(:xd0  :xd2  :xd4  :xd6  :xd8  :xd10 :xd12 :xd14)
             :gprb '(:rb0 :rb1 :rb2 :rb3 :rb4 :rb5 :rb6 :rb7)
             :spr  '(:sr :gbr :vbr :mach :macl :pr :pc)
             :dspr '(:dsr :a0 :x0 :x1 :y0 :y1)))
@@ -89,6 +94,12 @@
 (defun fprix (index)
   (position index (getf *superh-layout* :fpr)))
 
+(defun dprix (index)
+  (position index (getf *superh-layout* :dpr)))
+
+(defun xdrix (index)
+  (position index (getf *superh-layout* :xdr)))
+
 (defun gpr-p (item)
   (and (keywordp item) (gprix item)))
 
@@ -98,11 +109,21 @@
 (defun fpr-p (item)
   (and (keywordp item) (fprix item)))
 
+(defun dpr-p (item)
+  (and (keywordp item) (dprix item)))
+
+(defun xdr-p (item)
+  (and (keywordp item) (xdrix item)))
+
 (deftype gpr  () `(satisfies gpr-p))
 
 (deftype gprb () `(satisfies gprb-p))
 
 (deftype fpr  () `(satisfies fpr-p))
+
+(deftype dpr  () `(satisfies dpr-p))
+
+(deftype xdr  () `(satisfies xdr-p))
 
 (defun mas-simple-p  (item)
   (and (typep item 'mas-superh)
@@ -173,6 +194,9 @@
 
 (defun drv-gprb (index)
   (nth index (getf *superh-layout* :gprb)))
+
+(defun drv-fpr (index)
+  (nth index (getf *superh-layout* :fpr)))
 
 (defun rs16 (number)
   (ash number -16))
