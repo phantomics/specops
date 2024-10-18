@@ -8,4 +8,5 @@
   :serial t
   :depends-on ("specops")
   :components ((:file "package")
-               (:file "base")))
+               (:file "base")
+               (:file "ops")))
