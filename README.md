@@ -2,11 +2,11 @@
 ### To Specify Operations
 #### An Assembler Framework For Common Lisp
 
-The computing landscape is split along many axes. Some programs are written to be easily readable by humans, while others are written for the fastest possible evaluation. Different software models prioritize different performance metrics and systems are further divided between many different varieties of computer hardware, each with distinct features which are exposed in different ways to programmers.
+The computing landscape is split along many axes. Some programs are written to be easily readable by humans, while others are written for the fastest possible evaluation. Different software models prioritize different performance metrics and computer hardware is divided into many architectures, each with distinct features which are exposed in different ways to programmers.
 
-What kind of tool or design pattern could bridge these divides? In an increasingly heterogenous computing ecosystem, the task of bringing into concert various kinds of hardware has come into a stronger focus. The SpecOps assembler framework aims to meet this challenge, leveraging the expressive potential of Common Lisp to specify assembly and disassembly functions for multiple computer architectures, and augment low-level software development with tools of symbolic programming.
+What kind of tool or design pattern could bridge these divides? In an increasingly heterogenous computing ecosystem, the challenge of using different hardware in concert is coming into a stronger focus. The SpecOps assembler framework aims to bridge the divide between platforms, leveraging the expressive potential of Common Lisp to specify assembly and disassembly functions for multiple computer architectures and augment low-level software development with tools of symbolic programming.
 
-SpecOps is written in pure idiomatic Common Lisp without using any libraries, it's designed for maximum portability. This document gives an overview of some SpecOps assembler implementations, detailing the system's design and goals.
+SpecOps is designed for maximum portability, written in pure idiomatic Common Lisp without using any libraries. This document gives an overview of SpecOps features alongside some of its assembler implementations, illustrating the system's design and goals.
 
 ## Basic Usage: Motorola 68000
 
@@ -25,7 +25,7 @@ Let's see how this looks in practice and assemble some code for the Motorola 680
 #(1537 10)
 ```
 
-In this case, the M68K `ADDI` operation is being used to add an immediate value of 10 to the register d1. The instruction is expressed as the Lisp form `(:addi :b 10 :d1)`. SpecOps accepts input in the form of Lisp lists whose structure is patterned after standard assembly input for a given architecture. Other formats, including more standard assembly syntax, may be supported through the use of a frontend text parser that converts input into the list format expected by SpecOps modules.
+In this case, the M68K `ADDI` operation is being used to add an immediate value of 10 to the register d1. The instruction is expressed as the Lisp form `(:addi :b 10 :d1)`. SpecOps accepts input in the form of Lisp lists whose structure is patterned after standard assembly input for a given architecture. Other formats, including more standard text-based assembly syntax, may be supported through the use of a frontend text parser that converts input into the list format expected by SpecOps modules.
 
 The assembler's output is rendered as a vector of 16-bit integers, since all M68K instructions are divided into 16-bit segments. Prior to the single `ADDI` instruction, the assembler macro takes as its argument `*assembler-prototype-m68k*`, an assembler class instance expressing default properties for an M68K code assembler. Let's take a closer look at what it returned above.
 
@@ -41,7 +41,7 @@ The `ADDI` instruction is 16 bits long, like all M68K instructions, and is forma
 
 ### Implementing Instructions
 
-SpecOps provides a toolkit for creating schemes that govern such conversions of human-readable instructions into binary program code. Let's take a look at how M68K operations are specified.
+SpecOps provides a toolkit for creating schemes for the conversion of human-readable instructions into binary program code. Let's take a look at how M68K operations are specified.
 
 ```
 (specop addi (w op0 op1)
@@ -247,11 +247,11 @@ OUTPUT
 
 The `(interpret)` macro is the main tool for disassembly in SpecOps. Given a vector of encoded instructions, it will convert them to code in the same format in which it's input. Note that said vectors need to be of the appropriate integer types. If you copy and paste the text of the vector above into a Common Lisp REPL and attempt to disassemble it, it will typically be evaluated as a T-type vector rather than having the type `(unsigned-byte 16)` as System Z code should. This will cause disassembly to fail. 
 
-## Mirrored Specs: Hitachi Super-H
+## Mirrored Specs: Hitachi SuperH
 
 RISC (Reduced Instruction Set Computer) hardware architectures are known for executing code at consistently high speeds, but this often comes at the expense of elegance in instruction design. Platforms like ARM and M68K can be haphazard in their organization of bit fields so as to fit all the needed information into a fixed width. A standout in this sector is the Super-H architecture, originally designed by Hitachi. This line of CPUs powered the Sega Saturn, Sega Dreamcast and a wide range of arcade game hardware along with mechanical control systems in many vehicles. Super-H uses mostly 16-bit instructions (with a few 32-bit extensions added in later revisions) with all fields nibble-aligned.
 
-The orderly encoding of Super-H instructions makes an assembler for the architecture straightforward to implement, and the output can even be easy to read in hexadecimal. It's also straightforward to write rules for disassembling Super-H instructions, and you can see both in the following code:
+The orderly encoding of SuperH instructions makes an assembler for the architecture straightforward to implement, and the output can even be easy to read in hexadecimal. It's also straightforward to write rules for disassembling Super-H instructions, and you can see both in the following code:
 
 ```lisp
 (specops dt (op0)
@@ -307,13 +307,13 @@ Every architecture has lessons to be learned in implementing its instruction set
 ```lisp
 (specops 0 (op0 &optional op1) *assembler-prototype-z80*
   ((:tabular :cross-adding :matcher match-ops) (:duplex . of-decoder))
-  ((    ) (#x0       ) (#x1       ) (#x2        ) (#x3        ) (#x4        ) (#x5       ) ...)
-  ((#x00) (:nop      ) (:ld  bc xx) (:ld  @bc  a) (:inc     bc) (:inc      b) (:dec     b) ...)
-  ((#x10) (:djnz    x) (:ld  de xx) (:ld  @de  a) (:inc     de) (:inc      d) (:dec     d) ...)
-  ((#x20) (:jr   nz x) (:ld  hl xx) (:ld  @xx hl) (:inc     hl) (:inc      h) (:dec     h) ...)
-  ((#x30) (:jr   nc x) (:ld  sp xx) (:ld  @xx  a) (:inc     sp) (:inc    @hl) (:dec   @hl) ...)
-  ((#x40) (:ld    b b) (:ld  b   c) (:ld    b  d) (:ld    b  e) (:ld     b h) (:ld    b l) ...)
-  ((#x50) (:ld    d b) (:ld  d   c) (:ld    d  d) (:ld    d  e) (:ld     d h) (:ld    d l) ...)
+  ((    ) (#x0       ) (#x1       ) (#x2        ) (#x3       ) (#x4        ) (#x5       ) ...)
+  ((#x00) (:nop      ) (:ld  bc xx) (:ld  @bc  a) (:inc    bc) (:inc      b) (:dec     b) ...)
+  ((#x10) (:djnz    x) (:ld  de xx) (:ld  @de  a) (:inc    de) (:inc      d) (:dec     d) ...)
+  ((#x20) (:jr   nz x) (:ld  hl xx) (:ld  @xx hl) (:inc    hl) (:inc      h) (:dec     h) ...)
+  ((#x30) (:jr   nc x) (:ld  sp xx) (:ld  @xx  a) (:inc    sp) (:inc    @hl) (:dec   @hl) ...)
+  ((#x40) (:ld    b b) (:ld  b   c) (:ld    b  d) (:ld   b  e) (:ld     b h) (:ld    b l) ...)
+  ((#x50) (:ld    d b) (:ld  d   c) (:ld    d  d) (:ld   d  e) (:ld     d h) (:ld    d l) ...)
   ...)
 
 (specops #xCB00 (op0 &optional op1) *assembler-prototype-z80*
@@ -422,19 +422,19 @@ Let's take a closer look at what is produced when these macros expand.
                 (list :inc :bc))))
 ```
 
-The above code reflects part of the `INC` increment instruction implementation forms that are produced by the instruction table macro. As the presence of `(of-lexicon)` and `(of-decoder)` forms side by side may suggest, the instruction table manifests a duplex assembler/disassembler system. The `(of-lexicon)` form determines the assembler's behavior when encountering an `:inc` form generating an `INC` instruction. It checks for the presence of registers like `B`, `D`, `DE` and `HL` among the operands passed to it, and when matching a given register name it produces the appropriate opcode, like 35 or `#x23` for `(:inc :hl)`.
+The above code reflects part of the `INC` increment instruction implementation forms that are produced by the instruction table macro. Note that what you see above is not the entire output of the instruction table shown prior -- that would be much longer. It shows only the expansion of the table cells implementing cases of calls to `INC`. As indicated by the side-by-side `(of-lexicon)` and `(of-decoder)` forms, the instruction table manifests a duplex assembler/disassembler system. The `(of-lexicon)` form determines the assembler's behavior when encountering an `:inc` form generating an `INC` instruction. It checks for the presence of registers like `B`, `D`, `DE` and `HL` among the operands passed to it, and when matching a given register name it produces the appropriate opcode, like 35 or `#x23` for `(:inc :hl)`.
 
 Another notable quality of the Z80 architecture is that it has two alternate instruction tables that mirror the structure of the base table, but with some register checks that differ. These alternate tables have opcodes that start with the prefixes `#xDD` and `#xFD`. Any instruction in the base table that addresses the `HL` register has an alternate form in the `#xDD` table that addresses the `IX` register and another in the `#xFD` table that addresses the `IY` register.
 
-Therefore the `(:inc :hl)` instruction has two "shadow forms" that take `:ix` and `:iy` and have their opcodes incremented by `#xDD00` and #xFD00` respectively. The `L` register is replaced by `IXL` and `IYL` in the two alternate tables as well, among other equivalencies. The most unique of these is that for any operation taking as an argument the memory address found in the `HL` register, it is replaced in the alternate tables by the memory address in the `IX` or `IY` registers *plus a displacement*.
+Therefore the `(:inc :hl)` instruction has two "shadow forms" that take `:ix` and `:iy` and have their opcodes incremented by `#xDD00` and #xFD00` respectively. Other registers are shadowed in this way as well. The most unique of these shadow cases is that of operations taking as an operand the memory address found in the `HL` register. Instructions acting on the `HL` address are is replaced in the two alternate tables by operations on the `IX` and `IY` registers *plus a displacement*.
 
-For this reason, the shadow implementations of `INC` for `:@hl` (which indicates a memory location contained in the register HL) add to the incremented, shifted opcode a last byte that indicates the displacement from the address in `IX` or `IY` at which to access memory. Thus to encode `(:inc (@ :ix 5))`, for incrementing the byte at the address in `IX` plus a displacement of 5, a three-byte instruction is composed by adding `#xDD0000`, `#x3400` and `#x05`.
+For this reason, the shadow implementations of `INC` for `:@hl` (which indicates a memory location contained in the register HL) add to the incremented, shifted opcode a final byte that indicates the displacement from the address in `IX` or `IY` at which to access memory. Thus to encode `(:inc (@ :ix 5))`, for incrementing the byte at the address in `IX` plus a displacement of 5, a three-byte instruction is composed by adding `#xDD0000`, `#x3400` and `#x05`.
 
 ### Disassembly by the Numbers
 
 One of the properties of the function used to generate the Z80 main table assembler code is that it automatically generates these shadow forms for any operation that takes a shadowable register as an operand. It also automatically generates the `(of-decoder)` forms implementing disassembly. These forms, like `(of-lexicon)`, are assembler class methods that associate an integer value with a list to return that expresses the instruction. The numbers given as the second arguments to the `(of-decoder)` methods make entries in a hash table using those numbers as the keys.
 
-As seen previously in the Super-H specs, the assembly and disassembly code for Z80 has a different topology. Many possible encodings are matched to a single instruction mnemonic, while each possible encoded instruction has a unique disassembling function matched to it. The next section further details the process of disassembly in SpecOps. 
+As seen previously in the SuperH specs, the assembly functions for Z80 have a different code topology than the disassembly functions. Many possible encodings are matched to a single instruction mnemonic for assembly, while each possible decoded instruction has a unique disassembling function matched to it. The next section further details the process of disassembly in SpecOps. 
 
 ## Decoders and Batteries: Two Approaches to Disassembly
 
@@ -472,4 +472,4 @@ In this specification, the `rex` and `sib0` functions may also return nil - the 
 
 ## Future Work
 
-SpecOps is at the beginning stages of its development. A few architectures have most of their instructions encodings implemented at this point in time, but complex platforms like X86 and ARM will take a great deal more work to complete. There is also more work to be done in the areas of formatting binary code. The potential scope of the SpecOps project is vast, with many challenges to overcome and possibilities to be realized by more closely connecting various hardware platforms to Common Lisp.
+SpecOps is at the beginning stages of its development. A few architectures have most of their instruction encodings implemented at this point in time, but complex platforms like X86 and ARM will take a great deal more work to complete. There is also more work to be done in the areas of formatting binary code. The potential scope of the SpecOps project is vast, with many challenges to overcome and possibilities to be realized by more closely connecting various hardware platforms to Common Lisp.

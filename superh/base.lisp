@@ -53,7 +53,7 @@
       (list :gpr  '(:r0  :r1  :r2  :r3  :r4  :r5  :r6  :r7 :r8  :r9  :r10 :r11 :r12 :r13 :r14 :r15)
             :fpr  '(:f0  :f1  :f2  :f3  :f4  :f5  :f6  :f7 :f8  :f9  :f10 :f11 :f12 :f13 :f14 :f15)
             :dpr  '(:dr0  :dr2  :dr4  :dr6  :dr8  :dr10 :dr12 :dr14)
-            :fvr  '(:fv0 :fv4 :fv8 :fv12)
+            :fvr  '(:fv0  :fv4  :fv8  :fv12)
             :xfr  '(:xf0  :xf1  :xf2  :xf3  :xf4  :xf5  :xf6  :xf7
                     :xf8  :xf9  :xf10 :xf11 :xf12 :xf13 :xf14 :xf15)
             :xdr  '(:xd0  :xd2  :xd4  :xd6  :xd8  :xd10 :xd12 :xd14)
@@ -62,7 +62,7 @@
                     :fpul :xmtrx)
             :dspr '(:dsr :a0 :x0 :x1 :y0 :y1)))
 
-(defclass assembler-super-h (assembler-masking)
+(defclass assembler-super-h (assembler-encoding assembler-masking)
   ((%storage :accessor   asm-storage
              :allocation :class
              :initform   *super-h-layout*
@@ -75,6 +75,10 @@
              :allocation :class
              :initform   '(2)
              :initarg    :breadth)
+   (%decoder :accessor   asm-enc-decoder
+             :allocation :class
+             :initform   (make-hash-table :test #'eq)
+             :initarg    :decoder)
    (%battery :accessor   asm-msk-battery
              :allocation :class
              :initform   (make-hash-table :test #'eq)
@@ -223,7 +227,10 @@
 (defun lo16 (number)
   (logand number #xFFFF))
 
+(setf *assembler-prototype-super-h* (make-instance 'assembler-super-h))
+
 (defmacro specops-sh (symbol operands &body params)
   (cons 'specops (append (list symbol operands '*assembler-prototype-super-h*) params)))
 
-
+(defmacro readops-sh (symbol operands &body params)
+  (cons 'readops (append (list symbol operands '*assembler-prototype-super-h*) params)))

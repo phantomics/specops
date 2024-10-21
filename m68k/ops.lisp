@@ -5,15 +5,15 @@
 (specop ori (w op0 op1)
   (cond ((and (eq op1 :ccr) (match-types op0  integer))
          (joinw (masque "00000000.00111100")
-                op0))
+                (imm op0)))
         ((and (eq op1 :sr) (match-types op0  integer))
          (joinw (masque "00000000.01111100")
-                op0))
+                (imm op0)))
         ((match-types op0 op1  integer location)
          (address (op1) ((index1 amode1))
            (joinw (masque "00000000.SSMMMXXX"
                           (s (determine-width w)) (m amode1) (x index1))
-                  op0)))
+                  (imm op0))))
         (t (error "Invalid operands for ORI."))))
 
 (readop ori (word read)
@@ -24,15 +24,15 @@
 (specop andi (w op0 op1)
   (cond ((and (eq op1 :ccr) (match-types op0  integer))
          (joinw (masque "00000010.00111100")
-                op0))
+                (imm op0)))
         ((and (eq op1 :sr) (match-types op0  integer))
          (joinw (masque "00000010.01111100")
-                op0))
+                (imm op0)))
         ((match-types op0 op1  integer location)
          (address (op1) ((index1 amode1))
            (joinw (masque "00000010.SSMMMXXX"
                           (s (determine-width w)) (m amode1) (x index1))
-                  op0)))
+                  (imm op0))))
         (t (error "Invalid operands for ANDI."))))
 
 (readop (masque "00000010.00111100") (read)
@@ -53,7 +53,7 @@
   (address (op1) ((index1 amode1))
     (joinw (masque "00000100.SSMMMXXX"
                    (s (determine-width w)) (m amode1) (x index1))
-           op0)))
+           (imm op0))))
 
 (readop subi (word read)
   (unmasque "00000100.SSMMMXXX" word (s m x)
@@ -67,7 +67,7 @@
   (address (op1) ((index1 amode1))
     (joinw (masque "00000110.SSMMMXXX"
                    (s (determine-width w)) (m amode1) (x index1))
-           op0)))
+           (imm op0))))
 
 (readop addi (word read)
   (unmasque "00000110.SSMMMXXX" word (s m x)
@@ -77,15 +77,15 @@
 (specop eori (w op0 op1)
   (cond ((and (eq op1 :ccr) (match-types op0  integer))
          (joinw (masque "00001010.00111100")
-                op0))
+                (imm op0)))
         ((and (eq op1 :sr) (match-types op0  integer))
          (joinw (masque "00001010.01111100")
-                op0))
+                (imm op0)))
         ((match-types op0 op1  integer location)
          (address (op1) ((index1 amode1))
            (joinw (masque "00001010.SSMMMXXX"
                           (s (determine-width w)) (m amode1) (x index1))
-                  op0)))
+                  (imm op0))))
         (t (error "Invalid operands for EORI."))))
 
 (readop (masque "00001010.00111100") (read)
@@ -106,7 +106,7 @@
   (address (op1) ((index1 amode1))
     (joinw (masque "00001100.SSMMMXXX"
                    (s (determine-width w)) (m amode1) (x index1))
-           op0)))
+           (imm op0))))
 
 (readop cmpi (word read)
   (unmasque "00001010.SSMMMXXX" word (s m x)
@@ -118,7 +118,7 @@
       (address (op1) ((index1 amode1))
         (joinw (masque "00001000.00MMMXXX"
                        (m amode1) (x index1))
-               op0))
+               (imm op0)))
       (address (op0 op1) ((index0) (index1 amode1))
         (joinw (masque "0000DDD1.00MMMXXX"
                        (d index0) (m amode1) (x index1))))))
@@ -154,7 +154,7 @@
       (address (op1) ((index1 amode1))
         (joinw (masque "00001000.10MMMXXX"
                        (m amode1) (x index1))
-               op0))
+               (imm op0)))
       (address (op0 op1) ((index0) (index1 amode1))
         (joinw (masque "0000DDD1.10MMMXXX"
                        (d index0) (m amode1) (x index1))))))
@@ -172,7 +172,7 @@
       (address (op1) ((index1 amode1))
         (joinw (masque "00001000.11MMMXXX"
                        (m amode1) (x index1))
-               op0))
+               (imm op0)))
       (address (op0 op1) ((index0) (index1 amode1))
         (joinw (masque "0000DDD1.11MMMXXX"
                        (d index0) (m amode1) (x index1))))))
@@ -399,7 +399,7 @@
   (address (op0) ((index0))
     (joinw (masque "01001110.01010AAA"
                    (a index0))
-           op1)))
+           (imm op1))))
 
 (readop link (word read)
   (unmasque "01001110.01010AAA" word (a)
@@ -428,7 +428,7 @@
 
 (specop stop (op0)
   (joinw (masque "01001110.01110010")
-         op0))
+         (imm op0)))
 
 (readop (masque "01001110.01110010") (read)
   (list :stop (funcall read 1)))
@@ -590,7 +590,7 @@
   (address (op0) ((index0))
     (joinw (masque "0101CCCC.11001XXX"
                    (c condition) (x index0))
-           op1)))
+           (imm op1))))
 
 (readop db (word read)
   (unmasque "0101CCCC.11001XXX" word (c x)

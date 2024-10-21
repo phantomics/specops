@@ -3,7 +3,8 @@
 (defpackage #:specops
   (:use #:cl)
   (:export #:register
-           #:reg-name #:reg-index #:reg-width
+           #:reg-name #:reg-index #:reg-type #:of-register-type-index
+           #:immediate #:make-immediate #:imm
            #:memory-access-scheme
            #:mas-based #:mas-base #:mas-indexed #:mas-index #:mas-displaced #:mas-displ
            #:mas-scaling-displaced #:mas-sdisp-scale
@@ -16,7 +17,7 @@
            #:types-of #:derive-domains #:of-lexicon #:of-decoder #:of-battery #:of-storage
            #:storage-type-p #:specify-ops #:qualify-ops
            #:locate #:compose #:process-operands #:extend-clauses #:clause-processor #:label-delta
-           #:assemble #:specops #:interpret
+           #:assemble #:specops #:readops #:interpret
            #:match-types #:to-tag
            ))
     

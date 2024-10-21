@@ -9,6 +9,17 @@
             :adr '(:a0 :a1 :a2 :a3 :a4 :a5 :a6 :a7)
             :spr '(:usp :sr :ccr)))
 
+(defun rix (register &optional type)
+  (typecase register
+    (register (of-register-type-index register type))
+    (keyword  (if type (values (position register (getf *m68k-layout* type))
+                               type)
+                  (let ((position) (type-found))
+                    (loop :for (type-key names) :on *m68k-layout* :by #'cddr :until position
+                          :do (setf position   (position register names)
+                                    type-found type-key))
+                    (values position type-found))))))
+
 (defclass m68k-mas (mas-based mas-indexed mas-displaced)
   ((%qualifier :accessor m68k-mas-qualifier
                :initform nil
@@ -41,14 +52,14 @@
              :allocation :class
              :initform   (make-hash-table :test #'eq)
              :initarg    :lexicon)
-   (%decoder :accessor   asm-enc-decoder
-             :allocation :class
-             :initform   (make-hash-table :test #'eq)
-             :initarg    :decoder)
    (%segment :accessor   asm-msk-segment
              :allocation :class
              :initform   '(1)
              :initarg    :segment)
+   (%decoder :accessor   asm-enc-decoder
+             :allocation :class
+             :initform   (make-hash-table :test #'eq)
+             :initarg    :decoder)
    (%battery :accessor   asm-msk-battery
              :allocation :class
              :initform   (make-hash-table :test #'eq)
@@ -156,13 +167,17 @@
 
 (defmethod of-storage ((assembler assembler-m68k) key)
   (if (typep key 'm68k-mas)
-      (values (position (mas-base key) (getf (asm-storage assembler) :adr))
+      (values (rix (mas-base key) :adr)
+              ;; (position (mas-base key) (getf (asm-storage assembler) :adr))
               (case (m68k-mas-qualifier key)
                 (:postinc #b011) (:predecr #b100)
                 (t (if (not (mas-displ key))
                        #b010 (if (mas-index key) #b110 #b101)))))
-      (multiple-value-bind (index type) (call-next-method)
-        (values index (case type (:gpr #b000) (:adr #b001))))))
+      ;; (multiple-value-bind (index type) (call-next-method)
+      ;;   (values index (case type (:gpr #b000) (:adr #b001))))
+      (multiple-value-bind (index type) (rix key)
+        (values index (case type (:gpr #b000) (:adr #b001))))
+      ))
 
 ;; (defmethod locate ((assembler assembler-m68k) asm-sym items)
 ;;   (let ((domains (copy-tree (asm-domains assembler)))

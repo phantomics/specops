@@ -188,17 +188,60 @@
 (defclass register ()
   ((%name  :accessor reg-name
            :initform nil
-           :initarg :name
+           :initarg  :name
            :documentation "The register's name.")
+   (%type  :accessor reg-type
+           :initform nil
+           :initarg  :type
+           :documentation "The register's type.")
    (%index :accessor reg-index
            :initform nil
-           :initarg :index
-           :documentation "The register's index.")
-   (%width :accessor reg-width
-           :initform nil
-           :initarg :width
-           :documentation "The register's width."))
+           :initarg  :index
+           :documentation "The register's index."))
   (:documentation "Generic class for registers."))
+
+(defgeneric of-register-type-index (register &optional type)
+  (:documentation "Get a register's index."))
+
+(defmethod of-register-type-index ((register register) &optional type)
+  (if (or (not type) (eq type (reg-type register)))
+      (values (reg-index register) (or type (reg-type register)))))
+
+(defclass immediate ()
+  ((%value  :accessor imm-value
+            :initform nil
+            :initarg  :name
+            :documentation "The actual value.")
+   (%type  :accessor imm-type
+           :initform nil
+           :initarg  :type
+           :documentation "The value's type.")
+   (%width :accessor imm-width
+           :initform nil
+           :initarg  :width
+           :documentation "The value's width in bits."))
+  (:documentation "Base class for immediate-values."))
+
+(defgeneric make-immediate (value &optional type width)
+  (:documentation "Fucntion to create an immediate value."))
+
+(defgeneric imm (value &rest type)
+  (:documentation "Get a register's index."))
+
+(defmethod make-immediate (value &optional type width)
+  (when width
+    (typecase value
+      (integer (assert (and (not (minusp value))
+                            (zerop (ash value (- width))))
+                       (value width) "Immediate integer value ~a overflows its width of ~a."))))
+  (make-instance 'immediate :width width :value (if (integerp value) value)
+                            :type (typecase value
+                                    (integer 'integer))))
+
+(defmethod imm ((value integer) &rest type)
+  (if (not type) value))
+
+(defmethod imm ((value immediate) &rest type))
 
 (defclass memory-access-scheme ()
   () (:documentation "Base class for memory access schemes."))
@@ -299,7 +342,11 @@
   (:documentation "Confirm membership of symbol(s) in a given storage type of an assembler."))
 
 (defgeneric specify-ops (assembler asm-symbol op-symbol operands params)
-  (:documentation "Specify operations for members of a given assembler's class."))
+  (:documentation "Specify assembly functions for members of a given assembler's class."))
+
+(defgeneric interpret-ops (assembler asm-symbol op-symbol operands params)
+  (:documentation "Specify disassembly functions for members of a given assembler's class.")
+  (:method-combination or))
 
 (defgeneric qualify-ops (assembler operands form order)
   (:documentation "Qualify operations for members of a given assembler's class."))
@@ -329,8 +376,11 @@
   (:documentation "A function to interpret an individual opcode or other element.")
   (:method-combination or))
 
-(defgeneric of-decoder (assembler-encoding key value)
+(defgeneric of-decoder (assembler-encoding key &optional value)
   (:documentation "Encoding getter/setter for an encoding assembler."))
+
+(defgeneric of-battery (assembler-encoding key &optional value)
+  (:documentation "Battery getter/setter for an encoding assembler."))
 
 (defgeneric %assemble (assembler assembler-sym params expressions)
   (:documentation "A function implementing generation of opcodes from assembly code."))
@@ -350,11 +400,11 @@
   (let ((type-domain (getf (asm-storage assembler) type)))
     (loop :for key :in keys :always (position key type-domain))))
 
-(defmethod of-decoder ((assembler assembler-encoding) key value)
+(defmethod of-decoder ((assembler assembler-encoding) key &optional value)
   (if value (setf (gethash key (asm-enc-decoder assembler)) value)
       (gethash key (asm-enc-decoder assembler))))
 
-(defmethod of-battery ((assembler assembler-masking) key value)
+(defmethod of-battery ((assembler assembler-masking) key &optional value)
   (if value (setf (gethash key (asm-msk-battery assembler)) value)
       (gethash key (asm-msk-battery assembler))))
 
@@ -440,7 +490,7 @@
                                                               assembler (rest (assoc :duplex params))
                                                               (first clause)
                                                               operands params c)))))))
-      ;; (print (list :oo opcode-base))
+
       (loop :for row :in (rest operations) :for row-index :from 0
             :do (loop :for cell :in (rest row) :for cellx :in (cdar operations) :for col-index :from 0
                       :do (let ((opcode (+ opcode-base (first cellx) (caar row))))
@@ -501,71 +551,34 @@
                                                            operands params operations))))))
         (t (clause-processor assembler 'of-lexicon op-symbol operands params operations))))
 
-;; (defmethod clause-processor ((assembler assembler) mnemonic operands body params)
-;;   (declare (ignore assembler))
-;;   (let ((args (gensym))
-;;         (wrap-body (or (rest (assoc :wrap-body params)) #'identity))
-;;         (api-access-sym (asm-program-api assembler))
-;;         (api-access (asm-program-api-access assembler)))
-;;     `(of-lexicon ,(rest (assoc :assembler-sym params))
-;;                  ;; ,assembler-symbol
-;;                  ,(intern (string mnemonic) "KEYWORD")
-;;                  ;; ,(add-alias `
-;;                  (lambda ,(cons api-access-sym operands)
-;;                    (flet ((,api-access (&rest ,args) (apply ,api-access-sym ,args)))
-;;                      ,@(funcall wrap-body body))))))
+(defmacro readops (symbol operands assembler &body items)
+  (let* ((params (if (not (and (listp (first items)) (listp (caar items))
+                               (keywordp (caaar items))))
+                     nil (first items)))
+         (operations (if (not params) items (rest items))))
+    (interpret-ops (symbol-value assembler)
+                   symbol operands (cons (cons :assembler-sym assembler) params)
+                   operations)))
 
-;; (defun process-clause-matrix (assembler asm-sym operands matrix params)
-;;   (declare (ignore params))
-;;   (let ((clauses) ;; (varops (remove '&optional operands))
-;;         (clause-processor (clause-processor assembler asm-sym)))
-;;     (print (list :mm matrix))
-;;     (symbol-macrolet ((opcode (+ (first cellx) (caar row))))
-;;       (loop :for row :in (rest matrix) :for row-index :from 0
-;;             :do (loop :for cell :in (rest row) :for col-index :from 0
-;;                       :for cellx :in (cdar matrix)
-;;                       :do (destructuring-bind (&optional ins &rest opr) cell
-;;                             (when ins (if (assoc ins clauses)
-;;                                           (when (not (atom (second (assoc ins clauses))))
-;;                                             ;; don't push an item if it's another possible
-;;                                             ;; opcode for an instruction without operands,
-;;                                             ;; as it's redundant and it interferes with the
-;;                                             ;; clause organization
-;;                                             (push (list opr opcode) (rest (assoc ins clauses))))
-;;                                           (push (if opr (list ins (list opr opcode))
-;;                                                     (list ins opcode))
-;;                                                 clauses))))))
-;;       (print (list :clau clauses))
-;;       (loop :for c :in clauses :append (funcall clause-processor c operands)))))
+(defmethod interpret-ops or ((assembler assembler-encoding) designator operands params operations)
+  "A simple scheme for implementing operations - the (specop) content is directly placed within functions in the lexicon hash table."
+  (let ((designator (macroexpand designator)))
+    (if (not (numberp designator))
+        nil `(of-decoder ,(rest (assoc :assembler-sym params)) ,designator
+                         (lambda ,operands (declare (ignorable ,@operands)) ,@operations)))))
 
-;; (defun process-clause-matrix (assembler asm-sym operands matrix params)
+(defmethod interpret-ops or ((assembler assembler-masking) designator operands params operations)
+  "A simple scheme for implementing operations - the (specop) content is directly placed within functions in the lexicon hash table."
+  (if (not (symbolp designator))
+      nil `(of-battery ,(rest (assoc :assembler-sym params)) ,(intern (string designator) "KEYWORD")
+                       (lambda ,operands (declare (ignorable ,@operands)) ,@operations))))
 
-;; (defmethod compose :around ((assembler assembler) params expression)
-;;   (destructuring-bind (op &rest props) expression
-;;     (typecase expression
-;;       (atom expression)
-;;       (list (if (atom (first expression)) (call-next-method)
-;;                 (loop :for item :in expression :collect (compose assembler params item)))))))
-
-
-;; (defmethod compose ((assembler assembler) params expression)
-;;   (print (list :par params))
-;;   (destructuring-bind (instruction &rest operands) expression
-;;     (let ((build-instruction (gethash instruction (asm-lexicon assembler))))
-;;       (if (not (functionp build-instruction))
-;;           build-instruction (apply build-instruction operands)))))
-
-;; (defmethod %assemble ((assembler assembler) assembler-sym params expressions)
-;;   (let ((compose-params))
-;;     `(let ,(locate assembler assembler-sym (rest (assoc :store (rest params))))
-;;        (apply (asm-joiner ,assembler-sym)
-;;               (compose ,assembler-sym ,compose-params
-;;                               (list ,@(loop :for e :in expressions
-;;                                             :collect (if (not (and (listp e) (keywordp (first e))))
-;;                                                          e (cons 'list e)))))))))
-
-;; (defun label-delta (label-index inst-params)
-;;   (- label-index (nth 2 inst-params)))
+;; (defmacro readop (symbol args assembler-sym &body body)
+;;   (let ((symbol (macroexpand symbol))
+;;         (function `(lambda ,args (declare (ignorable ,@args)) ,@body)))
+;;     (if (numberp symbol)
+;;         `(of-decoder *assembler-prototype-m68k* ,symbol ,function)
+;;         `(of-battery *assembler-prototype-m68k* ,(intern (string symbol) "KEYWORD") ,function))))
 
 (defparameter *default-segment* 1000)
 
@@ -727,29 +740,9 @@
                       )))
       (reverse disassembled))))
 
-;; (loop :for ix :from (min (1- (length intervals)) (- (length array) point 1)) :downto 0
-;;       :do (let* ((interval (aref intervals ix))
-;;                  (pattern (read-words point interval))
-;;                  (match? (interpret-element assembler pattern (funcall reader interval))))
-;;             (when match? (setf match         match?
-;;                                this-interval interval))))
-
-;; (loop :for ix :from (length intervals) :downto (max 0 (- (length array) point))
-;;       :for iv :across intervals
-;;       :do (let ((pattern (read-words point iv)))))
-;; (loop :for in :in intervals :when (> (length array) (+ 1 point in))
-;;       :do (push (read-words point in) ipatterns))
-;; (print (list :ip ipatterns))
-;; (loop :for in :in (reverse intervals) :for ip :in ipatterns ;; :until match
-;;       :do (let ((match? (interpret-element assembler ip (funcall reader in))))
-;;             (when match?
-;;               (setf match match?
-;;                     this-interval in))))
-;; (print (list match point (length array)))
-
 (defmethod interpret-element or ((assembler assembler-encoding) ipattern reader)
   (let ((match (gethash ipattern (asm-enc-decoder assembler))))
-    (print (list :ma match))
+    ;; (print (list :ma match))
     (if (not (functionp match)) match (identity (funcall match reader)))))
 
 (defmethod interpret-element or ((assembler assembler-masking) ipattern reader)
@@ -773,6 +766,92 @@
     `(defun ,symbol (,input &optional ,params)
        (funcall (lambda ,(cons output-sym input-bindings) ,@body)
                 (cons (compose ,assembler ,params ,input) ,input)))))
+
+;; (defmethod clause-processor ((assembler assembler) mnemonic operands body params)
+;;   (declare (ignore assembler))
+;;   (let ((args (gensym))
+;;         (wrap-body (or (rest (assoc :wrap-body params)) #'identity))
+;;         (api-access-sym (asm-program-api assembler))
+;;         (api-access (asm-program-api-access assembler)))
+;;     `(of-lexicon ,(rest (assoc :assembler-sym params))
+;;                  ;; ,assembler-symbol
+;;                  ,(intern (string mnemonic) "KEYWORD")
+;;                  ;; ,(add-alias `
+;;                  (lambda ,(cons api-access-sym operands)
+;;                    (flet ((,api-access (&rest ,args) (apply ,api-access-sym ,args)))
+;;                      ,@(funcall wrap-body body))))))
+
+;; (defun process-clause-matrix (assembler asm-sym operands matrix params)
+;;   (declare (ignore params))
+;;   (let ((clauses) ;; (varops (remove '&optional operands))
+;;         (clause-processor (clause-processor assembler asm-sym)))
+;;     (print (list :mm matrix))
+;;     (symbol-macrolet ((opcode (+ (first cellx) (caar row))))
+;;       (loop :for row :in (rest matrix) :for row-index :from 0
+;;             :do (loop :for cell :in (rest row) :for col-index :from 0
+;;                       :for cellx :in (cdar matrix)
+;;                       :do (destructuring-bind (&optional ins &rest opr) cell
+;;                             (when ins (if (assoc ins clauses)
+;;                                           (when (not (atom (second (assoc ins clauses))))
+;;                                             ;; don't push an item if it's another possible
+;;                                             ;; opcode for an instruction without operands,
+;;                                             ;; as it's redundant and it interferes with the
+;;                                             ;; clause organization
+;;                                             (push (list opr opcode) (rest (assoc ins clauses))))
+;;                                           (push (if opr (list ins (list opr opcode))
+;;                                                     (list ins opcode))
+;;                                                 clauses))))))
+;;       (print (list :clau clauses))
+;;       (loop :for c :in clauses :append (funcall clause-processor c operands)))))
+
+;; (defun process-clause-matrix (assembler asm-sym operands matrix params)
+
+;; (defmethod compose :around ((assembler assembler) params expression)
+;;   (destructuring-bind (op &rest props) expression
+;;     (typecase expression
+;;       (atom expression)
+;;       (list (if (atom (first expression)) (call-next-method)
+;;                 (loop :for item :in expression :collect (compose assembler params item)))))))
+
+
+;; (defmethod compose ((assembler assembler) params expression)
+;;   (print (list :par params))
+;;   (destructuring-bind (instruction &rest operands) expression
+;;     (let ((build-instruction (gethash instruction (asm-lexicon assembler))))
+;;       (if (not (functionp build-instruction))
+;;           build-instruction (apply build-instruction operands)))))
+
+;; (defmethod %assemble ((assembler assembler) assembler-sym params expressions)
+;;   (let ((compose-params))
+;;     `(let ,(locate assembler assembler-sym (rest (assoc :store (rest params))))
+;;        (apply (asm-joiner ,assembler-sym)
+;;               (compose ,assembler-sym ,compose-params
+;;                               (list ,@(loop :for e :in expressions
+;;                                             :collect (if (not (and (listp e) (keywordp (first e))))
+;;                                                          e (cons 'list e)))))))))
+
+;; (defun label-delta (label-index inst-params)
+;;   (- label-index (nth 2 inst-params)))
+
+;; (loop :for ix :from (min (1- (length intervals)) (- (length array) point 1)) :downto 0
+;;       :do (let* ((interval (aref intervals ix))
+;;                  (pattern (read-words point interval))
+;;                  (match? (interpret-element assembler pattern (funcall reader interval))))
+;;             (when match? (setf match         match?
+;;                                this-interval interval))))
+
+;; (loop :for ix :from (length intervals) :downto (max 0 (- (length array) point))
+;;       :for iv :across intervals
+;;       :do (let ((pattern (read-words point iv)))))
+;; (loop :for in :in intervals :when (> (length array) (+ 1 point in))
+;;       :do (push (read-words point in) ipatterns))
+;; (print (list :ip ipatterns))
+;; (loop :for in :in (reverse intervals) :for ip :in ipatterns ;; :until match
+;;       :do (let ((match? (interpret-element assembler ip (funcall reader in))))
+;;             (when match?
+;;               (setf match match?
+;;                     this-interval in))))
+;; (print (list match point (length array)))
 
 ;; (defmethod locate ((assembler assembler) location-spec program-props)
 ;;   ;; (print (list :aea location-spec program-props))
