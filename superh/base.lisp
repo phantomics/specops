@@ -2,8 +2,19 @@
 
 (in-package #:specops.superh)
 
-(defvar *superh-layout*)
+(defvar *super-h-layout*)
 (defvar *assembler-prototype-super-h*)
+
+(defun rix (register &optional type)
+  (typecase register
+    (register (of-register-type-index register type))
+    (keyword  (if type (values (position register (getf *super-h-layout* type))
+                               type)
+                  (let ((position) (type-found))
+                    (loop :for (type-key names) :on *super-h-layout* :by #'cddr :until position
+                          :do (setf position   (position register names)
+                                    type-found type-key))
+                    (values position type-found))))))
 
 (defclass mas-super-h (mas-based mas-indexed mas-displaced)
   ((%qualifier :accessor mas-super-h-qualifier
@@ -50,14 +61,14 @@
   (make-instance 'mas-super-h :base :tbr :displ displacement :qualifier :x4))
 
 (setf *super-h-layout*
-      (list :gpr  '(:r0  :r1  :r2  :r3  :r4  :r5  :r6  :r7 :r8  :r9  :r10 :r11 :r12 :r13 :r14 :r15)
-            :fpr  '(:f0  :f1  :f2  :f3  :f4  :f5  :f6  :f7 :f8  :f9  :f10 :f11 :f12 :f13 :f14 :f15)
-            :dpr  '(:dr0  :dr2  :dr4  :dr6  :dr8  :dr10 :dr12 :dr14)
-            :fvr  '(:fv0  :fv4  :fv8  :fv12)
-            :xfr  '(:xf0  :xf1  :xf2  :xf3  :xf4  :xf5  :xf6  :xf7
-                    :xf8  :xf9  :xf10 :xf11 :xf12 :xf13 :xf14 :xf15)
-            :xdr  '(:xd0  :xd2  :xd4  :xd6  :xd8  :xd10 :xd12 :xd14)
-            :gprb '(:rb0 :rb1 :rb2 :rb3 :rb4 :rb5 :rb6 :rb7)
+      (list :gp  '(:r0  :r1  :r2  :r3  :r4  :r5  :r6  :r7 :r8  :r9  :r10 :r11 :r12 :r13 :r14 :r15)
+            :fp  '(:f0  :f1  :f2  :f3  :f4  :f5  :f6  :f7 :f8  :f9  :f10 :f11 :f12 :f13 :f14 :f15)
+            :dp  '(:dr0  :dr2  :dr4  :dr6  :dr8  :dr10 :dr12 :dr14)
+            :fv  '(:fv0  :fv4  :fv8  :fv12)
+            :xfr '(:xf0  :xf1  :xf2  :xf3  :xf4  :xf5  :xf6  :xf7
+                   :xf8  :xf9  :xf10 :xf11 :xf12 :xf13 :xf14 :xf15)
+            :xd  '(:xd0  :xd2  :xd4  :xd6  :xd8  :xd10 :xd12 :xd14)
+            :gpb '(:rb0 :rb1 :rb2 :rb3 :rb4 :rb5 :rb6 :rb7)
             :spr  '(:sr :gbr :vbr :mach :macl :pr :pc
                     :fpul :xmtrx)
             :dspr '(:dsr :a0 :x0 :x1 :y0 :y1)))
@@ -92,22 +103,22 @@
              :initarg    :joiner)))
 
 (defun gprix (index)
-  (position index (getf *super-h-layout* :gpr)))
+  (position index (getf *super-h-layout* :gp)))
 
 (defun gprbix (index)
-  (position index (getf *super-h-layout* :gprb)))
+  (position index (getf *super-h-layout* :gpb)))
 
 (defun fprix (index)
-  (position index (getf *super-h-layout* :fpr)))
+  (position index (getf *super-h-layout* :fp)))
 
 (defun fvrix (index)
-  (position index (getf *super-h-layout* :fvr)))
+  (position index (getf *super-h-layout* :fv)))
 
 (defun dprix (index)
-  (position index (getf *super-h-layout* :dpr)))
+  (position index (getf *super-h-layout* :dp)))
 
 (defun xdrix (index)
-  (position index (getf *super-h-layout* :xdr)))
+  (position index (getf *super-h-layout* :xd)))
 
 (defun gpr-p (item)
   (and (keywordp item) (gprix item)))
@@ -204,22 +215,22 @@
 (deftype mas-tb+dis4 () `(satisfies mas-tb+dis4-p))
 
 (defun drv-gpr (index)
-  (nth index (getf *super-h-layout* :gpr)))
+  (nth index (getf *super-h-layout* :gp)))
 
 (defun drv-gprb (index)
-  (nth index (getf *super-h-layout* :gprb)))
+  (nth index (getf *super-h-layout* :gpb)))
 
 (defun drv-fpr (index)
-  (nth index (getf *super-h-layout* :fpr)))
+  (nth index (getf *super-h-layout* :fp)))
 
 (defun drv-fvr (index)
-  (nth index (getf *super-h-layout* :fvr)))
+  (nth index (getf *super-h-layout* :fv)))
 
 (defun drv-dpr (index)
-  (nth index (getf *super-h-layout* :dpr)))
+  (nth index (getf *super-h-layout* :dp)))
 
 (defun drv-xdr (index)
-  (nth index (getf *super-h-layout* :xdr)))
+  (nth index (getf *super-h-layout* :xd)))
 
 (defun rs16 (number)
   (ash number -16))

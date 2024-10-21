@@ -9,122 +9,122 @@
          (cond ((match-types op0 op1  gpr mas-bs+disp)
                 (case w
                   (:b (masque "0011NNNN.MMMM0001.0000DDDD.DDDDDDDD" ;; mov.b Rm,@(disp12,Rn)
-                              (n (gprix (mas-base op1))) (m (gprix op0)) (d (mas-displ op1))))
+                              (n (rix (mas-base op1) :gp)) (m (rix op0 :gp)) (d (mas-displ op1))))
                   (:w (masque "0011NNNN.MMMM0001.0001DDDD.DDDDDDDD" ;; mov.w Rm,@(disp12,Rn)
-                              (n (gprix (mas-base op1))) (m (gprix op0)) (d (mas-displ op1))))
+                              (n (rix (mas-base op1) :gp)) (m (rix op0 :gp)) (d (mas-displ op1))))
                   (:l (masque "0011NNNN.MMMM0001.0010DDDD.DDDDDDDD" ;; mov.l Rm,@(disp12,Rn)
-                              (n (gprix (mas-base op1))) (m (gprix op0)) (d (mas-displ op1))))))
+                              (n (rix (mas-base op1) :gp)) (m (rix op0 :gp)) (d (mas-displ op1))))))
                ((match-types op0 op1  mas-bs+disp gpr)
                 (case w
                   (:b (masque "0011NNNN.MMMM0001.0100DDDD.DDDDDDDD" ;; mov.b @(disp12,Rm),Rn
-                              (n (gprix (mas-base op1))) (m (gprix op0)) (d (mas-displ op0))))
+                              (n (rix (mas-base op1) :gp)) (m (rix op0 :gp)) (d (mas-displ op0))))
                   (:w (masque "0011NNNN.MMMM0001.0101DDDD.DDDDDDDD" ;; mov.w @(disp12,Rm),Rn
-                              (n (gprix (mas-base op1))) (m (gprix op0)) (d (mas-displ op0))))
+                              (n (rix (mas-base op1) :gp)) (m (rix op0 :gp)) (d (mas-displ op0))))
                   (:l (masque "0011NNNN.MMMM0001.0110DDDD.DDDDDDDD" ;; mov.l @(disp12,Rm),Rn
-                              (n (gprix (mas-base op1))) (m (gprix op0)) (d (mas-displ op0))))))))
+                              (n (rix (mas-base op1) :gp)) (m (rix op0 :gp)) (d (mas-displ op0))))))))
         ((match-types op0 op1  gpr gpr)
          (assert (eq w :l) (op0)
                  "MOVing data between registers can only be done at width L (32 bits).")
          (masque "0110NNNN.MMMM0011" ;; mov Rm,Rn
-                 (n (gprix op1)) (m (gprix op0))))
+                 (n (rix op1 :gp)) (m (rix op0 :gp))))
         ((match-types op0 op1  integer gpr)
          (assert (eq w :b) (op0)
                  "MOVing immediate data to a register can only be done at width B (8 bits).")
          (masque "1110NNNN.IIIIIIII" ;; mov #imm,Rn
-                 (n (gprix op1)) (i op0)))
+                 (n (rix op1 :gp)) (i op0)))
         ((match-types op0 op1  mas-pc+disp gpr)
          (case w
            (:w (masque "1001NNNN.DDDDDDDD" ;; mov.w @(disp,PC),Rn
-                       (n (gprix op1)) (d (mas-displ op0))))
+                       (n (rix op1 :gp)) (d (mas-displ op0))))
            (:l (masque "1101NNNN.DDDDDDDD" ;; mov.l @(disp,PC),Rn
-                       (n (gprix op1)) (d (mas-displ op0))))))
+                       (n (rix op1 :gp)) (d (mas-displ op0))))))
         ((match-types op0 op1  mas-simple gpr)
          (case w
            (:b (masque "0110NNNN.MMMM0000" ;; mov.b @Rm,Rn
-                       (n (gprix op1)) (m (gprix (mas-base op0)))))
+                       (n (rix op1 :gp)) (m (rix (mas-base op0) :gp))))
            (:w (masque "0110NNNN.MMMM0001" ;; mov.w @Rm,Rn
-                       (n (gprix op1)) (m (gprix (mas-base op0)))))
+                       (n (rix op1 :gp)) (m (rix (mas-base op0) :gp))))
            (:l (masque "0110NNNN.MMMM0010" ;; mov.l @Rm,Rn
-                       (n (gprix op1)) (m (gprix (mas-base op0)))))))
+                       (n (rix op1 :gp)) (m (rix (mas-base op0) :gp))))))
         ((match-types op0 op1  gpr mas-simple)
          (case w
            (:b (masque "0010NNNN.MMMM0000" ;; mov.b Rm,@Rn
-                       (n (gprix (mas-base op1))) (m (gprix op0))))
+                       (n (rix (mas-base op1) :gp)) (m (rix op0 :gp))))
            (:w (masque "0010NNNN.MMMM0001" ;; mov.w Rm,@Rn
-                       (n (gprix (mas-base op1))) (m (gprix op0))))
+                       (n (rix (mas-base op1) :gp)) (m (rix op0 :gp))))
            (:l (masque "0010NNNN.MMMM0010" ;; mov.l Rm,@Rn
-                       (n (gprix (mas-base op1))) (m (gprix op0))))))
+                       (n (rix (mas-base op1) :gp)) (m (rix op0 :gp))))))
         ((match-types op0 op1  mas-postinc gpr)
          (case w
            (:b (masque "0110NNNN.MMMM0100" ;; mov.b @Rm+,Rn
-                       (n (gprix op1)) (m (gprix (mas-base op0)))))
+                       (n (rix op1 :gp)) (m (rix (mas-base op0) :gp))))
            (:w (masque "0110NNNN.MMMM0101" ;; mov.w @Rm+,Rn
-                       (n (gprix op1)) (m (gprix (mas-base op0)))))
+                       (n (rix op1 :gp)) (m (rix (mas-base op0) :gp))))
            (:l (masque "0110NNNN.MMMM0101" ;; mov.l @Rm+,Rn
-                       (n (gprix op1)) (m (gprix (mas-base op0)))))))
+                       (n (rix op1 :gp)) (m (rix (mas-base op0) :gp))))))
         ((match-types op0 op1  gpr mas-predecr)
          (case w
            (:b (masque "0010NNNN.MMMM0100" ;; mov.b Rm,@-Rn
-                       (n (gprix (mas-base op1))) (m (gprix op0))))
+                       (n (rix (mas-base op1) :gp)) (m (rix op0 :gp))))
            (:w (masque "0010NNNN.MMMM0101" ;; mov.w Rm,@-Rn
-                       (n (gprix (mas-base op1))) (m (gprix op0))))
+                       (n (rix (mas-base op1) :gp)) (m (rix op0 :gp))))
            (:l (masque "0010NNNN.MMMM0110" ;; mov.l Rm,@-Rn
-                       (n (gprix (mas-base op1))) (m (gprix op0))))))
+                       (n (rix (mas-base op1) :gp)) (m (rix op0 :gp))))))
         
         ((and (eq :r0 op1) (match-types op1  mas-predecr))
          (case w
            (:b (masque "0100MMMM.11001011" ;; mov.b @-Rm,R0
-                       (m (gprix (mas-base op0)))))
+                       (m (rix (mas-base op0) :gp))))
            (:w (masque "0100MMMM.11011011" ;; mov.w @-Rm,R0
-                       (m (gprix (mas-base op0)))))
+                       (m (rix (mas-base op0) :gp))))
            (:l (masque "0100MMMM.11101011" ;; mov.l @-Rm,R0
-                       (m (gprix (mas-base op0)))))))
+                       (m (rix (mas-base op0) :gp))))))
         ((and (eq :r0 op0) (match-types op1  mas-postinc))
          (case w
            (:b (masque "0100NNNN.10001011" ;; mov.b R0,@Rn+
-                       (n (gprix (mas-base op1)))))
+                       (n (rix (mas-base op1) :gp))))
            (:w (masque "0100NNNN.10011011" ;; mov.w R0,@Rn+
-                       (n (gprix (mas-base op0)))))
+                       (n (rix (mas-base op0) :gp))))
            (:l (masque "0100NNNN.10101011" ;; mov.l R0,@Rn+
-                       (n (gprix (mas-base op0)))))))
+                       (n (rix (mas-base op0) :gp))))))
         
         ((and (eq :r0 op1) (match-types op0  mas-bs+disp))
          (case w
            (:b (masque "10000100.MMMMDDDD" ;; mov.b @(disp,Rm),R0
-                       (m (gprix (mas-base op0))) (d (mas-displ op0))))
+                       (m (rix (mas-base op0) :gp)) (d (mas-displ op0))))
            (:w (masque "10000101.MMMMDDDD" ;; mov.w @(disp,Rm),R0
-                       (m (gprix (mas-base op0))) (d (mas-displ op0))))))
+                       (m (rix (mas-base op0) :gp)) (d (mas-displ op0))))))
         ((match-types op0 op1  mas-bs+disp gpr)
          (case w
            (:l (masque "0101NNNN.MMMMDDDD" ;; mov.l @(disp,Rm),Rn
-                       (n (gprix op1)) (m (gprix (mas-base op0))) (d (mas-displ op0))))))
+                       (n (rix op1 :gp)) (m (rix (mas-base op0) :gp)) (d (mas-displ op0))))))
         ((and (eq :r0 op0) (match-types op1  mas-bs+disp))
          (case w
            (:b (masque "10000000.NNNNDDDD" ;; mov.b R0,@(disp,Rn)
-                       (n (gprix (mas-base op1))) (d (mas-displ op1))))
+                       (n (rix (mas-base op1) :gp)) (d (mas-displ op1))))
            (:w (masque "10000001.NNNNDDDD" ;; mov.w R0,@(disp,Rn)
-                       (n (gprix (mas-base op1))) (d (mas-displ op1))))))
+                       (n (rix (mas-base op1) :gp)) (d (mas-displ op1))))))
         ((match-types op0 op1  gpr mas-bs+disp)
          (case w
            (:l (masque "0001NNNN.MMMMDDDD" ;; mov.l Rm,@(disp,Rn)
-                       (n (gprix (mas-base op1))) (m (gprix op0)) (d (mas-displ op1))))))
+                       (n (rix (mas-base op1) :gp)) (m (rix op0 :gp)) (d (mas-displ op1))))))
         
         ((match-types op0 op1  mas-b+rzero gpr)
          (case w
            (:b (masque "0000NNNN.MMMM1100" ;; mov.b @(R0,Rm),Rn
-                       (n (gprix op1)) (m (gprix (mas-base op0)))))
+                       (n (rix op1 :gp)) (m (rix (mas-base op0) :gp))))
            (:w (masque "0000NNNN.MMMM1101" ;; mov.w @(R0,Rm),Rn
-                       (n (gprix op1)) (m (gprix (mas-base op0)))))
+                       (n (rix op1 :gp)) (m (rix (mas-base op0) :gp))))
            (:l (masque "0000NNNN.MMMM1110" ;; mov.l @(R0,Rm),Rn
-                       (n (gprix op1)) (m (gprix (mas-base op0)))))))
+                       (n (rix op1 :gp)) (m (rix (mas-base op0) :gp))))))
         ((match-types op0 op1  gpr mas-b+rzero)
          (case w
            (:b (masque "0000NNNN.MMMM0100" ;; mov.b Rm,@(R0,Rn)
-                       (n (gprix (mas-base op1))) (m (gprix op0))))
+                       (n (rix (mas-base op1) :gp)) (m (rix op0 :gp))))
            (:w (masque "0000NNNN.MMMM0101" ;; mov.w Rm,@(R0,Rn)
-                       (n (gprix (mas-base op1))) (m (gprix op0))))
+                       (n (rix (mas-base op1) :gp)) (m (rix op0 :gp))))
            (:l (masque "0000NNNN.MMMM0110" ;; mov.l Rm,@(R0,Rn)
-                       (n (gprix (mas-base op1))) (m (gprix op0))))))
+                       (n (rix (mas-base op1) :gp)) (m (rix op0 :gp))))))
         ((and (eq :r0 op1) (match-types op0  mas-gb+disp))
          (case w
            (:b (masque "11000100.DDDDDDDD" ;; mov.b @(disp,GBR),R0
@@ -303,27 +303,27 @@
     (list :mov :l :r0 (list '@0 d))))
 
 
-(readops-sh mov.b (word read) ;; mov.b Rm,@(disp12,Rn)
+(readops-sh mov.b.r-d12 (word read) ;; mov.b Rm,@(disp12,Rn)
   (unmasque "0011NNNN.MMMM0001.0000DDDD.DDDDDDDD" word (n m d)
     (list :mov :b (drv-gpr m) (list '@> (drv-gpr n) d))))
 
-(readops-sh mov.w (word read) ;; mov.w Rm,@(disp12,Rn)
+(readops-sh mov.w.r-d12 (word read) ;; mov.w Rm,@(disp12,Rn)
   (unmasque "0011NNNN.MMMM0001.0001DDDD.DDDDDDDD" word (n m d)
     (list :mov :w (drv-gpr m) (list '@> (drv-gpr n) d))))
 
-(readops-sh mov.l (word read) ;; mov.l Rm,@(disp12,Rn)
+(readops-sh mov.l.r-d12 (word read) ;; mov.l Rm,@(disp12,Rn)
   (unmasque "0011NNNN.MMMM0001.0010DDDD.DDDDDDDD" word (n m d)
     (list :mov :l (drv-gpr m) (list '@> (drv-gpr n) d))))
 
-(readops-sh mov.b (word read) ;; mov.b @(disp12,Rm),Rn
+(readops-sh mov.b.d12-r (word read) ;; mov.b @(disp12,Rm),Rn
   (unmasque "0011NNNN.MMMM0001.0100DDDD.DDDDDDDD" word (n m d)
     (list :mov :b (list '@> (drv-gpr m) d) (drv-gpr n))))
 
-(readops-sh mov.w (word read) ;; mov.w @(disp12,Rm),Rn
+(readops-sh mov.w.d12-r (word read) ;; mov.w @(disp12,Rm),Rn
   (unmasque "0011NNNN.MMMM0001.0101DDDD.DDDDDDDD" word (n m d)
     (list :mov :w (list '@> (drv-gpr m) d) (drv-gpr n))))
 
-(readops-sh mov.l (word read) ;; mov.l @(disp12,Rm),Rn
+(readops-sh mov.l.d12-r (word read) ;; mov.l @(disp12,Rm),Rn
   (unmasque "0011NNNN.MMMM0001.0110DDDD.DDDDDDDD" word (n m d)
     (list :mov :l (list '@> (drv-gpr m) d) (drv-gpr n))))
 
@@ -332,7 +332,7 @@
   (assert (match-types op0 op1  integer gpr) (op0 op1)
           "MOVI20 may take only an immediate integer value and a general-purpose register as its operands.")
   (masque "0000NNNN.HHHH0000.IIIIIIII.IIIIIIII" ;; movi20 #imm20,Rn
-          (n (gprix op1)) (h (rs16 op0)) (i (lo16 op0))))
+          (n (rix op1 :gp)) (h (rs16 op0)) (i (lo16 op0))))
 
 (readops-sh movi20 (word read) ;; movi20 #imm20,Rn
   (unmasque "0000NNNN.HHHH0000.IIIIIIII.IIIIIIII" word (n h i)
@@ -343,7 +343,7 @@
   (assert (match-types op0 op1  integer gpr) (op0 op1)
           "MOVI20S may take only an immediate integer value and a general-purpose register as its operands.")
   (masque "0000NNNN.HHHH0001.IIIIIIII.IIIIIIII" ;; movi20s #imm20,Rn
-          (n (gprix op1)) (h (rs16 op0)) (i (lo16 op0))))
+          (n (rix op1 :gp)) (h (rs16 op0)) (i (lo16 op0))))
 
 (readops-sh movi20s (word read) ;; movi20s #imm20,Rn
   (unmasque "0000NNNN.HHHH0001.IIIIIIII.IIIIIIII" word (n h i)
@@ -363,12 +363,12 @@
 (specops-sh movu (w op0 op1)
   ((:for-types :sh2a))
   (assert (match-types op0 op1  mas-bs+disp gpr) (op0)
-          "MOVA may take only a base+displacement memory address and a general-purpose register as its operands.")
+          "MOVU may take only a base+displacement memory address and a general-purpose register as its operands.")
   (case w
     (:b (masque "0011NNNN.MMMM0001.1000DDDD.DDDDDDDD" ;; movu.b @(disp12,Rm),Rn
-                (n (gprix op1)) (m (gprix (mas-base op0))) (d (mas-displ op0))))
+                (n (rix op1 :gp)) (m (rix (mas-base op0) :gp)) (d (mas-displ op0))))
     (:w (masque "0011NNNN.MMMM0001.1001DDDD.DDDDDDDD" ;; movu.w @(disp12,Rm),Rn
-                (n (gprix op1)) (m (gprix (mas-base op0))) (d (mas-displ op0))))))
+                (n (rix op1 :gp)) (m (rix (mas-base op0) :gp)) (d (mas-displ op0))))))
 
 (readops-sh movu-b (word read) ;; movu.b @(disp12,Rm),Rn
   (unmasque "0011NNNN.MMMM0001.1000DDDD.DDDDDDDD" word (n m d)
@@ -378,73 +378,63 @@
   (unmasque "0011NNNN.MMMM0001.1001DDDD.DDDDDDDD" word (n m d)
     (list :movu :w (list '@> (drv-gpr m) d) (drv-gpr n))))
 
-(specops-sh movco (w op0 op1)
+(specops-sh movco.l (op0 op1)
   ((:for-types :sh4a))
-  (assert (and (eq w :l) (eq op0 :r0) (match-types op1  mas-simple)) (op0)
-          "MOVCO only works at width L and takes only R0 and a displacement+PC memory address as its operands.")
-  (masque "0000NNNN.01110011" ;; movco.l R0,@Rn
-          (n (gprix (mas-base op1)))))
+  (if (and (eq op0 :r0) (typep op1 'mas-simple))
+      (masque "0000NNNN.01110011" ;; movco.l R0,@Rn
+              (n (rix (mas-base op1) :gp)))
+      (error "MOVCO.L takes only R0 and a displacement+PC memory address as its operands.")))
 
 (readops-sh movco.l (word read)
   (unmasque "0000NNNN.01110011" word (n)
-    (list :movco :l :r0 (list '@ (drv-gpr n)))))
+    (list :movco.l :r0 (list '@ (drv-gpr n)))))
 
-(specops-sh movli (w op0 op1)
+(specops-sh movli.l (op0 op1)
   ((:for-types :sh4a))
-  (assert (and (eq w :l) (eq op1 :r0) (match-types op0  mas-simple)) (op0)
-          "MOVLI only works at width L and takes only a simple memory address and R0 as its operands.")
-  (masque "0000MMMM.01100011" ;; movli.l @Rm,R0
-          (m (gprix (mas-base op0)))))
+  (if (and (eq op1 :r0) (match-types op0  mas-simple))
+      (masque "0000MMMM.01100011" ;; movli.l @Rm,R0
+              (m (rix (mas-base op0) :gp)))
+      (error "MOVLI.L takes only a simple memory address and R0 as its operands.")))
 
-(readops-sh movli-l (word read) ;; movli.l @Rm,R0
+(readops-sh movli.l (word read) ;; movli.l @Rm,R0
   (unmasque "0000MMMM.01100011" word (m)
     (list :movli.l (list '@ (drv-gpr m)) :r0)))
 
-(specops-sh movua (w op0 op1)
+(specops-sh movua.l (op0 op1)
   ((:for-types :sh4a))
-  (assert (and (eq w :l) (eq op1 :r0) (match-types op0  mas-simple)) (op0)
-          "MOVUA only works at width L and takes only a simple memory address and R0 as its operands.")
-  (masque "0100MMMM.10101001" ;; movua.l @Rm,R0
-          (m (gprix (mas-base op0)))))
+  (cond ((and (eq op1 :r0) (match-types op0  mas-simple))
+         (masque "0100MMMM.10101001" ;; movua.l @Rm,R0
+                 (m (rix (mas-base op0) :gp))))
+        ((and (eq op1 :r0) (match-types op0  mas-postinc))
+         (masque "0100MMMM.11101001" ;; movua.l @Rm+,R0
+                 (m (rix (mas-base op0) :gp))))
+        (t (error "MOVUA.L takes only either a simple memory address or postincrementing address and R0 as its operands."))))
 
-(readops-sh movua-l (word read)
-  (unmasque "0100MMMM.10101001" word (m) ;; movua.l @Rm,R0
-    (list :movua :l (list '@ (drv-gpr m)) :r0)))
+(readops-sh movua.l.@-0 (word read) ;; movua.l @Rm,R0
+  (unmasque "0100MMMM.10101001" word (m)
+    (list :movua.l (list '@ (drv-gpr m)) :r0)))
 
-(specops-sh movua (w op0 op1)
-  ((:for-types :sh4a))
-  (assert (and (eq w :l) (eq op1 :r0) (match-types op0  mas-postinc)) (op0)
-          "MOVUA only works at width L and takes only a post-incrementing memory address and R0 as its operands.")
-  (masque "0100MMMM.11101001" ;; movua @Rm+,R0
-          (m (gprix (mas-base op0)))))
-
-(readops-sh movua-l (word read) ;; movua.l @Rm+,R0
+(readops-sh movua.l.+-0 (word read) ;; movua.l @Rm+,R0
   (unmasque "0100MMMM.11101001" word (m)
-    (list :movua :l (list '@+ (drv-gpr m)) :r0)))
+    (list :movua (list '@+ (drv-gpr m)) :r0)))
 
-(specops-sh movml (w op0 op1)
+(specops-sh movml.l (w op0 op1)
   ((:for-types :sh2a))
-  (assert (and (eq w :l) (match-types op0 op1  gpr mas-predecr)
-               (eq (mas-displ op1) :r15))
-          (op0) "MOVML only works at width L and takes only a general-purpose register and pre-decrementing memory address with R15 base as its operands.")
-  (masque "0100MMMM.11110001" ;; movml.l Rm,@-R15
-          (m (gprix op0))))
+  (cond ((and (match-types op0 op1  gpr mas-predecr) (eq (mas-displ op1) :r15))
+         (masque "0100MMMM.11110001" ;; movml.l Rm,@-R15
+                 (m (rix op0 :gp))))
+        ((and (match-types op0 op1  mas-postinc gpr) (eq (mas-displ op0) :r15))
+         (masque "0100NNNN.11110101" ;; movml.l @R15+,Rn
+                 (n (rix op1 :gp))))
+        (t (error "MOVML takes only a general-purpose register and pre-decrementing memory address with R15 base as its operands."))))
 
-(readops-sh movml-l (word read) ;; movml.l Rm,@-R15
+(readops-sh movml.l.r--15 (word read) ;; movml.l Rm,@-R15
   (unmasque "0100MMMM.11110001" word (m)
-    (list :movml :l (drv-gpr m) '(-@ :r15))))
+    (list :movml.l (drv-gpr m) '(-@ :r15))))
 
-(specops-sh movml (w op0 op1)
-  ((:for-types :sh2a))
-  (assert (and (eq w :l) (match-types op0 op1  mas-postinc gpr)
-               (eq (mas-displ op0) :r15))
-          (op0) "MOVML only works at width L and takes only a post-incrementing memory address and a general-purpose register with R15 base as its operands.")
-  (masque "0100NNNN.11110101" ;; movml.l @R15+,Rn
-          (n (gprix op1))))
-
-(readops-sh movml-l (word read) ;; movml.l @R15+,Rn
+(readops-sh movml.l.+15-r (word read) ;; movml.l @R15+,Rn
   (unmasque "0100NNNN.11110101" word (n)
-    (list :movml :l '(@+ :r15) (drv-gpr n))))
+    (list :movml.l '(@+ :r15) (drv-gpr n))))
 
 (specops-sh movmu.l (op0 op1)
   ((:for-types :sh2a))
@@ -452,27 +442,27 @@
          (assert (eq (mas-displ op1) :r15)
                  () "MOVMU.L may only use a memory access with register R15 as its base.")
          (masque "0100MMMM.11110000" ;; movmu.l Rm,@-R15
-                 (m (gprix op0))))
+                 (m (rix op0 :gp))))
         ((match-types op0 op1  mas-postinc gpr)
          (assert (eq (mas-displ op1) :r15)
                  () "MOVMU.L may only use a memory access with register R15 as its base.")
          (masque "0100NNNN.11110100" ;; movmu.l @R15+,Rn
-                 (n (gprix op0))))))
+                 (n (rix op0 :gp))))))
 
-(readops-sh movmu.l (word read) ;; movmu.l Rm,@-R15
+(readops-sh movmu.l.r--15 (word read) ;; movmu.l Rm,@-R15
   (unmasque "0100MMMM.11110000" word (m)
     (list :movmu.l (drv-gpr m) '(-@ :r15))))
 
-(readops-sh movmu.l (word read) ;; movmu.l @R15+,Rn
+(readops-sh movmu.l.+15-r (word read) ;; movmu.l @R15+,Rn
   (unmasque "0100NNNN.11110100" word (n)
     (list :movmu.l '(@+ :r15) (drv-gpr n))))
 
 (specops-sh movrt (op0)
   ((:for-types :sh2a))
-  (assert (match-types op0  gpr) (op0)
+  (assert (typep op0 'gpr) (op0)
           "MOVRT may take only a general-purpose register as its operand.")
   (masque "0000NNNN.00111001" ;; movrt Rn
-          (n (gprix op0))))
+          (n (rix op0 :gp))))
 
 (readops-sh movrt (word read) ;; movrt Rn
   (unmasque "0000NNNN.00111001" word (n)
@@ -483,7 +473,7 @@
   (assert (match-types op0  gpr) (op0)
           "MOVT may take only a general-purpose register as its operand.")
   (masque "0000NNNN.00101001" ;; movt Rn
-          (n (gprix op0))))
+          (n (rix op0 :gp))))
 
 (readops-sh movt (word read) ;; movt Rn
   (unmasque "0000NNNN.00101001" word (n)
@@ -498,17 +488,48 @@
 (readops-sh (masque "00000000.01101000") (read) 
          (list :nott))
 
-;; (specops-sh swap (w op0 op1)
-;;   ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
-;;   (address (op0 op1) ((index0) (index1))
-;; *** FIX THIS
+(specops-sh swap (w op0 op1)
+  ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
+  (case w
+    (:b (masque "0110NNNN.MMMM1000" ;; swap.b Rm,Rn
+                (n (rix op1 :gp)) (m (rix op0 :gp))))
+    (:w (masque "0110NNNN.MMMM1001" ;; swap.w Rm,Rn
+                (n (rix op1 :gp)) (m (rix op0 :gp))))))
+
+(readops-sh swap.b (word read) ;; swap.b Rm,Rn
+  (unmasque "0110NNNN.MMMM1000" word (n m)
+    (list :swap :b (drv-gpr m) (drv-gpr n))))
+
+(readops-sh swap.w (word read) ;; swap.b Rm,Rn
+  (unmasque "0110NNNN.MMMM1001" word (n m)
+    (list :swap :w (drv-gpr m) (drv-gpr n))))
+
+(specops-sh xtrct (w op0 op1)
+  ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
+  (masque "0010NNNN.MMMM1101" ;; xtrct Rm,Rn
+          (n (rix op1 :gp)) (m (rix op0 :gp))))
+
+(readops-sh xtrct (word read) ;; xtrct Rm,Rn
+  (unmasque "0010NNNN.MMMM1101" word (n m)
+    (list :xtrct (drv-gpr m) (drv-gpr n))))
+
+(specops-sh band.b (op0 op1)
+  ((:for-types :sh2a))
+  (if (match-types op0 op1  integer mas-bs+disp)
+      (masque "0011NNNN.0III1001.0100DDDD.DDDDDDDD" ;; band.b #imm3,@disp12,Rn
+              (n (rix (mas-base op1) :gp)) (i op0) (d (mas-displ op1)))
+      (error "BAND.B can only take an immediate value and base+displacement memory access as operands.")))
+
+(readops-sh bandnot.b (word read)
+  (unmasque "0011NNNN.0III1001.0100DDDD.DDDDDDDD" word (n i d) 
+    (list :band.b i (list '@> (drv-gpr n) d))))
 
 (specops-sh bandnot.b (op0 op1)
   ((:for-types :sh2a))
-  (if (match-types op0 op1  integer mas-gb+rzro)
+  (if (match-types op0 op1  integer mas-bs+disp)
       (masque "0011NNNN.0III1001.1100DDDD.DDDDDDDD" ;; bandnot.b #imm3,@(disp12,Rn)
-              (n (gprix (mas-base op1))) (i op0) (d (mas-displ op1)))
-      (error "BANDNOT can only be called at width B and take an immediate value and base+displacement memory access as operands.")))
+              (n (rix (mas-base op1) :gp)) (i op0) (d (mas-displ op1)))
+      (error "BANDNOT.B can only take an immediate value and base+displacement memory access as operands.")))
 
 (readops-sh bandnot.b (word read)
   (unmasque "0011NNNN.0III1001.1100DDDD.DDDDDDDD" word (n i d) 
@@ -516,9 +537,9 @@
 
 (specops-sh bclr.b (op0 op1)
   ((:for-types :sh2a))
-  (if (match-types op0 op1  gpr mas-bs+disp)
+  (if (match-types op0 op1  integer mas-bs+disp)
       (masque "0011NNNN.0III1001.0000DDDD.DDDDDDDD" ;; bclr.b #imm3,@(disp12,Rn)
-              (n (gprix (mas-base op1))) (i op0) (d (mas-displ op1)))
+              (n (rix (mas-base op1) :gp)) (i op0) (d (mas-displ op1)))
       (error "BCLR.B can only be called on a 3-bit integer value and a displaced memory access.")))
 
 (readops-sh bclr.b (word read) ;; bclr.b #imm3,@(disp12,Rn)
@@ -529,7 +550,7 @@
   ((:for-types :sh2a))
   (if (match-types op0 op1  integer gpr)
       (masque "10000110.NNNN0III" ;; bclr #imm3,Rn
-              (n (gprix op1)) (i op0))
+              (n (rix op1 :gp)) (i op0))
       (error "Invalid operands passed to BCLR.")))
 
 (readops-sh bclr (word read) ;; bclr #imm3,Rn
@@ -540,7 +561,7 @@
   ((:for-types :sh2a))
   (if (match-types op0 op1  integer mas-bs+disp)
       (masque "0011NNNN.0III1001.0011DDDD.DDDDDDDD" ;; bld.b #imm3,@(disp12,Rn)
-              (n (gprix (mas-base op1))) (i op0) (d (mas-displ op1)))
+              (n (rix (mas-base op1) :gp)) (i op0) (d (mas-displ op1)))
       (error "Invalid operands passed to BLD.B.")))
 
 (readops-sh bld.b (word read) ;; bld.b #imm3,@(disp12,Rn)
@@ -549,10 +570,9 @@
 
 (specops-sh bld (op0 op1)
   ((:for-types :sh2a)) 
-  (if (and (match-types op0 op1  integer gpr)
-           (zerop (ash op0 -3)))
+  (if (and (match-types op0 op1  integer gpr) (zerop (ash op0 -3)))
       (masque "10000111.NNNN1III" ;; bld #imm3,Rn
-              (n (gprix op1)) (i op0))
+              (n (rix op1 :gp)) (i op0))
       (error "Invalid operands passed to BLD.")))
 
 (readops-sh bld (word read) ;; bld #imm3,Rn
@@ -563,7 +583,7 @@
   ((:for-types :sh2a))
   (if (match-types op0 op1  gpr mas-bs+disp)
       (masque "0011NNNN.0III1001.1011DDDD.DDDDDDDD" ;; bldnot.b #imm3,@(disp12,Rn)
-              (n (gprix (mas-base op1))) (i op0) (d (mas-displ op1)))
+              (n (rix (mas-base op1) :gp)) (i op0) (d (mas-displ op1)))
       (error "Invalid operands passed to BLDNOT.")))
 
 (readops-sh bldnot.b (word read) ;; bldnot.b #imm3,@(disp12,Rn)
@@ -574,7 +594,7 @@
   ((:for-types :sh2a))
   (if (match-types op0 op1  integer mas-bs+disp)
       (masque "0011NNNN.0III1001.0101DDDD.DDDDDDDD" ;; bor.b #imm3,@(disp12,Rn)
-              (n (gprix (mas-base op1))) (i op0) (d (mas-displ op1)))
+              (n (rix (mas-base op1) :gp)) (i op0) (d (mas-displ op1)))
       (error "BOR can only be called at width B with an immediate value and base+displacement memory access as its operands.")))
 
 (readops-sh bor.b (word read) ;; bor.b #imm3,@(disp12,Rn)
@@ -585,7 +605,7 @@
   ((:for-types :sh2a))
   (if (match-types op0 op1  integer mas-bs+disp)
       (masque "0011NNNN.0III1001.1101DDDD.DDDDDDDD" ;; bornot.b #imm3,@(disp12,Rn)
-              (n (gprix (mas-base op1))) (i op0) (d (mas-displ op1)))
+              (n (rix (mas-base op1) :gp)) (i op0) (d (mas-displ op1)))
       (error "BORNOT can only be called at width B with an immediate value and base+displacement memory access as its operands.")))
 
 (readops-sh bornot.b (word read) ;; bornot.b #imm3,@(disp12,Rn)
@@ -596,7 +616,7 @@
   ((:for-types :sh2a))
   (if (match-types op0 op1  integer mas-bs+disp)
       (masque "0011NNNN.0III1001.0001DDDD.DDDDDDDD" ;; bset.b #imm3,@(disp12,Rn)
-              (n (gprix (mas-base op1))) (i op0) (d (mas-displ op1)))
+              (n (rix (mas-base op1) :gp)) (i op0) (d (mas-displ op1)))
       (error "BSET can only be called with an immediate value and base+displacement memory access as its operands at width B.")))
 
 (readops-sh bset.b (word read) ;; bset.b #imm3,@(disp12,Rn)
@@ -607,7 +627,7 @@
   ((:for-types :sh2a))
   (if (match-types op0 op1  integer gpr)
       (masque "10000110.NNNN1III" ;; bset #imm3,Rn
-              (n (gprix op1)) (i op0))
+              (n (rix op1 :gp)) (i op0))
       (error "Invalid operands passed to BSET.")))
 
 (readops-sh bset (word read) ;; bset #imm3,Rn
@@ -618,7 +638,7 @@
   ((:for-types :sh2a))
   (if (match-types op0 op1  integer mas-bs+disp)
       (masque "0011NNNN.0III1001.0010DDDD.DDDDDDDD" ;; bst.b #imm3,@(disp12,Rn)
-              (n (gprix (mas-base op1))) (i op0) (d (mas-displ op1)))
+              (n (rix (mas-base op1) :gp)) (i op0) (d (mas-displ op1)))
       (error "BST can only be called with an immediate value and base+displacement memory access as its operands at width B.")))
 
 (readops-sh bst.b (word read) ;; bst.b #imm3,@(disp12,Rn)
@@ -629,7 +649,7 @@
   ((:for-types :sh2a))
   (if (match-types op0 op1  integer gpr)
       (masque "10000111.NNNN0III" ;; bst #imm3,Rn
-              (n (gprix op1)) (i op0))
+              (n (rix op1 :gp)) (i op0))
       (error "Invalid operands passed to BSET.")))
 
 (readops-sh bst (word read) ;; bst #imm3,Rn
@@ -640,7 +660,7 @@
   ((:for-types :sh2a))
   (if (match-types op0 op1  gpr mas-bs+disp)
       (masque "0011NNNN.0III1001.0110DDDD.DDDDDDDD" ;; bxor.b #imm3,@(disp12,Rn)
-              (n (gprix (mas-base op1))) (i op0) (d (mas-displ op1)))
+              (n (rix (mas-base op1) :gp)) (i op0) (d (mas-displ op1)))
       (error "Invalid operands passed to BXOR.")))
 
 (readops-sh bxor.b (word read) ;; bxor.b #imm3,@(disp12,Rn)
@@ -653,23 +673,23 @@
   ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
   (cond ((match-types op0 op1  gpr gpr)
          (masque "0011NNNN.MMMM1100" ;; add Rm,Rn
-                 (n (gprix op1)) (m (gprix op0))))
+                 (n (rix op1 :gp)) (m (rix op0 :gp))))
         ((match-types op0 op1  integer gpr)
          (masque "0111NNNN.IIIIIIII" ;; add #imm,Rn
-                 (n (gprix op1)) (i op0)))))
+                 (n (rix op1 :gp)) (i op0)))))
 
-(readops-sh add (word read) ;; add Rm,Rn
+(readops-sh add.r-r (word read) ;; add Rm,Rn
   (unmasque "0011NNNN.MMMM1100" word (n m)
     (list :add (drv-gpr m) (drv-gpr n))))
 
-(readops-sh add (word read) ;; add #imm,Rn
+(readops-sh add.i-r (word read) ;; add #imm,Rn
   (unmasque "0111NNNN.IIIIIIII" word (n i)
     (list :add i (drv-gpr n))))
 
 (specops-sh addc (op0 op1)
   ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
   (masque "0011NNNN.MMMM1110" ;; addc Rm,Rn
-          (n (gprix op1)) (m (gprix op0))))
+          (n (rix op1 :gp)) (m (rix op0 :gp))))
 
 (readops-sh addc (word read) ;; addc Rm,Rn
   (unmasque "0011NNNN.MMMM1110" word (n m)
@@ -678,7 +698,7 @@
 (specops-sh addv (op0 op1)
   ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
   (masque "0011NNNN.MMMM1111" ;; addv Rm,Rn
-          (n (gprix op1)) (m (gprix op0))))
+          (n (rix op1 :gp)) (m (rix op0 :gp))))
 
 (readops-sh addv (word read)
   (unmasque "0011NNNN.MMMM1111" word (n m)
@@ -691,20 +711,20 @@
                  (i op0)))
         ((match-types op0 op1  gpr gpr)
          (masque "0011NNNN.MMMM0000" ;; cmp/eq Rm,Rn
-                 (n (gprix op1)) (m (gprix op0))))))
+                 (n (rix op1 :gp)) (m (rix op0 :gp))))))
 
-(readops-sh cmp/eq (word read) ;; cmp/eq #imm,R0
+(readops-sh cmp/eq.i-0 (word read) ;; cmp/eq #imm,R0
   (unmasque "10001000.IIIIIIII" word (i)
     (list :cmp/eq i)))
 
-(readops-sh cmp/eq (word read) ;; cmp/eq Rm,Rn
+(readops-sh cmp/eq.r-r (word read) ;; cmp/eq Rm,Rn
   (unmasque "0011NNNN.MMMM0000" word (n m)
     (list :cmp/eq (drv-gpr m) (drv-gpr n))))
 
 (specops-sh cmp/hs (op0 op1)
   ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
   (masque "0011NNNN.MMMM0010" ;; cmp/hs Rm,Rn
-          (n (gprix op1)) (m (gprix op0))))
+          (n (rix op1 :gp)) (m (rix op0 :gp))))
 
 (readops-sh cmp/hs (word read) ;; cmp/hs Rm,Rn
   (unmasque "0011NNNN.MMMM0010" word (n m)
@@ -713,7 +733,7 @@
 (specops-sh cmp/ge (op0 op1)
   ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
   (masque "0011NNNN.MMMM0011" ;; cmp/ge Rm,Rn
-          (n (gprix op1)) (m (gprix op0))))
+          (n (rix op1 :gp)) (m (rix op0 :gp))))
 
 (readops-sh cmp/ge (word read) ;; cmp/ge Rm,Rn
   (unmasque "0011NNNN.MMMM0011" word (n m)
@@ -722,7 +742,7 @@
 (specops-sh cmp/hi (op0 op1)
   ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
   (masque "0011NNNN.MMMM0110" ;; cmp/hi Rm,Rn
-          (n (gprix op1)) (m (gprix op0))))
+          (n (rix op1 :gp)) (m (rix op0 :gp))))
 
 (readops-sh cmp/hi (word read) ;; cmp/hi Rm,Rn
   (unmasque "0011NNNN.MMMM0110" word (n m)
@@ -731,7 +751,7 @@
 (specops-sh cmp/gt (op0 op1)
   ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
   (masque "0011NNNN.MMMM0111" ;; cmp/gt Rm,Rn
-          (n (gprix op1)) (m (gprix op0))))
+          (n (rix op1 :gp)) (m (rix op0 :gp))))
 
 (readops-sh cmp/gt (word read)
   (unmasque "0011NNNN.MMMM0111" word (n m)
@@ -740,7 +760,7 @@
 (specops-sh cmp/pl (op0)
   ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
   (masque "0100NNNN.00010101" ;; cmp/pl Rn
-          (n (gprix op0))))
+          (n (rix op0 :gp))))
 
 (readops-sh cmp/pl (word read) ;; cmp/pl Rn
   (unmasque "0100NNNN.00010101" word (n)
@@ -749,7 +769,7 @@
 (specops-sh cmp/pz (op0)
   ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
   (masque "0100NNNN.00010001" ;; cmp/pz Rn
-          (n (gprix op0))))
+          (n (rix op0 :gp))))
 
 (readops-sh cmp/pz (word read) ;; cmp/pz Rn
   (unmasque "0100NNNN.00010001" word (n)
@@ -758,7 +778,7 @@
 (specops-sh cmp/str (op0 op1)
   ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
   (masque "0010NNNN.MMMM1100" ;; cmp/str Rm,Rn
-          (n (gprix op1)) (m (gprix op0))))
+          (n (rix op1 :gp)) (m (rix op0 :gp))))
 
 (readops-sh cmp/str (word read) ;; cmp/str Rm,Rn
   (unmasque "0010NNNN.MMMM1100" word (n m)
@@ -770,9 +790,9 @@
           "CLIPS may take only a general-purpose register as its operand.")
   (case w
     (:b (masque "0100NNNN.10010001" ;; clips.b Rn
-                (n (gprix op0))))
+                (n (rix op0 :gp))))
     (:w (masque "0100NNNN.10010101" ;; clips.w Rn
-                (n (gprix op0))))
+                (n (rix op0 :gp))))
     (t  (error "CLIPS may only operate at widths B or W."))))
 
 (readops-sh clips-b (word read)
@@ -789,16 +809,16 @@
           "CLIPU may take only a general-purpose register as its operand.")
   (case w
     (:b (masque "0100NNNN.10000001" ;; clipu.b Rn
-                (n (gprix op0))))
+                (n (rix op0 :gp))))
     (:w (masque "0100NNNN.10000101" ;; clipu.w Rn
-                (n (gprix op0))))
+                (n (rix op0 :gp))))
     (t  (error "CLIPU may only operate at widths B or W."))))
 
-(readops-sh clipu.b (word read) ;; clipu.b Rn
+(readops-sh clipu-b (word read) ;; clipu.b Rn
   (unmasque "0100NNNN.10000001" word (n)
     (list :clipu :b (drv-gpr n))))
 
-(readops-sh clipu.w (word read) ;; clipu.w Rn
+(readops-sh clipu-w (word read) ;; clipu.w Rn
   (unmasque "0100NNNN.10000101" word (n)
     (list :clipu :w (drv-gpr n))))
 
@@ -807,7 +827,7 @@
   (assert (match-types op0 op1  gpr gpr) (op0 op1)
           "DIV0S may take only general-purpose registers as its operands.")
   (masque "0010NNNN.MMMM0111" ;; div0s Rm,Rn
-          (n (gprix op1)) (m (gprix op0))))
+          (n (rix op1 :gp)) (m (rix op0 :gp))))
 
 (readops-sh div0s (word read) ;; div0s Rm,Rn
   (unmasque "0010NNNN.MMMM0111" word (m n)
@@ -825,7 +845,7 @@
   (assert (match-types op0 op1  gpr gpr) (op0 op1)
           "DIV1 may take only general-purpose registers as its operands.")
   (masque "0011NNNN.MMMM0100" ;; div1 Rm,Rn
-          (n (gprix op1)) (m (gprix op0))))
+          (n (rix op1 :gp)) (m (rix op0 :gp))))
 
 (readops-sh div1 (word read) ;; div1 Rm,Rn
   (unmasque "0011NNNN.MMMM0100" word (n m)
@@ -836,7 +856,7 @@
   (assert (and (eq :r0 op0) (match-types op1  gpr)) (op0 op1)
           "DIVS may take only R0 and a general-purpose register as operands.")
   (masque "0100NNNN.10010100" ;; divs R0,Rn
-            (n (gprix op1))))
+            (n (rix op1 :gp))))
 
 (readops-sh divs (word read) ;; divs R0,Rn
   (unmasque "0100NNNN.10010100" word (n)
@@ -847,7 +867,7 @@
   (assert (and (eq :r0 op0) (match-types op1  gpr)) (op0 op1)
           "DIVU may take only R0 and a general-purpose register as operands.")
   (masque "0100NNNN.10000100" ;; divu R0,Rn
-            (n (gprix op1))))
+            (n (rix op1 :gp))))
 
 (readops-sh divu (word read) ;; divu R0,Rn
   (unmasque "0100NNNN.10000100" word (n)
@@ -858,7 +878,7 @@
   (assert (and (eq w :l) (match-types op0 op1  gpr gpr)) (op0 op1)
           "DMULS works only at width L and may take only general-purpose registers as its operands.")
   (masque "0011NNNN.MMMM1101" ;; dmuls.l Rm,Rn
-          (n (gprix op1)) (m (gprix op0))))
+          (n (rix op1 :gp)) (m (rix op0 :gp))))
 
 (readops-sh dmuls-l (word read) ;; dmuls.l Rm,Rn
   (unmasque "0011NNNN.MMMM1101" word (n m)
@@ -869,7 +889,7 @@
   (assert (and (eq w :l) (match-types op0 op1  gpr gpr)) (op0 op1)
           "DMULU works only at width L and may take only general-purpose registers as its operands.")
   (masque "0011NNNN.MMMM0101" ;; dmulu.l Rm,Rn
-          (n (gprix op1)) (m (gprix op0))))
+          (n (rix op1 :gp)) (m (rix op0 :gp))))
 
 (readops-sh dmulu-l (word read)
   (unmasque "0011NNNN.MMMM0101" word (n m)
@@ -880,7 +900,7 @@
   (assert (and (match-types op0  gpr)) (op0)
           "DT may take only a general-purpose register as its operand.")
   (masque "0100NNNN.00010000" ;; dt Rn
-          (n (gprix op0))))
+          (n (rix op0 :gp))))
 
 (readops-sh dt (word read) ;; dt Rn
   (unmasque "0100NNNN.00010000" word (n)
@@ -892,9 +912,9 @@
           "EXTS may take only general-purpose registers as its operands.")
   (case w
     (:b (masque "0110NNNN.MMMM1110" ;; exts.b Rm,Rn
-                (n (gprix op1)) (m (gprix op0))))
+                (n (rix op1 :gp)) (m (rix op0 :gp))))
     (:w (masque "0110NNNN.MMMM1111" ;; exts.w Rm,Rn
-                (n (gprix op1)) (m (gprix op0))))
+                (n (rix op1 :gp)) (m (rix op0 :gp))))
     (t  (error "EXTS may only operate at widths B or W."))))
 
 (readops-sh exts.b (word read)
@@ -911,9 +931,9 @@
           "EXTU may take only general-purpose registers as its operands.")
   (case w
     (:b (masque "0110NNNN.MMMM1100" ;; extu.b Rm,Rn
-                (n (gprix op1)) (m (gprix op0))))
+                (n (rix op1 :gp)) (m (rix op0 :gp))))
     (:w (masque "0110NNNN.MMMM1101" ;; extu.w Rm,Rn
-                (n (gprix op1)) (m (gprix op0))))
+                (n (rix op1 :gp)) (m (rix op0 :gp))))
     (t  (error "EXTS may only operate at widths B or W."))))
 
 (readops-sh extu-b (word read) ;; extu.b Rm,Rn
@@ -930,9 +950,9 @@
           "MAC may take only post-incrementing memory access points as its operands.")
   (case w
     (:l (masque "0000NNNN.MMMM1111" ;; mac.l @Rm+,@Rn+
-                (n (gprix op1)) (m (gprix op0))))
+                (n (rix op1 :gp)) (m (rix op0 :gp))))
     (:w (masque "0100NNNN.MMMM1111" ;; mac.w @Rm+,@Rn+
-                (n (gprix op1)) (m (gprix op0))))
+                (n (rix op1 :gp)) (m (rix op0 :gp))))
     (t  (error "MAC may only operate at widths L or W."))))
 
 (readops-sh mac.l (word read) ;; mac.l @Rm+,@Rn+
@@ -943,14 +963,12 @@
   (unmasque "0100NNNN.MMMM1111" word (n m)
     (list :mac :w (drv-gpr m) (drv-gpr n))))
 
-(specops-sh mul (w op0 op1)
+(specops-sh mul.l (op0 op1)
   ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
-  (assert (match-types op0 op1  gpr gpr) (op0 op1)
-          "MUL may take only general-purpose registers as its operands.")
-  (case w
-    (:l (masque "0000NNNN.MMMM0111" ;; mul.l Rm,Rn
-                (n (gprix op1)) (m (gprix op0))))
-    (t  (error "MUL may only operate at width L."))))
+  (if (match-types op0 op1  gpr gpr)
+      (masque "0000NNNN.MMMM0111" ;; mul.l Rm,Rn
+              (n (rix op1 :gp)) (m (rix op0 :gp)))
+      (error "MUL.L may take only general-purpose registers as its operands.")))
 
 (readops-sh mul.l (word read) ;; mul.l Rm,Rn
   (unmasque "0000NNNN.MMMM0111" word (n m)
@@ -961,35 +979,31 @@
   (assert (and (eq :r0 op0) (match-types op1  gpr)) (op0 op1)
           "MULR may take only R0 and a general-purpose register as operands.")
   (masque "0100NNNN.10000000" ;; mulr R0,Rn
-          (n (gprix op1))))
+          (n (rix op1 :gp))))
 
 (readops-sh mulr (word read) ;; mulr R0,Rn
   (unmasque "0100NNNN.10000000" word (n)
     (list :mulr (drv-gpr n))))
 
-(specops-sh muls (w op0 op1)
+(specops-sh muls.w (w op0 op1)
   ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
-  (assert (match-types op0 op1  gpr gpr) (op0 op1)
-          "MULS may take only general-purpose registers as its operands.")
-  (case w
-    (:w (masque "0010NNNN.MMMM1111" ;; muls.w Rm,Rn
-                (n (gprix op1)) (m (gprix op0))))
-    (t  (error "MULS may only operate at width L."))))
+  (if (match-types op0 op1  gpr gpr)
+      (masque "0010NNNN.MMMM1111" ;; muls.w Rm,Rn
+              (n (rix op1 :gp)) (m (rix op0 :gp)))
+      (error "MULS.W may take only general-purpose registers as its operands.")))
 
-(readops-sh muls (word read) ;; muls.w Rm,Rn
+(readops-sh muls.w (word read) ;; muls.w Rm,Rn
   (unmasque "0010NNNN.MMMM1111" word (n m)
     (list :muls :w (drv-gpr m) (drv-gpr n))))
 
-(specops-sh mulu (w op0 op1)
+(specops-sh mulu.w (op0 op1)
   ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
-  (assert (match-types op0 op1  gpr gpr) (op0 op1)
-          "MULS may take only general-purpose registers as its operands.")
-  (case w
-    (:w (masque "0010NNNN.MMMM1110" ;; mulu.w Rm,Rn
-                (n (gprix op1)) (m (gprix op0))))
-    (t  (error "MULU may only operate at width L."))))
+  (if (match-types op0 op1  gpr gpr)
+      (masque "0010NNNN.MMMM1110" ;; mulu.w Rm,Rn
+              (n (rix op1 :gp)) (m (rix op0 :gp)))
+      (error "MULS may take only general-purpose registers as its operands.")))
 
-(readops-sh mulu-w (word read) ;; mulu.w Rm,Rn
+(readops-sh mulu.w (word read) ;; mulu.w Rm,Rn
   (unmasque "0010NNNN.MMMM1110" word (n m)
     (list :mulu :w (drv-gpr m) (drv-gpr n))))
 
@@ -998,7 +1012,7 @@
   (assert (match-types op0 op1  gpr gpr) (op0 op1)
           "NEG may take only general-purpose registers as its operands.")
   (masque "0110NNNN.MMMM1011" ;; neg Rm,Rn
-          (n (gprix op1)) (m (gprix op0))))
+          (n (rix op1 :gp)) (m (rix op0 :gp))))
 
 (readops-sh neg (word read) ;; neg Rm,Rn
   (unmasque "0110NNNN.MMMM1011" word (n m)
@@ -1009,7 +1023,7 @@
   (assert (match-types op0 op1  gpr gpr) (op0 op1)
           "NEGC may take only general-purpose registers as its operands.")
   (masque "0110NNNN.MMMM1010" ;; negc Rm,Rn
-          (n (gprix op1)) (m (gprix op0))))
+          (n (rix op1 :gp)) (m (rix op0 :gp))))
 
 (readops-sh negc (word read) ;; negc Rm,Rn
   (unmasque "0110NNNN.MMMM1010" word (n m)
@@ -1020,7 +1034,7 @@
   (assert (match-types op0 op1  gpr gpr) (op0 op1)
           "SUB may take only general-purpose registers as its operands.")
   (masque "0011NNNN.MMMM1000" ;; sub Rm,Rn
-          (n (gprix op1)) (m (gprix op0))))
+          (n (rix op1 :gp)) (m (rix op0 :gp))))
 
 (readops-sh sub (word read)
   (unmasque "0011NNNN.MMMM1000" word (n m)
@@ -1031,7 +1045,7 @@
   (assert (match-types op0 op1  gpr gpr) (op0 op1)
           "SUBC may take only general-purpose registers as its operands.")
   (masque "0011NNNN.MMMM1010" ;; subc Rm,Rn
-          (n (gprix op1)) (m (gprix op0))))
+          (n (rix op1 :gp)) (m (rix op0 :gp))))
 
 (readops-sh subc (word read) ;; subc Rm,Rn
   (unmasque "0011NNNN.MMMM1010" word (n m)
@@ -1042,7 +1056,7 @@
   (assert (match-types op0 op1  gpr gpr) (op0 op1)
           "SUBV may take only general-purpose registers as its operands.")
   (masque "0011NNNN.MMMM1011" ;; subv Rm,Rn
-          (n (gprix op1)) (m (gprix op0))))
+          (n (rix op1 :gp)) (m (rix op0 :gp))))
 
 (readops-sh subv (word read) ;; subv Rm,Rn
   (unmasque "0011NNNN.MMMM1011" word (n m)
@@ -1054,7 +1068,7 @@
   ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
   (cond ((match-types op0 op1  gpr gpr)
          (masque "0010NNNN.MMMM1001" ;; and Rm,Rn
-                 (n (gprix op1)) (m (gprix op0))))
+                 (n (rix op1 :gp)) (m (rix op0 :gp))))
         ((and (eq op1 :r0) (typep op0 'integer))
          (masque "11001001.IIIIIIII" ;; and #imm,R0
                  (i op0)))))
@@ -1083,7 +1097,7 @@
   (assert (match-types op0 op1  gpr gpr) (op0 op1)
           "NOT may take only general-purpose registers as its operands.")
   (masque "0110NNNN.MMMM0111" ;; not Rm,Rn
-          (n (gprix op1)) (m (gprix op0))))
+          (n (rix op1 :gp)) (m (rix op0 :gp))))
 
 (readops-sh not (word read)
   (unmasque "0110NNNN.MMMM0111" word (n m)
@@ -1093,7 +1107,7 @@
   ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
   (cond ((match-types op0 op1  gpr gpr)
          (masque "0010NNNN.MMMM1011" ;; or Rm,Rn
-                 (n (gprix op1)) (m (gprix op0))))
+                 (n (rix op1 :gp)) (m (rix op0 :gp))))
         ((and (eq op1 :r0) (typep op0 'integer))
          (masque "11001011.IIIIIIII" ;; or #imm,R0
                  (i op0)))))
@@ -1122,7 +1136,7 @@
   (assert (match-types op0  mas-simple) ()
           "TAS only operates at width B and may take only a plain memory access scheme as its operand.")
   (masque "0100NNNN.00011011" ;; tas.b @Rn
-          (n (gprix (mas-base op0)))))
+          (n (rix (mas-base op0) :gp))))
 
 (readops-sh tas.b (word read) ;; tas.b @Rn
   (unmasque "0100NNNN.00011011" word (n)
@@ -1132,7 +1146,7 @@
   ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
   (cond ((match-types op0 op1  gpr gpr)
          (masque "0010NNNN.MMMM1000" ;; tst Rm,Rn
-                 (n (gprix op1)) (m (gprix op0))))
+                 (n (rix op1 :gp)) (m (rix op0 :gp))))
         ((and (eq op1 :r0) (typep op0 'integer))
          (masque "11001000.IIIIIIII" ;; tst #imm,R0
                  (i op0)))))
@@ -1160,7 +1174,7 @@
   ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
   (cond ((match-types op0 op1  gpr gpr)
          (masque "0010NNNN.MMMM1010" ;; xor Rm,Rn
-                 (n (gprix op1)) (m (gprix op0))))
+                 (n (rix op1 :gp)) (m (rix op0 :gp))))
         ((and (eq op1 :r0) (typep op0 'integer))
          (masque "11001010.IIIIIIII" ;; or #imm,R0
                  (i op0)))))
@@ -1191,7 +1205,7 @@
   (assert (match-types op0  gpr) (op0)
           "ROTCL may take only a general-purpose register as its operand.")
   (masque "0100NNNN.00100100" ;; rotcl Rn
-            (n (gprix op0))))
+            (n (rix op0 :gp))))
 
 (readops-sh rotcl (word read) ;; rotcl Rn
   (unmasque "0100NNNN.00100100" word (n)
@@ -1202,7 +1216,7 @@
   (assert (match-types op0  gpr) (op0)
           "ROTCR may take only a general-purpose register as its operand.")
   (masque "0100NNNN.00100101" ;; rotcr Rn
-            (n (gprix op0))))
+            (n (rix op0 :gp))))
 
 (readops-sh rotcr (word read) ;; rotcr Rn
   (unmasque "0100NNNN.00100101" word (n)
@@ -1213,7 +1227,7 @@
   (assert (match-types op0  gpr) (op0)
           "ROTL may take only a general-purpose register as its operand.")
   (masque "0100NNNN.00000100" ;; rotl Rn
-            (n (gprix op0))))
+            (n (rix op0 :gp))))
 
 (readops-sh rotl (word read) ;; rotl Rn
   (unmasque "0100NNNN.00000100" word (n)
@@ -1224,7 +1238,7 @@
   (assert (match-types op0  gpr) (op0)
           "ROTR may take only a general-purpose register as its operand.")
   (masque "0100NNNN.00000101" ;; rotr Rn
-            (n (gprix op0))))
+            (n (rix op0 :gp))))
 
 (readops-sh rotr (word read) ;; rotr Rn
   (unmasque "0100NNNN.00000101" word (n)
@@ -1235,7 +1249,7 @@
   (assert (match-types op0 op1  gpr gpr) (op0 op1)
           "SHAD may take only general-purpose registers as its operands.")
   (masque "0100NNNN.MMMM1100" ;; shad Rm,Rn
-          (n (gprix op1)) (m (gprix op0))))
+          (n (rix op1 :gp)) (m (rix op0 :gp))))
 
 (readops-sh shad (word read) ;; shad Rm,Rn
   (unmasque "0100NNNN.MMMM1100" word (n m)
@@ -1246,7 +1260,7 @@
   (assert (match-types op0  gpr) (op0)
           "SHAL may take only a general-purpose register as its operand.")
   (masque "0100NNNN.00100000" ;; shal Rn
-            (n (gprix op0))))
+            (n (rix op0 :gp))))
 
 (readops-sh shal (word read) ;; shal Rn
   (unmasque "0100NNNN.00100000" word (n)
@@ -1257,7 +1271,7 @@
   (assert (match-types op0  gpr) (op0)
           "SHAR may take only a general-purpose register as its operand.")
   (masque "0100NNNN.00100001" ;; shal Rn
-            (n (gprix op0))))
+            (n (rix op0 :gp))))
 
 (readops-sh shar (word read) ;; shal Rn
   (unmasque "0100NNNN.00100001" word (n)
@@ -1268,7 +1282,7 @@
   (assert (match-types op0 op1  gpr gpr) (op0 op1)
           "SHLD may take only general-purpose registers as its operands.")
   (masque "0100NNNN.MMMM1101" ;; shld Rm,Rn
-          (n (gprix op1)) (m (gprix op0))))
+          (n (rix op1 :gp)) (m (rix op0 :gp))))
 
 (readops-sh shld (word read) ;; shld Rm,Rn
   (unmasque "0100NNNN.MMMM1101" word (n m)
@@ -1279,7 +1293,7 @@
   (assert (match-types op0  gpr) (op0)
           "SHLL may take only a general-purpose register as its operand.")
   (masque "0100NNNN.00000000" ;; shll Rn
-            (n (gprix op0))))
+            (n (rix op0 :gp))))
 
 (readops-sh shll (word read) ;; shll Rn
   (unmasque "0100NNNN.00000000" word (n)
@@ -1290,7 +1304,7 @@
   (assert (match-types op0  gpr) (op0)
           "SHLL2 may take only a general-purpose register as its operand.")
   (masque "0100NNNN.00001000" ;; shll2 Rn
-          (n (gprix op0))))
+          (n (rix op0 :gp))))
 
 (readops-sh shll2 (word read) ;; shll2 Rn
   (unmasque "0100NNNN.00001000" word (n)
@@ -1301,7 +1315,7 @@
   (assert (match-types op0  gpr) (op0)
           "SHLL8 may take only a general-purpose register as its operand.")
   (masque "0100NNNN.00011000" ;; shll8 Rn
-          (n (gprix op0))))
+          (n (rix op0 :gp))))
 
 (readops-sh shll8 (word read) ;; shll8 Rn
   (unmasque "0100NNNN.00011000" word (n)
@@ -1312,7 +1326,7 @@
   (assert (match-types op0  gpr) (op0)
           "SHLL16 may take only a general-purpose register as its operand.")
   (masque "0100NNNN.00101000" ;; shll16 Rn
-          (n (gprix op0))))
+          (n (rix op0 :gp))))
 
 (readops-sh shll16 (word read) ;; shll16 Rn
   (unmasque "0100NNNN.00101000" word (n)
@@ -1323,7 +1337,7 @@
   (assert (match-types op0  gpr) (op0)
           "SHLR may take only a general-purpose register as its operand.")
   (masque "0100NNNN.00000001" ;; shlr Rn
-          (n (gprix op0))))
+          (n (rix op0 :gp))))
 
 (readops-sh shlr (word read) ;; shlr Rn
   (unmasque "0100NNNN.00000001" word (n)
@@ -1334,7 +1348,7 @@
   (assert (match-types op0  gpr) (op0)
           "SHLR2 may take only a general-purpose register as its operand.")
   (masque "0100NNNN.00001001" ;; shlr2 Rn
-          (n (gprix op0))))
+          (n (rix op0 :gp))))
 
 (readops-sh shlr2 (word read) ;; shlr2 Rn
   (unmasque "0100NNNN.00001001" word (n)
@@ -1345,7 +1359,7 @@
   (assert (match-types op0  gpr) (op0)
           "SHLR8 may take only a general-purpose register as its operand.")
   (masque "0100NNNN.00011001" ;; shlr8 Rn
-          (n (gprix op0))))
+          (n (rix op0 :gp))))
 
 (readops-sh shlr8 (word read) ;; shlr8 Rn
   (unmasque "0100NNNN.00011001" word (n)
@@ -1356,7 +1370,7 @@
   (assert (match-types op0  gpr) (op0)
           "SHLR16 may take only a general-purpose register as its operand.")
   (masque "0100NNNN.00101001" ;; shlr16 Rn
-          (n (gprix op0))))
+          (n (rix op0 :gp))))
 
 (readops-sh shlr16 (word read) ;; shlr16 Rn
   (unmasque "0100NNNN.00101001" word (n)
@@ -1450,7 +1464,7 @@
   (assert (match-types op0  gpr) (op0)
           "BRAF may take only a general-purpose register as its operand.")
   (masque "0000MMMM.00100011" ;; braf Rm
-            (m (gprix op0))))
+            (m (rix op0 :gp))))
 
 (readops-sh braf (word read) ;; braf Rm
   (unmasque "0000MMMM.00100011" word (m)
@@ -1477,7 +1491,7 @@
   (assert (match-types op0  gpr) (op0)
           "BRSF may take only a general-purpose register as its operand.")
   (masque "0000MMMM.00000011" ;; bsrf Rm
-            (m (gprix op0))))
+            (m (rix op0 :gp))))
 
 (readops-sh bsrf (word read) ;; bsrf Rm
   (unmasque "0000MMMM.00000011" word (m)
@@ -1488,7 +1502,7 @@
   (assert (match-types op0  mas-simple) (op0)
           "JMP may only take a plain memory access scheme as its operand.")
   (masque "0100MMMM.00101011" ;; jmp @Rm
-          (m (gprix (mas-base op0)))))
+          (m (rix (mas-base op0) :gp))))
 
 (readops-sh jmp (word read) ;; jmp @Rm
   (unmasque "0100MMMM.00101011" word (m)
@@ -1499,7 +1513,7 @@
   (assert (match-types op0  mas-simple) (op0)
           "JMP may only take a plain memory access scheme as its operand.")
   (masque "0100MMMM.00001011" ;; jsr @Rm
-          (m (gprix (mas-base op0)))))
+          (m (rix (mas-base op0) :gp))))
 
 (readops-sh jsr (word read) ;; jsr @Rm
   (unmasque "0100MMMM.00001011" word (m)
@@ -1509,7 +1523,7 @@
   ((:for-types :sh2a))
   (cond ((match-types op0  mas-simple)
          (masque "0100MMMM.01001011" ;; jsr/n @Rm
-                 (m (gprix (mas-base op0)))))
+                 (m (rix (mas-base op0) :gp))))
         ((match-types op0  mas-tb+dis4)
          (masque "10000011.DDDDDDDD" ;; jsr/n @@(disp8,TBR)
                  (d (mas-displ op0))))
@@ -1544,7 +1558,7 @@
   (assert (match-types op0  gpr) (op0)
           "RTV/N may take only a general-purpose register as its operand.")
   (masque "0000MMMM.01111011" ;; rtv/n Rm
-          (m (gprix op0))))
+          (m (rix op0 :gp))))
 
 (readops-sh rtv/n (word read)
   (unmasque "0000MMMM.01111011" word (m)
@@ -1578,7 +1592,7 @@
   (assert (match-types op0  gpr) (op0)
           "ICBI may take only a general-purpose register as its operand.")
   (masque "0000NNNN.11100011" ;; icbi @Rn
-          (n (gprix op0))))
+          (n (rix op0 :gp))))
 
 (readops-sh icbi (word read)
   (unmasque "0000NNNN.11100011" word (n)
@@ -1589,7 +1603,7 @@
   (assert (and (eq op1 :r0) (match-types op0  mas-simple)) (op0)
           "LDBANK takes only a simple memory address and R0 as its operands.")
   (masque "0100MMMM.11100101" ;; ldbank @Rm,R0
-          (m (gprix (mas-base op0)))))
+          (m (rix (mas-base op0) :gp))))
 
 (readops-sh ldbank (word read)
   (unmasque "0100MMMM.11100101" word (m)
@@ -1601,51 +1615,51 @@
   (case op1
     (:sr
      (masque "0100MMMM.00001110" ;; ldc Rm,SR
-             (m (gprix op0))))
+             (m (rix op0 :gp))))
     (:tbr (assert (matching-types                           :sh2a) ()
                   "LDC Rm,TBR incompatible with this architecture type.")
      (masque "0100MMMM.01001010" ;; ldc Rm,TBR
-             (m (gprix op0))))
+             (m (rix op0 :gp))))
     (:gbr (assert (matching-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a) ()
                   "LDC Rm,GBR incompatible with this architecture type.")
      (masque "0100MMMM.00011110" ;; ldc Rm,GBR
-             (m (gprix op0))))
+             (m (rix op0 :gp))))
     (:vbr
      (masque "0100MMMM.00101110" ;; ldc Rm,VBR
-             (m (gprix op0))))
+             (m (rix op0 :gp))))
     (:mod (assert (matching-types :dsp) ()
                   "LDC Rm,MOD incompatible with this architecture type.")
      (masque "0100MMMM.01011110" ;; ldc Rm,MOD
-             (m (gprix op0))))
+             (m (rix op0 :gp))))
     (:re  (assert (matching-types :dsp) ()
                   "LDC Rm,RE incompatible with this architecture type.")
      (masque "0100MMMM.01111110" ;; ldc Rm,RE
-             (m (gprix op0))))
+             (m (rix op0 :gp))))
     (:rs  (assert (matching-types :dsp) ()
                   "LDC Rm,RS incompatible with this architecture type.")
      (masque "0100MMMM.01101110" ;; ldc Rm,RS
-             (m (gprix op0))))
+             (m (rix op0 :gp))))
     (:sgr (assert (matching-types           :sh4a :privileged) ()
                   "LDC Rm,SGR incompatible with this architecture type.")
      (masque "0100MMMM.00111010" ;; ldc Rm,SGR
-             (m (gprix op0))))
+             (m (rix op0 :gp))))
     (:ssr (assert (matching-types :sh3 :sh4 :sh4a :privileged) ()
                   "LDC Rm,SSR incompatible with this architecture type.")
      (masque "0100MMMM.00111110" ;; ldc Rm,SSR
-             (m (gprix op0))))
+             (m (rix op0 :gp))))
     (:spc (assert (matching-types :sh3 :sh4 :sh4a :privileged) ()
                   "LDC Rm,SPC incompatible with this architecture type.")
      (masque "0100MMMM.01001110" ;; ldc Rm,SPC
-             (m (gprix op0))))
+             (m (rix op0 :gp))))
     (:dbr (assert (matching-types      :sh4 :sh4a :privileged) ()
                   "LDC Rm,DBR incompatible with this architecture type.")
      (masque "0100MMMM.11111010" ;; ldc Rm,DBR
-             (m (gprix op0))))
+             (m (rix op0 :gp))))
     (t (if (typep op1 'gprb)
            (progn (assert (matching-types :sh3 :sh4 :sh4a :privileged) ()
                           "LDC Rm,Rn_BANK is incompatible with this architecture type.")
                   (masque "0100MMMM.1NNN1110" ;; ldc Rm,Rn_BANK
-                          (m (gprix op0)) (n (gprbix op1))))
+                          (m (rix op0 :gp)) (n (gprbix op1))))
            (error "Invalid operands for LDC.")))))
 
 (specops-sh ldc.l (op0 op1)
@@ -1654,42 +1668,42 @@
   (case op1
     (:sr
      (masque "0100MMMM.00000111" ;; ldc.l @Rm+,SR
-             (m (gprix (mas-base op1)))))
+             (m (rix (mas-base op1) :gp))))
     (:gbr (assert (matching-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a) ()
                   "LDC.L @Rm+,GBR incompatible with this architecture type.")
      (masque "0100MMMM.00010111" ;; ldc.l @Rm+,GBR
-             (m (gprix (mas-base op1)))))
+             (m (rix (mas-base op1) :gp))))
     (:vbr
      (masque "0100MMMM.00100111" ;; ldc.l @Rm+,VBR
-             (m (gprix (mas-base op1)))))
+             (m (rix (mas-base op1) :gp))))
     (:mod (assert (matching-types :dsp) ()
                   "LDC.L @Rm+,MOD incompatible with this architecture type.")
      (masque "0100MMMM.01010111" ;; ldc.l @Rm+,MOD
-             (m (gprix (mas-base op1)))))
+             (m (rix (mas-base op1) :gp))))
     (:re  (assert (matching-types :dsp) ()
                   "LDC.L @Rm+,RE incompatible with this architecture type.")
      (masque "0100MMMM.01110111" ;; ldc.l @Rm+,RE
-             (m (gprix (mas-base op1)))))
+             (m (rix (mas-base op1) :gp))))
     (:rs  (assert (matching-types :dsp) ()
                   "LDC.L @Rm+,RS incompatible with this architecture type.")
      (masque "0100MMMM.01100111" ;; ldc.l @Rm+,RS
-             (m (gprix (mas-base op1)))))
+             (m (rix (mas-base op1) :gp))))
     (:sgr (assert (matching-types           :sh4a :privileged) ()
                   "LDC.L @Rm+,SGR incompatible with this architecture type.")
      (masque "0100MMMM.00110110" ;; ldc.l @Rm+,SGR
-             (m (gprix (mas-base op1)))))
+             (m (rix (mas-base op1) :gp))))
     (:ssr (assert (matching-types :sh3 :sh4 :sh4a :privileged) ()
                   "LDC.L @Rm+,SSR incompatible with this architecture type.")
      (masque "0100MMMM.00110111" ;; ldc.l @Rm+,SSR
-             (m (gprix (mas-base op1)))))
+             (m (rix (mas-base op1) :gp))))
     (:spc (assert (matching-types      :sh4 :sh4a :privileged) ()
                   "LDC.L @Rm+,SPC incompatible with this architecture type.")
      (masque "0100MMMM.01000111" ;; ldc.l @Rm+,SPC
-             (m (gprix (mas-base op1)))))
+             (m (rix (mas-base op1) :gp))))
     (:dbr (assert (matching-types      :sh4 :sh4a :privileged) ()
                   "LDC.L @Rm+,DBR incompatible with this architecture type.")
      (masque "0100MMMM.11110110" ;; ldc.l @Rm+,DBR
-             (m (gprix (mas-base op1)))))
+             (m (rix (mas-base op1) :gp))))
     (t (if (typep op1 'gprb)
            (progn (assert (matching-types :sh3 :sh4 :sh4a :privileged) ()
                           "LDC @Rm+,Rn_BANK is incompatible with this architecture type.")
@@ -1818,53 +1832,53 @@
     (:mach  (assert (matching-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a) ()
                     "LDS Rm,MACH incompatible with this architecture type.")
      (masque "0100MMMM.00001010" ;; lds Rm,MACH
-             (m (gprix op0))))
+             (m (rix op0 :gp))))
     (:macl  (assert (matching-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a) ()
                     "LDS Rm,MACL incompatible with this architecture type.")
      (masque "0100MMMM.00011010" ;; lds Rm,MACL
-             (m (gprix op0))))
+             (m (rix op0 :gp))))
     (:pr    (assert (matching-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a) ()
                     "LDS Rm,PR incompatible with this architecture type.")
      (masque "0100MMMM.00101010" ;; lds Rm,PR
-             (m (gprix op0))))
+             (m (rix op0 :gp))))
 
     ;; floating point instructions
 
     (:fpscr (assert (matching-types :sh2e :sh3e :sh4 :sh4a :sh2a) ()
                     "LDS Rm,FPSCR incompatible with this architecture type.")
      (masque "0100MMMM.01101010" ;; lds Rm,FPSCR
-             (m (gprix op0))))
+             (m (rix op0 :gp))))
     (:fpul  (assert (matching-types :sh2e :sh3e :sh4 :sh4a :sh2a) ()
                     "LDS Rm,FPUL incompatible with this architecture type.")
      (masque "0100MMMM.01011010" ;; lds Rm,FPUL
-             (m (gprix op0))))
+             (m (rix op0 :gp))))
 
     ;; DSP instructions
     
     (:dsr   (assert (matching-types :dsp) ()
                     "LDS Rm,DSR incompatible with this architecture type.")
      (masque "0100MMMM.01101010" ;; lds Rm,DSR
-             (m (gprix op0))))
+             (m (rix op0 :gp))))
     (:a0    (assert (matching-types :dsp) ()
                     "LDS Rm,A0 incompatible with this architecture type.")
      (masque "0100MMMM.01110110" ;; lds Rm,A0
-             (m (gprix op0))))
+             (m (rix op0 :gp))))
     (:x0    (assert (matching-types :dsp) ()
                     "LDS Rm,X0 incompatible with this architecture type.")
      (masque "0100MMMM.10001010" ;; lds Rm,X0
-             (m (gprix op0))))
+             (m (rix op0 :gp))))
     (:x1    (assert (matching-types :dsp) ()
                     "LDS Rm,X1 incompatible with this architecture type.")
      (masque "0100MMMM.10011010" ;; lds Rm,X1
-             (m (gprix op0))))
+             (m (rix op0 :gp))))
     (:y0    (assert (matching-types :dsp) ()
                     "LDS Rm,Y0 incompatible with this architecture type.")
      (masque "0100MMMM.10101010" ;; lds Rm,Y0
-             (m (gprix op0))))
+             (m (rix op0 :gp))))
     (:y1    (assert (matching-types :dsp) ()
                     "LDS Rm,Y1 incompatible with this architecture type.")
      (masque "0100MMMM.10111010" ;; lds Rm,Y1
-             (m (gprix op0))))))
+             (m (rix op0 :gp))))))
 
 (specops-sh lds.l (op0 op1)
     ((:type-matcher matching-types)
@@ -1873,53 +1887,53 @@
     (:mach  (assert (matching-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a) ()
                     "LDS.L @Rm+,MACH incompatible with this architecture type.")
      (masque "0100MMMM.00000110" ;; lds.l @Rm+,MACH
-             (m (gprix (mas-base op0)))))
+             (m (rix (mas-base op0) :gp))))
     (:macl  (assert (matching-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a) ()
                     "LDS.L @Rm+,MACL incompatible with this architecture type.")
      (masque "0100MMMM.00010110" ;; lds.l @Rm+,MACL
-             (m (gprix (mas-base op0)))))
+             (m (rix (mas-base op0) :gp))))
     (:pr    (assert (matching-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a) ()
                     "LDS.L @Rm+,PR incompatible with this architecture type.")
      (masque "0100MMMM.00100110" ;; lds.l @Rm+,PR
-             (m (gprix (mas-base op0)))))
+             (m (rix (mas-base op0) :gp))))
 
     ;; floating point instructions
 
     (:fpscr (assert (matching-types :sh2e :sh3e :sh4 :sh4a :sh2a) ()
                     "LDS.L @Rm+,FPSCR incompatible with this architecture type.")
      (masque "0100MMMM.01100110" ;; lds.l @Rm+,FPSCR
-             (m (gprix (mas-base op0)))))
+             (m (rix (mas-base op0) :gp))))
     (:fpul  (assert (matching-types :sh2e :sh3e :sh4 :sh4a :sh2a) ()
                     "LDS.L @Rm+,FPUL incompatible with this architecture type.")
      (masque "0100MMMM.01010110" ;; lds.l @Rm+,FPUL
-             (m (gprix (mas-base op0)))))
+             (m (rix (mas-base op0) :gp))))
 
     ;; DSP instructions
     
     (:dsr   (assert (matching-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a) ()
                     "LDS.L @Rm+,DSR incompatible with this architecture type.")
      (masque "0100MMMM.01100110" ;; lds.l @Rm+,DSR
-             (m (gprix (mas-base op0)))))
+             (m (rix (mas-base op0) :gp))))
     (:a0    (assert (matching-types :dsp) ()
                     "LDS.L @Rm+,A0 incompatible with this architecture type.")
      (masque "0100MMMM.01100110" ;; lds.l @Rm+,A0
-             (m (gprix (mas-base op0)))))
+             (m (rix (mas-base op0) :gp))))
     (:x0    (assert (matching-types :dsp) ()
                     "LDS.L @Rm+,X0 incompatible with this architecture type.")
      (masque "0100MMMM.10000110" ;; lds.l @Rm+,X0
-             (m (gprix (mas-base op0)))))
+             (m (rix (mas-base op0) :gp))))
     (:x1    (assert (matching-types :dsp) ()
                     "LDS.L @Rm+,X1 incompatible with this architecture type.")
      (masque "0100MMMM.10010110" ;; lds.l @Rm+,X1
-             (m (gprix (mas-base op0)))))
+             (m (rix (mas-base op0) :gp))))
     (:y0    (assert (matching-types :dsp) ()
                     "LDS.L @Rm+,Y0 incompatible with this architecture type.")
      (masque "0100MMMM.10100110" ;; lds.l @Rm+,Y0
-             (m (gprix (mas-base op0)))))
+             (m (rix (mas-base op0) :gp))))
     (:y1    (assert (matching-types :dsp) ()
                     "LDS.L @Rm+,Y1 incompatible with this architecture type.")
      (masque "0100MMMM.10110110" ;; lds.l @Rm+,Y1
-             (m (gprix (mas-base op0)))))))
+             (m (rix (mas-base op0) :gp))))))
 
 (readops-sh lds.mach (word read) ;; lds Rm,MACH
   (unmasque "0100MMMM.00001010" word (m)
@@ -2006,7 +2020,7 @@
   (assert (and (eq :r0 op0) (typep op1 'mas-simple)) ()
           "MOVCA.L takes only R0 and a simple memory address as its operands.")
   (masque "0000NNNN.11000011" ;; movca.l R0,@Rn
-          (n (gprix (mas-base op1)))))
+          (n (rix (mas-base op1) :gp))))
 
 (readops-sh movca.l (word read) ;; movca.l R0,@Rn
   (unmasque "0000NNNN.11000011" word (n)
@@ -2024,7 +2038,7 @@
   (assert (match-types op0  mas-simple) ()
           "OCBI takes only a simple memory address as its operand.")
   (masque "0000NNNN.10010011" ;; ocbi @Rn
-          (n (gprix (mas-base op0)))))
+          (n (rix (mas-base op0) :gp))))
 
 (readops-sh ocbi (word read) ;; ocbi @Rn
   (unmasque "0000NNNN.10010011" word (n)
@@ -2035,7 +2049,7 @@
   (assert (match-types op0  mas-simple) ()
           "OCBI takes only a simple memory address as its operand.")
   (masque "0000NNNN.10100011" ;; ocbp @Rn
-          (n (gprix (mas-base op0)))))
+          (n (rix (mas-base op0) :gp))))
 
 (readops-sh ocbp (word read)
   (unmasque "0000NNNN.10100011" word (n)
@@ -2046,7 +2060,7 @@
   (assert (match-types op0  mas-simple) ()
           "OCBWB takes only a simple memory address as its operand.")
   (masque "0000NNNN.10110011" ;; ocbwb @Rn
-          (n (gprix (mas-base op0)))))
+          (n (rix (mas-base op0) :gp))))
 
 (readops-sh ocbwb (word read) ;; ocbwb @Rn
   (unmasque "0000NNNN.10110011" word (n)
@@ -2057,7 +2071,7 @@
   (assert (match-types op0  mas-simple) ()
           "PREF takes only a simple memory address as its operand.")
   (masque "0000NNNN.10000011" ;; pref @Rn
-          (n (gprix (mas-base op0)))))
+          (n (rix (mas-base op0) :gp))))
 
 (readops-sh pref (word read)
   (unmasque "0000NNNN.10000011" word (n)
@@ -2068,7 +2082,7 @@
   (assert (match-types op0  mas-simple) ()
           "PREFI takes only a simple memory address as its operand.")
   (masque "0000NNNN.11010011" ;; prefi @Rn
-          (n (gprix (mas-base op0)))))
+          (n (rix (mas-base op0) :gp))))
 
 (readops-sh prefi (word read)
   (unmasque "0000NNNN.11010011" word (n)
@@ -2092,7 +2106,7 @@
   ((:for-types :dsp))
   (typecase op0
     (gpr     (masque "0100NNNN.00010100" ;; setrc Rn
-                     (n (gprix op0))))
+                     (n (rix op0 :gp))))
     (integer (masque "10000010.IIIIIIII" ;; setrc #imm
                      (i op0)))
     (t (error "SETRC takes either a general-purpose register or 8-bit immediate value as its operand."))))
@@ -2131,7 +2145,7 @@
   (assert (and (eq :r0 op0) (match-types op1  mas-simple)) ()
           "STBANK only works at width L and takes only R0 and a simple memory address as its operands.")
   (masque "0100NNNN.11100001" ;; stbank R0,@Rn
-          (n (gprix (mas-base op1)))))
+          (n (rix (mas-base op1) :gp))))
 
 (readops-sh stbank (word read) ;; stbank R0,@Rn
   (unmasque "0100NNNN.11100001" word (n)
@@ -2143,51 +2157,51 @@
   (case op0
     (:sr
      (masque "0000NNNN.00000010" ;; stc SR,Rn
-             (n (gprix op1))))
+             (n (rix op1 :gp))))
     (:tbr (assert (matching-types                           :sh2a) ()
                   "STC Rm,TBR incompatible with this architecture type.")
      (masque "0000NNNN.01001010" ;; stc TBR,Rn
-             (n (gprix op1))))
+             (n (rix op1 :gp))))
     (:gbr (assert (matching-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a) ()
                   "STC Rm,GBR incompatible with this architecture type.")
      (masque "0000NNNN.00010010" ;; stc GBR,Rn
-             (n (gprix op1))))
+             (n (rix op1 :gp))))
     (:vbr
      (masque "0000NNNN.00100010" ;; stc VBR,Rn
-             (n (gprix op1))))
+             (n (rix op1 :gp))))
     (:mod (assert (matching-types :dsp) ()
                   "STC Rm,MOD incompatible with this architecture type.")
      (masque "0000NNNN.01010010" ;; stc MOD,Rn
-             (n (gprix op1))))
+             (n (rix op1 :gp))))
     (:re  (assert (matching-types :dsp) ()
                   "STC Rm,RE incompatible with this architecture type.")
      (masque "0000NNNN.01110010" ;; stc RE,Rn
-             (n (gprix op1))))
+             (n (rix op1 :gp))))
     (:rs  (assert (matching-types :dsp) ()
                   "STC Rm,RS incompatible with this architecture type.")
      (masque "0000NNNN.01100010" ;; stc RS,Rn
-             (n (gprix op1))))
+             (n (rix op1 :gp))))
     (:sgr (assert (matching-types           :sh4a :privileged) ()
                   "STC Rm,SGR incompatible with this architecture type.")
      (masque "0000NNNN.00111010" ;; stc SGR,Rn
-             (n (gprix op1))))
+             (n (rix op1 :gp))))
     (:ssr (assert (matching-types :sh3 :sh4 :sh4a :privileged) ()
                   "STC Rm,SSR incompatible with this architecture type.")
      (masque "0000NNNN.00110010" ;; stc SSR,Rn
-             (n (gprix op1))))
+             (n (rix op1 :gp))))
     (:spc (assert (matching-types :sh3 :sh4 :sh4a :privileged) ()
                   "STC Rm,SPC incompatible with this architecture type.")
      (masque "0000NNNN.01000010" ;; stc SPC,Rn
-             (n (gprix op1))))
+             (n (rix op1 :gp))))
     (:dbr (assert (matching-types      :sh4 :sh4a :privileged) ()
                   "STC Rm,DBR incompatible with this architecture type.")
      (masque "0000NNNN.11111010" ;; stc DBR,Rn
-             (n (gprix op1))))
+             (n (rix op1 :gp))))
     (t (if (typep op1 'gprb)
            (progn (assert (matching-types :sh3 :sh4 :sh4a :privileged) ()
                           "STC Rm,Rn_BANK is incompatible with this architecture type.")
                   (masque "0000NNNN.1MMM0010" ;; stc Rm_BANK,Rn
-                          (n (gprix op1)) (m (gprbix op0))))
+                          (n (rix op1 :gp)) (m (gprbix op0))))
            (error "Invalid operands for STC.")))))
 
 (specops-sh stc.l (op0 op1)
@@ -2196,47 +2210,47 @@
   (case op0
     (:sr
      (masque "0100NNNN.00000011" ;; stc.l SR,@-Rn
-             (n (gprix (mas-base op1)))))
+             (n (rix (mas-base op1) :gp))))
     (:gbr (assert (matching-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a) ()
                   "STC.L @Rm+,GBR incompatible with this architecture type.")
      (masque "0100NNNN.00010011" ;; stc.l GBR,@-Rn
-             (n (gprix (mas-base op1)))))
+             (n (rix (mas-base op1) :gp))))
     (:vbr
      (masque "0100NNNN.00100011" ;; stc.l VBR,@-Rn
-             (n (gprix (mas-base op1)))))
+             (n (rix (mas-base op1) :gp))))
     (:mod (assert (matching-types :dsp) ()
                   "STC.L @Rm+,MOD incompatible with this architecture type.")
      (masque "0100NNNN.01010011" ;; stc.l MOD,@-Rn
-             (n (gprix (mas-base op1)))))
+             (n (rix (mas-base op1) :gp))))
     (:re  (assert (matching-types :dsp) ()
                   "STC.L @Rm+,RE incompatible with this architecture type.")
      (masque "0100NNNN.01110011" ;; stc.l RE,@-Rn
-             (n (gprix (mas-base op1)))))
+             (n (rix (mas-base op1) :gp))))
     (:rs  (assert (matching-types :dsp) ()
                   "STC.L @Rm+,RS incompatible with this architecture type.")
      (masque "0100NNNN.01100011" ;; stc.l RS,@-Rn
-             (n (gprix (mas-base op1)))))
+             (n (rix (mas-base op1) :gp))))
     (:sgr (assert (matching-types           :sh4a :privileged) ()
                   "STC.L @Rm+,SGR incompatible with this architecture type.")
      (masque "0100NNNN.00110010" ;; stc.l SGR,@-Rn
-             (n (gprix (mas-base op1)))))
+             (n (rix (mas-base op1) :gp))))
     (:ssr (assert (matching-types :sh3 :sh4 :sh4a :privileged) ()
                   "STC.L @Rm+,SSR incompatible with this architecture type.")
      (masque "0100NNNN.00110011" ;; stc.l SSR,@-Rn
-             (n (gprix (mas-base op1)))))
+             (n (rix (mas-base op1) :gp))))
     (:spc (assert (matching-types      :sh4 :sh4a :privileged) ()
                   "STC.L @Rm+,SPC incompatible with this architecture type.")
      (masque "0100NNNN.01000011" ;; stc.l SPC,@-Rn
-             (n (gprix (mas-base op1)))))
+             (n (rix (mas-base op1) :gp))))
     (:dbr (assert (matching-types      :sh4 :sh4a :privileged) ()
                   "STC.L @Rm+,DBR incompatible with this architecture type.")
      (masque "0100NNNN.11110010" ;; stc.l DBR,@-Rn
-             (n (gprix (mas-base op1)))))
+             (n (rix (mas-base op1) :gp))))
     (t (if (typep op0 'gprb)
            (progn (assert (matching-types :sh3 :sh4 :sh4a :privileged) ()
                           "STC.L @Rm+,Rn_BANK is incompatible with this architecture type.")
                   (masque "0100NNNN.1MMM0011" ;; stc.l Rm_BANK,@-Rn
-                          (n (gprix (mas-base op1))) (m (gprbix op0))))
+                          (n (rix (mas-base op1) :gp)) (m (gprbix op0))))
            (error "Invalid operands for STC.L.")))))
 
 (readops-sh stc.sr (word read) ;; stc SR,Rn
@@ -2337,53 +2351,53 @@
     (:mach  (assert (matching-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a) ()
                     "STS Rm,MACH incompatible with this architecture type.")
      (masque "0000NNNN.00001010" ;; sts MACH,Rn
-             (n (gprix op1))))
+             (n (rix op1 :gp))))
     (:macl  (assert (matching-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a) ()
                     "STS Rm,MACL incompatible with this architecture type.")
      (masque "0000NNNN.00011010" ;; sts MACL,Rn
-             (n (gprix op1))))
+             (n (rix op1 :gp))))
     (:pr    (assert (matching-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a) ()
                     "STS Rm,PR incompatible with this architecture type.")
      (masque "0000NNNN.00101010" ;; sts PR,Rn
-             (n (gprix op1))))
+             (n (rix op1 :gp))))
 
     ;; floating point instructions
 
     (:fpscr (assert (matching-types :sh2e :sh3e :sh4 :sh4a :sh2a) ()
                     "STS FPSCR,Rn incompatible with this architecture type.")
      (masque "0000NNNN.01101010" ;; sts FPSCR,Rn
-             (n (gprix op1))))
+             (n (rix op1 :gp))))
     (:fpul  (assert (matching-types :sh2e :sh3e :sh4 :sh4a :sh2a) ()
                     "STS FPUL,Rn incompatible with this architecture type.")
      (masque "0000NNNN.01011010" ;; sts FPUL,Rn
-             (n (gprix op1))))
+             (n (rix op1 :gp))))
 
     ;; DSP instructions
     
     (:dsr   (assert (matching-types :dsp) ()
                     "STS Rm,DSR incompatible with this architecture type.")
      (masque "0000NNNN.01101010" ;; sts DSR,Rn
-             (n (gprix op1))))
+             (n (rix op1 :gp))))
     (:a0    (assert (matching-types :dsp) ()
                     "STS Rm,A0 incompatible with this architecture type.")
      (masque "0000NNNN.01111010" ;; sts A0,Rn
-             (n (gprix op1))))
+             (n (rix op1 :gp))))
     (:x0    (assert (matching-types :dsp) ()
                     "STS Rm,X0 incompatible with this architecture type.")
      (masque "0000NNNN.10001010" ;; sts X0,Rn
-             (n (gprix op1))))
+             (n (rix op1 :gp))))
     (:x1    (assert (matching-types :dsp) ()
                     "STS Rm,X1 incompatible with this architecture type.")
      (masque "0000NNNN.10011010" ;; sts X1,Rn
-             (n (gprix op1))))
+             (n (rix op1 :gp))))
     (:y0    (assert (matching-types :dsp) ()
                     "STS Rm,Y0 incompatible with this architecture type.")
      (masque "0000NNNN.10101010" ;; sts Y0,Rn
-             (n (gprix op1))))
+             (n (rix op1 :gp))))
     (:y1    (assert (matching-types :dsp) ()
                     "STS Rm,Y1 incompatible with this architecture type.")
      (masque "0000NNNN.10111010" ;; sts Y1,Rn
-             (n (gprix op1))))))
+             (n (rix op1 :gp))))))
 
 (specops-sh sts.l (op0 op1)
     ((:type-matcher matching-types)
@@ -2392,53 +2406,53 @@
     (:mach  (assert (matching-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a) ()
                     "STS.L @Rm+,MACH incompatible with this architecture type.")
      (masque "0100NNNN.00000010" ;; sts.l MACH,@-Rn
-             (n (gprix (mas-base op1)))))
+             (n (rix (mas-base op1) :gp))))
     (:macl  (assert (matching-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a) ()
                     "STS.L @Rm+,MACL incompatible with this architecture type.")
      (masque "0100NNNN.00010010" ;; sts.l MACL,@-Rn
-             (n (gprix (mas-base op1)))))
+             (n (rix (mas-base op1) :gp))))
     (:pr    (assert (matching-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a) ()
                     "STS.L @Rm+,PR incompatible with this architecture type.")
      (masque "0100NNNN.00100010" ;; sts.l PR,@-Rn
-             (n (gprix (mas-base op1)))))
+             (n (rix (mas-base op1) :gp))))
 
     ;; floating point instructions
 
     (:fpscr (assert (matching-types :sh2e :sh3e :sh4 :sh4a :sh2a) ()
                     "STS.L FPSCR,@-Rn incompatible with this architecture type.")
      (masque "0100NNNN.01100010" ;; sts.l FPSCR,@-Rn
-             (n (gprix (mas-base op1)))))
+             (n (rix (mas-base op1) :gp))))
     (:fpul  (assert (matching-types :sh2e :sh3e :sh4 :sh4a :sh2a) ()
                     "STS.L FPUL,@-Rn incompatible with this architecture type.")
      (masque "0100NNNN.01010010" ;; sts.l FPUL,@-Rn
-             (n (gprix (mas-base op1)))))
+             (n (rix (mas-base op1) :gp))))
 
     ;; DSP instructions
     
     (:dsr   (assert (matching-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a) ()
                     "STS.L @Rm+,DSR incompatible with this architecture type.")
      (masque "0100NNNN.01100010" ;; sts.l DSR,@-Rn
-             (n (gprix (mas-base op1)))))
+             (n (rix (mas-base op1) :gp))))
     (:a0    (assert (matching-types :dsp) ()
                     "STS.L @Rm+,A0 incompatible with this architecture type.")
      (masque "0100NNNN.01100010" ;; sts.l A0,@-Rn
-             (n (gprix (mas-base op1)))))
+             (n (rix (mas-base op1) :gp))))
     (:x0    (assert (matching-types :dsp) ()
                     "STS.L @Rm+,X0 incompatible with this architecture type.")
      (masque "0100NNNN.10000010" ;; sts.l X0,@-Rn
-             (n (gprix (mas-base op1)))))
+             (n (rix (mas-base op1) :gp))))
     (:x1    (assert (matching-types :dsp) ()
                     "STS.L @Rm+,X1 incompatible with this architecture type.")
      (masque "0100NNNN.10010010" ;; sts.l X1,@-Rn
-             (n (gprix (mas-base op1)))))
+             (n (rix (mas-base op1) :gp))))
     (:y0    (assert (matching-types :dsp) ()
                     "STS.L @Rm+,Y0 incompatible with this architecture type.")
      (masque "0100NNNN.10100010" ;; sts.l Y0,@-Rn
-             (n (gprix (mas-base op1)))))
+             (n (rix (mas-base op1) :gp))))
     (:y1    (assert (matching-types :dsp) ()
                     "STS.L @Rm+,Y1 incompatible with this architecture type.")
      (masque "0100NNNN.10110010" ;; sts.l Y1,@-Rn
-             (n (gprix (mas-base op1)))))))
+             (n (rix (mas-base op1) :gp))))))
 
 (readops-sh sts.mach (word read) ;; sts MACH,Rn
   (unmasque "0000NNNN.00001010" word (n)
@@ -2535,18 +2549,18 @@
      (:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
   (cond ((match-types op0 op1  fpr fpr)
          (masque "1111NNNN.MMMM1100" ;; fmov FRm,FRn
-                 (n (fprix op1)) (m (fprix op0))))
+                 (n (rix op1 :fp)) (m (rix op0 :fp))))
         ((matching-types :sh4 :sh4a :sh2a)
          (cond ((match-types op0 op1  dpr dpr)
                 (masque "1111NNN0.MMM01100" ;; fmov DRm,DRn
-                        (n (dprix op1)) (m (dprix op0))))))
+                        (n (rix op1 :dp)) (m (rix op0 :dp))))))
         ((matching-types :sh4 :sh4a)
          (cond ((match-types op0 op1  dpr xdr)
                 (masque "1111NNN1.MMM01100" ;; fmov DRm,XDn
-                        (n (xdrix op1)) (m (dprix op0))))
+                        (n (xdrix op1)) (m (rix op0 :dp))))
                ((match-types op0 op1  xdr dpr)
                 (masque "1111NNN0.MMM11100" ;; fmov XDm,DRn
-                        (n (dprix op1)) (m (xdrix op0))))
+                        (n (rix op1 :dp)) (m (xdrix op0))))
                ((match-types op0 op1  xdr xdr)
                 (masque "1111NNN1.MMM11100" ;; fmov XDm,XDn
                         (n (xdrix op1)) (m (xdrix op0))))))))
@@ -2557,31 +2571,31 @@
   (cond ((matching-types :sh2a)
          (cond ((match-types op0 op1  mas-bs+disp fpr)
                 (masque "0011NNNN.MMMM0001.0111DDDD.DDDDDDDD" ;; fmov.s @(disp12,Rm),FRn
-                        (n (gprix (mas-base op1))) (m (gprix op0)) (d (mas-displ op0))))
+                        (n (rix (mas-base op1) :gp)) (m (rix op0 :gp)) (d (mas-displ op0))))
                ((match-types op0 op1  fpr mas-bs+disp)
                 (masque "0011NNNN.MMMM0001.0011DDDD.DDDDDDDD" ;; fmov.s FRm,@(disp12,Rn)
-                        (n (gprix (mas-base op1))) (m (gprix op0)) (d (mas-displ op1))))))
+                        (n (rix (mas-base op1) :gp)) (m (rix op0 :gp)) (d (mas-displ op1))))))
         ((match-types op0 op1  mas-simple fpr)
          (masque "1111NNNN.MMMM1000" ;; fmov.s @Rm,FRn
-                 (n (fprix op1)) (m (gprix (mas-base op0)))))
+                 (n (rix op1 :fp)) (m (rix (mas-base op0) :gp))))
         ((match-types op0 op1  fpr mas-simple)
          (masque "1111NNNN.MMMM1010" ;; fmov.s FRm,@Rn
-                 (n (gprix (mas-base op1))) (m (fprix op0))))
+                 (n (rix (mas-base op1) :gp)) (m (rix op0 :fp))))
         ((match-types op0 op1  mas-postinc fpr)
          (masque "1111NNNN.MMMM1001" ;; fmov.s @Rm+,FRn
-                 (n (fprix op1)) (m (gprix (mas-base op0)))))
+                 (n (rix op1 :fp)) (m (rix (mas-base op0) :gp))))
         ((match-types op0 op1  fpr mas-simple)
          (masque "1111NNNN.MMMM1011" ;; fmov.s FRm,@-Rn
-                 (n (gprix (mas-base op1))) (m (fprix op0))))
+                 (n (rix (mas-base op1) :gp)) (m (rix op0 :fp))))
         ((match-types op0 op1  mas-b+rzero fpr)
          (masque "1111NNNN.MMMM0110" ;; fmov.s @(R0,Rm),FRn
-                 (n (fprix op1)) (m (gprix (mas-base op0)))))
+                 (n (rix op1 :fp)) (m (rix (mas-base op0) :gp))))
         ((match-types op0 op1  fpr mas-b+rzero)
          (masque "1111NNNN.MMMM0111" ;; fmov.s FRm,@(R0,Rn)
-                 (n (gprix (mas-base op1))) (m (fprix op0))))
+                 (n (rix (mas-base op1) :gp)) (m (rix op0 :fp))))
         ((match-types op0 op1  mas-b+rzero fpr)
          (masque "0011NNNN.MMMM0001.0111DDDD.DDDDDDDD" ;; fmov.s @(disp12,Rm),FRn
-                 (n (fprix op1)) (m (gprix (mas-base op0))) (d (mas-displ op0))))))
+                 (n (rix op1 :fp)) (m (rix (mas-base op0) :gp)) (d (mas-displ op0))))))
 
 (readops-sh fmov (word read) ;; fmov FRm,FRn
   (unmasque "1111NNNN.MMMM1100" word (n m)
@@ -2641,47 +2655,47 @@
   (cond ((matching-types :sh2a)
          (cond ((match-types op0 op1  mas-bs+disp dpr)
                 (masque "0011NNN0.MMMM0001.0111DDDD.DDDDDDDD" ;; fmov.d @(disp12,Rm),DRn
-                        (n (dprix op1)) (m (gprix (mas-base op0))) (d (mas-displ op0))))
+                        (n (rix op1 :dp)) (m (rix (mas-base op0) :gp)) (d (mas-displ op0))))
                ((match-types op0 op1  dpr mas-bs+disp)
                 (masque "0011NNNN.MMM00001.0011DDDD.DDDDDDDD" ;; fmov.d DRm,@(disp12,Rn)
-                        (n (gprix (mas-base op1))) (m (dprix op0)) (d (mas-displ op1))))))
+                        (n (rix (mas-base op1) :gp)) (m (rix op0 :dp)) (d (mas-displ op1))))))
         ((matching-types :sh4 :sh4a)
          (cond ((match-types op0 op1  mas-simple xdr)
                 (masque "1111NNN1.MMMM1000" ;; fmov.d @Rm,XDn
-                        (n (xdrix op1)) (m (gprix (mas-base op0)))))
+                        (n (xdrix op1)) (m (rix (mas-base op0) :gp))))
                ((match-types op0 op1  xdr mas-simple)
                 (masque "1111NNNN.MMM11010" ;; fmov.d XDm,@Rn
-                        (n (gprix (mas-base op1))) (m (xdrix op0))))
+                        (n (rix (mas-base op1) :gp)) (m (xdrix op0))))
                ((match-types op0 op1  mas-postinc xdr)
                 (masque "1111NNN1.MMMM1001" ;; fmov.d @Rm+,XDn
-                        (n (xdrix op1)) (m (gprix (mas-base op0)))))
+                        (n (xdrix op1)) (m (rix (mas-base op0) :gp))))
                ((match-types op0 op1  xdr mas-predecr)
                 (masque "1111NNNN.MMM11011" ;; fmov.d XDm,@-Rn
-                        (n (gprix (mas-base op1))) (m (xdrix op0))))
+                        (n (rix (mas-base op1) :gp)) (m (xdrix op0))))
                ((match-types op0 op1  mas-b+rzero xdr)
                 (masque "1111NNN1.MMMM0110" ;; fmov.d @(R0,Rm),XDn
-                        (n (xdrix op1)) (m (gprix (mas-base op0)))))
+                        (n (xdrix op1)) (m (rix (mas-base op0) :gp))))
                ((match-types op0 op1  xdr mas-b+rzero)
                 (masque "1111NNNN.MMM10111" ;; fmov.d XDm,@(R0,Rn)
-                        (n (gprix (mas-base op1))) (m (xdrix op0))))))
+                        (n (rix (mas-base op1) :gp)) (m (xdrix op0))))))
         ((match-types op0 op1  mas-simple dpr)
          (masque "1111NNN0.MMMM1000" ;; fmov.d @Rm,DRn
-                 (n (dprix op1)) (m (gprix (mas-base op0)))))
+                 (n (rix op1 :dp)) (m (rix (mas-base op0) :gp))))
         ((match-types op0 op1  dpr mas-simple)
          (masque "1111NNNN.MMM01010" ;; fmov.d DRm,@Rn
-                 (n (gprix (mas-base op1))) (m (dprix op0))))
+                 (n (rix (mas-base op1) :gp)) (m (rix op0 :dp))))
         ((match-types op0 op1  mas-postinc dpr)
          (masque "1111NNN0.MMMM1001" ;; fmov.d @Rm+,DRn
-                 (n (dprix op1)) (m (gprix (mas-base op0)))))
+                 (n (rix op1 :dp)) (m (rix (mas-base op0) :gp))))
         ((match-types op0 op1  dpr mas-predecr)
          (masque "1111NNNN.MMM01011" ;; fmov.d DRm,@-Rn
-                 (n (gprix (mas-base op1))) (m (dprix op0))))
+                 (n (rix (mas-base op1) :gp)) (m (rix op0 :dp))))
         ((match-types op0 op1  mas-b+rzero dpr)
          (masque "1111NNN0.MMMM0110" ;; fmov.d @(R0,Rm),DRn
-                 (n (dprix op1)) (m (gprix (mas-base op0)))))
+                 (n (rix op1 :dp)) (m (rix (mas-base op0) :gp))))
         ((match-types op0 op1  dpr mas-b+rzero)
          (masque "1111NNNN.MMM00111" ;; fmov.d DRm,@(R0,Rn)
-                 (n (gprix (mas-base op1))) (m (dprix op0))))))
+                 (n (rix (mas-base op1) :gp)) (m (rix op0 :dp))))))
 
 (readops-sh fmov.d (word read) ;; fmov.d @Rm,DRn
   (unmasque "1111NNN0.MMMM1000" word (n m)
@@ -2744,7 +2758,7 @@
 (specops-sh fldi0 (op0)
     ((:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
   (masque "1111NNNN.10001101" ;; fldi0 FRn
-          (n (fprix op0))))
+          (n (rix op0 :fp))))
 
 (readops-sh fldi0 (word read) ;; fldi0 FRn
   (unmasque "1111NNNN.10001101" word (n)
@@ -2753,7 +2767,7 @@
 (specops-sh fldi1 (op0)
     ((:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
   (masque "1111NNNN.10011101" ;; fldi1 FRn
-          (n (fprix op0))))
+          (n (rix op0 :fp))))
 
 (readops-sh fldi1 (word read) ;; fldi1 FRn
   (unmasque "1111NNNN.10011101" word (n)
@@ -2763,7 +2777,7 @@
     ((:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
   (if (eq op1 :fpul)
       (masque "1111MMMM.00011101" ;; flds FRm,FPUL
-              (m (fprix op0)))
+              (m (rix op0 :fp)))
       (error "FLDS can only load data from the FPUL register.")))
 
 (readops-sh flds (word read) ;; flds FRm,FPUL
@@ -2774,7 +2788,7 @@
     ((:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
   (if (eq op0 :fpul)
       (masque "1111NNNN.00001101" ;; fsts FPUL,FRn
-              (n (fprix op1)))
+              (n (rix op1 :fp)))
       (error "FSTS can only store data to the FPUL register.")))
 
 (readops-sh fsts (word read) ;; fsts FPUL,FRn
@@ -2784,7 +2798,7 @@
 (specops-sh fabs (op0)
     ((:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
   (masque "1111NNNN.01011101" ;; fabs FRn
-          (n (fprix op0))))
+          (n (rix op0 :fp))))
 
 (readops-sh fabs (word read) ;; fabs FRn
   (unmasque "1111NNNN.01011101" word (n)
@@ -2793,7 +2807,7 @@
 (specops-sh fneg (op0)
     ((:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
   (masque "1111NNNN.01001101" ;; fneg FRn
-          (n (fprix op0))))
+          (n (rix op0 :fp))))
 
 (readops-sh fneg (word read) ;; fneg FRn
   (unmasque "1111NNNN.01001101" word (n)
@@ -2802,7 +2816,7 @@
 (specops-sh fadd (op0 op1)
     ((:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
   (masque "1111NNNN.MMMM0000" ;; fadd FRm,FRn
-          (n (fprix op1)) (m (fprix op0))))
+          (n (rix op1 :fp)) (m (rix op0 :fp))))
 
 (readops-sh fadd (word read) ;; fadd FRm,FRn
   (unmasque "1111NNNN.MMMM0000" word (n m)
@@ -2811,7 +2825,7 @@
 (specops-sh fsub (op0 op1)
     ((:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
   (masque "1111NNNN.MMMM0001" ;; fsub FRm,FRn
-          (n (fprix op1)) (m (fprix op0))))
+          (n (rix op1 :fp)) (m (rix op0 :fp))))
 
 (readops-sh fsub (word read) ;; fsub FRm,FRn
   (unmasque "1111NNNN.MMMM0001" word (n m)
@@ -2820,7 +2834,7 @@
 (specops-sh fmul (op0 op1)
     ((:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
   (masque "1111NNNN.MMMM0010" ;; fmul FRm,FRn
-          (n (fprix op1)) (m (fprix op0))))
+          (n (rix op1 :fp)) (m (rix op0 :fp))))
 
 (readops-sh fmul (word read) ;; fmul FRm,FRn
   (unmasque "1111NNNN.MMMM0010" word (n m)
@@ -2829,7 +2843,7 @@
 (specops-sh fmac (op0 op1)
     ((:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
   (masque "1111NNNN.MMMM1110" ;; fmac FR0,FRm,FRn
-          (n (fprix op1)) (m (fprix op0))))
+          (n (rix op1 :fp)) (m (rix op0 :fp))))
 
 (readops-sh fmac (word read) ;; fmac FR0,FRm,FRn
   (unmasque "1111NNNN.MMMM1110" word (n m)
@@ -2838,7 +2852,7 @@
 (specops-sh fdiv (op0 op1)
     ((:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
   (masque "1111NNNN.MMMM0011" ;; fdiv FRm,FRn
-          (n (fprix op1)) (m (fprix op0))))
+          (n (rix op1 :fp)) (m (rix op0 :fp))))
 
 (readops-sh fdiv (word read) ;; fdiv FRm,FRn
   (unmasque "1111NNNN.MMMM0011" word (n m)
@@ -2847,7 +2861,7 @@
 (specops-sh fsqrt (op0)
     ((:for-types :sh3e :sh4 :sh4a :sh2a))
   (masque "1111NNNN.01101101" ;; fsqrt FRn
-          (n (fprix op0))))
+          (n (rix op0 :fp))))
 
 (readops-sh fsqrt (word read) ;; fsqrt FRn
   (unmasque "1111NNNN.01101101" word (n)
@@ -2856,7 +2870,7 @@
 (specops-sh fcmp/eq (op0 op1)
     ((:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
   (masque "1111NNNN.MMMM0100" ;; fcmp/eq FRm,FRn
-          (n (fprix op1)) (m (fprix op0))))
+          (n (rix op1 :fp)) (m (rix op0 :fp))))
 
 (readops-sh fcmp/eq (word read) ;; fcmp/eq FRm,FRn
   (unmasque "1111NNNN.MMMM0100" word (n m)
@@ -2865,7 +2879,7 @@
 (specops-sh fcmp/gt (op0 op1)
     ((:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
   (masque "1111NNNN.MMMM0101" ;; fcmp/gt FRm,FRn
-          (n (fprix op1)) (m (fprix op0))))
+          (n (rix op1 :fp)) (m (rix op0 :fp))))
 
 (readops-sh fcmp/gt (word read) ;; fcmp/gt FRm,FRn
   (unmasque "1111NNNN.MMMM0101" word (n m)
@@ -2875,7 +2889,7 @@
     ((:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
   (if (eq op0 :fpul)
       (masque "1111NNNN.00101101" ;; float FPUL,FRn
-              (n (fprix op1)))
+              (n (rix op1 :fp)))
       (error "FLOAT can only move a value to the FPUL register.")))
 
 (readops-sh float (word read)
@@ -2886,7 +2900,7 @@
     ((:for-types :sh2e :sh3e :sh4 :sh4a :sh2a))
   (if (eq op1 :fpul)
       (masque "1111MMMM.00111101" ;; ftrc FRm,FPUL
-              (m (fprix op0)))
+              (m (rix op0 :fp)))
       (error "FTRC can only move a value from the FPUL register."))))
          
 (readops-sh ftrc (word read) ;; ftrc FRm,FPUL
@@ -2926,7 +2940,7 @@
     ((:for-types :sh4a))
   (if (eq op0 :fpul)
       (masque "1111NNN0.11111101" ;; fsca FPUL,DRn
-              (n (dprix op1)))
+              (n (rix op1 :dp)))
       (error "FSCA's first operand may only be the FPUL register.")))
 
 (readops-sh fsca (word read) ;; fsca FPUL,DRn
@@ -3058,7 +3072,7 @@
   ((:for-types :sh4 :sh4a :sh2a))
   (if (eq op1 :fpul)
       (masque "1111MMM0.10111101" ;; fcnvds DRm,FPUL
-              (m (dprix op0)))
+              (m (rix op0 :dp)))
       (error "FCNVDS's second operand may only be the FPUL register.")))
 
 (readops-sh fcnvds (word read)
@@ -3069,7 +3083,7 @@
   ((:for-types :sh4 :sh4a :sh2a))
   (if (eq op0 :fpul)
       (masque "1111NNN0.10101101" ;; fcnvsd FPUL,DRn
-              (n (dprix op1)))
+              (n (rix op1 :dp)))
       (error "FCNVSD's first operand may only be the FPUL register.")))
 
 (readops-sh fcnvsd (word read) ;; fcnvsd FPUL,DRn
