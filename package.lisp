@@ -2,12 +2,12 @@
 
 (defpackage #:specops
   (:use #:cl)
-  (:export #:register
-           #:reg-name #:reg-index #:reg-type #:of-register-type-index
-           #:immediate #:make-immediate #:imm
+  (:export #:width-spec #:wspec-name #:wspec-bits
+           #:register #:reg-name #:reg-index #:reg-type #:of-register-type-index
+           #:immediate #:imm-value #:make-immediate #:imm
            #:memory-access-scheme
            #:mas-based #:mas-base #:mas-indexed #:mas-index #:mas-displaced #:mas-displ
-           #:mas-scaling-displaced #:mas-sdisp-scale
+           #:mas-scaling-displaced #:mas-sdisp-scale #:mas-absolute #:mas-addr
            #:assembler #:assembler-encoding #:assembler-masking
            #:asm-name #:asm-type #:asm-storage #:asm-lexicon
            #:asm-domains #:asm-reserve #:asm-breadth #:asm-joiner #:asm-exmodes
@@ -18,6 +18,6 @@
            #:storage-type-p #:specify-ops #:qualify-ops
            #:locate #:compose #:process-operands #:extend-clauses #:clause-processor #:label-delta
            #:assemble #:specops #:readops #:interpret
-           #:match-types #:to-tag
+           #:match-types #:to-tag #:determine-in-context #:complete-dforms
            ))
     

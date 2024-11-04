@@ -5,61 +5,6 @@
 (defvar *super-h-layout*)
 (defvar *assembler-prototype-super-h*)
 
-(defun rix (register &optional type)
-  (typecase register
-    (register (of-register-type-index register type))
-    (keyword  (if type (values (position register (getf *super-h-layout* type))
-                               type)
-                  (let ((position) (type-found))
-                    (loop :for (type-key names) :on *super-h-layout* :by #'cddr :until position
-                          :do (setf position   (position register names)
-                                    type-found type-key))
-                    (values position type-found))))))
-
-(defclass mas-super-h (mas-based mas-indexed mas-displaced)
-  ((%qualifier :accessor mas-super-h-qualifier
-               :initform nil
-               :initarg  :qualifier)))
-
-(defclass mas-super-h-postinc (mas-super-h)
-  ())
-
-(defclass mas-super-h-predecr (mas-super-h)
-  ())
-
-(defclass mas-super-h-bd (mas-super-h mas-displaced)
-  ())
-
-(defclass mas-super-h-pc (mas-displaced)
-  ())
-
-(defun @ (base)
-  (make-instance 'mas-super-h :base base))
-
-(defun @+ (base)
-  (make-instance 'mas-super-h :base base :qualifier :postinc))
-
-(defun -@ (base)
-  (make-instance 'mas-super-h :base base :qualifier :predecr))
-
-(defun @0 (index)
-  (make-instance 'mas-super-h :base :r0 :index index))
-
-(defun @> (base displacement)
-  (make-instance 'mas-super-h :base base :displ displacement))
-
-(defun @pc (displacement)
-  (make-instance 'mas-super-h :base :pc :displ displacement))
-
-(defun @gb (displacement)
-  (make-instance 'mas-super-h :base :gbr :displ displacement))
-
-(defun @gbr0 ()
-  (make-instance 'mas-super-h :base :gbr :index :r0))
-
-(defun @@tbr (displacement)
-  (make-instance 'mas-super-h :base :tbr :displ displacement :qualifier :x4))
-
 (setf *super-h-layout*
       (list :gp  '(:r0  :r1  :r2  :r3  :r4  :r5  :r6  :r7 :r8  :r9  :r10 :r11 :r12 :r13 :r14 :r15)
             :fp  '(:f0  :f1  :f2  :f3  :f4  :f5  :f6  :f7 :f8  :f9  :f10 :f11 :f12 :f13 :f14 :f15)
@@ -73,34 +18,16 @@
                     :fpul :xmtrx)
             :dspr '(:dsr :a0 :x0 :x1 :y0 :y1)))
 
-(defclass assembler-super-h (assembler-encoding assembler-masking)
-  ((%storage :accessor   asm-storage
-             :allocation :class
-             :initform   *super-h-layout*
-             :initarg    :storage)
-   (%lexicon :accessor   asm-lexicon
-             :allocation :class
-             :initform   (make-hash-table :test #'eq)
-             :initarg    :lexicon)
-   (%breadth :accessor   asm-msk-segment
-             :allocation :class
-             :initform   '(2)
-             :initarg    :breadth)
-   (%decoder :accessor   asm-enc-decoder
-             :allocation :class
-             :initform   (make-hash-table :test #'eq)
-             :initarg    :decoder)
-   (%battery :accessor   asm-msk-battery
-             :allocation :class
-             :initform   (make-hash-table :test #'eq)
-             :initarg    :battery)
-   (%domains :accessor   asm-domains
-             :initform   nil
-             :initarg    :domains)
-   (%joiner  :accessor   asm-joiner
-             :allocation :class
-             :initform   #'joinw
-             :initarg    :joiner)))
+(defun rix (register &optional type)
+  (typecase register
+    (register (of-register-type-index register type))
+    (keyword  (if type (values (position register (getf *super-h-layout* type))
+                               type)
+                  (let ((position) (type-found))
+                    (loop :for (type-key names) :on *super-h-layout* :by #'cddr :until position
+                          :do (setf position   (position register names)
+                                    type-found type-key))
+                    (values position type-found))))))
 
 (defun gprix (index)
   (position index (getf *super-h-layout* :gp)))
@@ -149,6 +76,50 @@
 (deftype dpr  () `(satisfies dpr-p))
 
 (deftype xdr  () `(satisfies xdr-p))
+
+(defclass mas-super-h (mas-based mas-indexed mas-displaced)
+  ((%qualifier :accessor mas-super-h-qualifier
+               :initform nil
+               :initarg  :qualifier)))
+
+(defclass mas-super-h-postinc (mas-super-h)
+  ())
+
+(defclass mas-super-h-predecr (mas-super-h)
+  ())
+
+(defclass mas-super-h-bd (mas-super-h mas-displaced)
+  ())
+
+(defclass mas-super-h-pc (mas-displaced)
+  ())
+
+(defun @ (base)
+  (make-instance 'mas-super-h :base base))
+
+(defun @+ (base)
+  (make-instance 'mas-super-h :base base :qualifier :postinc))
+
+(defun -@ (base)
+  (make-instance 'mas-super-h :base base :qualifier :predecr))
+
+(defun @0 (index)
+  (make-instance 'mas-super-h :base :r0 :index index))
+
+(defun @> (base displacement)
+  (make-instance 'mas-super-h :base base :displ displacement))
+
+(defun @pc (displacement)
+  (make-instance 'mas-super-h :base :pc :displ displacement))
+
+(defun @gb (displacement)
+  (make-instance 'mas-super-h :base :gbr :displ displacement))
+
+(defun @gbr0 ()
+  (make-instance 'mas-super-h :base :gbr :index :r0))
+
+(defun @@tbr (displacement)
+  (make-instance 'mas-super-h :base :tbr :displ displacement :qualifier :x4))
 
 (defun mas-simple-p  (item)
   (and (typep item 'mas-super-h)
@@ -237,6 +208,35 @@
 
 (defun lo16 (number)
   (logand number #xFFFF))
+
+(defclass assembler-super-h (assembler-encoding assembler-masking)
+  ((%storage :accessor   asm-storage
+             :allocation :class
+             :initform   *super-h-layout*
+             :initarg    :storage)
+   (%lexicon :accessor   asm-lexicon
+             :allocation :class
+             :initform   (make-hash-table :test #'eq)
+             :initarg    :lexicon)
+   (%breadth :accessor   asm-msk-segment
+             :allocation :class
+             :initform   '(2)
+             :initarg    :breadth)
+   (%decoder :accessor   asm-enc-decoder
+             :allocation :class
+             :initform   (make-hash-table :test #'eq)
+             :initarg    :decoder)
+   (%battery :accessor   asm-msk-battery
+             :allocation :class
+             :initform   (make-hash-table :test #'eq)
+             :initarg    :battery)
+   (%domains :accessor   asm-domains
+             :initform   nil
+             :initarg    :domains)
+   (%joiner  :accessor   asm-joiner
+             :allocation :class
+             :initform   #'joinw
+             :initarg    :joiner)))
 
 (setf *assembler-prototype-super-h* (make-instance 'assembler-super-h))
 

@@ -120,6 +120,7 @@
          (assignments (if (not params) assignments (rest assignments))))
     (multiple-value-bind (base segments symbols) (quantify-mask-string string params)
       ;; (print (list :ss segments symbols clauses params))
+      ;; (format t "~v,'0B~%" 16 (ash (1- (ash 1 length)) (nth index segments)))
 
       (let ((steps (loop :for assignment :in assignments
                          :collect (destructuring-bind (key value) assignment
@@ -128,7 +129,6 @@
                                       (when (not index)
                                         (error "Symbol ~a not found in mask ~a." key string))
                                       (let ((length (- (nth (1+ index) segments) (nth index segments))))
-                                        ;; (format t "~v,'0B~%" 16 (ash (1- (ash 1 length)) (nth index segments)))
                                         `(incf ,base-sym (ash (logand ,value ,(1- (ash 1 length)))
                                                               ,(nth index segments)))))))))
         (if (not steps)
@@ -185,6 +185,21 @@
                                                                         `(intern (string ,item) "KEYWORD")
                                                                         `(quote ,item))))))))))))))
 
+(defclass width-spec ()
+  ((%name :accessor wspec-name
+          :initform nil
+          :initarg  :name
+          :documentation "The spec's name.")
+   (%type :accessor wspec-bits
+          :initform nil
+          :initarg  :type
+          :documentation "The spec's width in bits."))
+  (:documentation "Generic class for width specs."))
+
+(defmethod wspec-name ((name symbol))
+  "For width specs modeled using symbols, (reg-name) simply returns the symbol."
+  name)
+
 (defclass register ()
   ((%name  :accessor reg-name
            :initform nil
@@ -200,6 +215,10 @@
            :documentation "The register's index."))
   (:documentation "Generic class for registers."))
 
+(defmethod reg-name ((register symbol))
+  "For registers modeled using symbols, (reg-name) simply returns the symbol."
+  register)
+  
 (defgeneric of-register-type-index (register &optional type)
   (:documentation "Get a register's index."))
 
@@ -208,10 +227,10 @@
       (values (reg-index register) (or type (reg-type register)))))
 
 (defclass immediate ()
-  ((%value  :accessor imm-value
-            :initform nil
-            :initarg  :name
-            :documentation "The actual value.")
+  ((%value :accessor imm-value
+           :initform nil
+           :initarg  :name
+           :documentation "The actual value.")
    (%type  :accessor imm-type
            :initform nil
            :initarg  :type
@@ -221,6 +240,10 @@
            :initarg  :width
            :documentation "The value's width in bits."))
   (:documentation "Base class for immediate-values."))
+
+(defmethod imm-value ((value number))
+  "For immediates modeled as plain numbers, (imm-value) simply returns the number."
+  value)
 
 (defgeneric make-immediate (value &optional type width)
   (:documentation "Fucntion to create an immediate value."))
@@ -241,7 +264,8 @@
 (defmethod imm ((value integer) &rest type)
   (if (not type) value))
 
-(defmethod imm ((value immediate) &rest type))
+(defmethod imm ((value immediate) &rest type)
+  (imm-value value))
 
 (defclass memory-access-scheme ()
   () (:documentation "Base class for memory access schemes."))
@@ -269,6 +293,12 @@
            :initform nil
            :initarg  :scale))
   (:documentation "A class encompassing memory access schemes with a displacement value that may be scaled; i.e. multiplied by a power of two."))
+
+(defclass mas-absolute (memory-access-scheme)
+  ((%addr :accessor mas-addr
+          :initform nil
+          :initarg  :addr))
+  (:documentation "A class encompassing memory access schemes referencing an absolute address."))
 
 (defclass assembler ()
   ((%name    :accessor   asm-name
@@ -579,6 +609,87 @@
 ;;     (if (numberp symbol)
 ;;         `(of-decoder *assembler-prototype-m68k* ,symbol ,function)
 ;;         `(of-battery *assembler-prototype-m68k* ,(intern (string symbol) "KEYWORD") ,function))))
+
+(defun qualify-operand (operand type)
+  type)
+
+(defun derive-operand (operand type)
+  operand)
+
+(defun verbalize-operand (spec)
+  (format nil "~a~%" spec))
+
+(defmacro determine (mnemonic &rest specs)
+  `(determine-in-context ,(list :qualify #'qualify-operand :verbalize #'verbalize-operand
+                                :derive #'derive-operand)
+                         ,mnemonic ,@specs))
+
+(defun complete-dforms (msym dsym form)
+  (typecase form
+    (atom form)
+    (list (if (not (eql dsym (first form)))
+              (loop :for item :in form :collect (complete-dforms msym dsym item))
+              (append (list dsym msym)
+                      (loop :for item :in (rest form)
+                            :collect (complete-dforms msym dsym item)))))))
+                           
+
+(defmacro determine-in-context (utils mnemonic specs &optional bindings &rest body)
+  (destructuring-bind (&key qualify derive verbalize &allow-other-keys) utils
+    (labels ((process-level (body bindings specs)
+               (if (not bindings)
+                   body (if (not (listp (first bindings)))
+                            (process-level body (rest bindings) (rest specs))
+                            `((multiple-value-bind ,(first bindings)
+                                  ,(funcall derive (caar specs) (cadar specs))
+                                ,@(process-level body (rest bindings) (rest specs))))))))
+      (let* ((mnem-length (length (string mnemonic)))
+             (op-strings (loop :for spec :in specs :collect (string (first spec))))
+             (op-max-length (reduce #'max (loop :for string :in op-strings :collect (length string)))))
+        `(if ,(cons 'and (loop :for spec :in specs
+                               :collect (destructuring-bind (operand &rest types) spec
+                                          (cons 'or (loop :for type :in types
+                                                          :collect (funcall qualify operand type))))))
+             ,(if body `(let ,(if bindings (loop :for b :in bindings :for s :in specs
+                                                 :when (and b (symbolp b))
+                                                   :collect (list b (funcall derive (first s)
+                                                                             (second s)))))
+                         ,@(process-level body bindings specs)))
+             (error ,(apply #'concatenate 'string
+                            (format nil "Invalid operand(s) for instruction ~a. Format: ~%" mnemonic)
+                            (format nil "~a ~v,a - ~a" mnemonic op-max-length (caar specs)
+                                    (funcall verbalize (cadar specs)))
+                            (append (loop :for sub-spec :in (cddar specs)
+                                          :collect (or (format nil "~v,a ~a" (+ mnem-length 3 op-max-length)
+                                                               #\  (funcall verbalize sub-spec))
+                                                       ""))
+                                    (loop :for spec :in (rest specs)
+                                          :append (append (list (format nil "~v,a ~a - ~a"
+                                                                        mnem-length #\ (first spec)
+                                                                        (funcall verbalize (cadr spec))))
+                                                          (loop :for sub-spec :in (cddr spec)
+                                                                :collect (format
+                                                                          nil "~v,a ~a"
+                                                                          (+ mnem-length 3 op-max-length)
+                                                                          #\ (funcall verbalize sub-spec)))
+                                                        ))))))))))
+
+#|
+
+(determine andi ((op0 gpr (adr)) (op1 (imm 16)))
+          (en0 (en1 en2)))
+
+(IF (AND (OR GPR (ADR)) (OR (IMM 16)))
+    NIL
+    (ERROR "
+ANDI OP0 - GPR
+           (ADR)
+     OP1 -      (IMM 16)
+"))
+
+
+
+|#
 
 (defparameter *default-segment* 1000)
 

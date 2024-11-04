@@ -10,7 +10,8 @@
 ;;                          params)))
 
 (defmacro specop (symbol operands &body params)
-  (cons 'specops (append (list symbol operands '*assembler-prototype-m68k*) params)))
+  (cons 'specops (append (list symbol operands '*assembler-prototype-m68k*)
+                         (complete-dforms symbol 'determine params))))
 
 ;; (defmacro specop (symbol operands &body params)
 ;;   (specify-ops *assembler-prototype-m68k* '*assembler-prototype-m68k* symbol operands params))

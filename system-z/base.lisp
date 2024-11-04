@@ -7,20 +7,32 @@
 ;; offered to support greater clarity in expressing code
 
 (defvar *z-layout*
-  (list :gpr '(:r0  :r1  :r2  :r3  :r3  :r5  :r6  :r7  :r8  :r9  :r10 :r11 :r12 :r13 :r14 :r15)
-        :vcr '(:v0  :v1  :v2  :v3  :v4  :v5  :v6  :v7  :v8  :v9  :v10 :v11 :v12 :v13 :v14 :v15
-               :v16 :v17 :v18 :v19 :v20 :v21 :v22 :v23 :v24 :v25 :v26 :v27 :v28 :v29 :v30 :v31)))
+  (list :gp '(:r0  :r1  :r2  :r3  :r3  :r5  :r6  :r7  :r8  :r9  :r10 :r11 :r12 :r13 :r14 :r15)
+        :vc '(:v0  :v1  :v2  :v3  :v4  :v5  :v6  :v7  :v8  :v9  :v10 :v11 :v12 :v13 :v14 :v15
+              :v16 :v17 :v18 :v19 :v20 :v21 :v22 :v23 :v24 :v25 :v26 :v27 :v28 :v29 :v30 :v31)))
+
+(defun rix (register &optional type)
+  (typecase register
+    (register (of-register-type-index register type))
+    (integer (if (<= 0 register (1- (length (getf *z-layout* type)))) item nil))
+    (keyword  (if type (values (position register (getf *z-layout* type))
+                               type)
+                  (let ((position) (type-found))
+                    (loop :for (type-key names) :on *z-layout* :by #'cddr :until position
+                          :do (setf position   (position register names)
+                                    type-found type-key))
+                    (values position type-found))))))
 
 (defun gprix (item)
   "Return a register index given a valid symbol or numeric index."
   (if (integerp item)
-      (if (<= 0 item (1- (length (getf *z-layout* :gpr)))) item nil)
-      (if (keywordp item) (position item (getf *z-layout* :gpr)))))
+      (if (<= 0 item (1- (length (getf *z-layout* :gp)))) item nil)
+      (if (keywordp item) (position item (getf *z-layout* :gp)))))
 
 (defun vcrix (item)
   (if (integerp item)
-      (if (<= 0 item (1- (length (getf *z-layout* :vcr)))) item nil)
-      (if (keywordp item) (position item (getf *z-layout* :vcr)))))
+      (if (<= 0 item (1- (length (getf *z-layout* :vc)))) item nil)
+      (if (keywordp item) (position item (getf *z-layout* :vc)))))
 
 (defclass mas-z (mas-based mas-indexed mas-displaced)
   ())
@@ -84,8 +96,16 @@
   (if (zerop (mas-ranged-z-length mas))
       0 (1- (mas-ranged-z-length mas))))
 
-(defun z-vcr-loix (index)
-  (logand #xF index))
+(defun z-vcr-loix (register)
+  (logand #xF (rix register :vc)))
+
+(defun vrmsbits (v1 &optional v2 v3 v4)
+  "Get most significant bits from indices of vector registers passed as operands to a vector instruction. Used to populate the RXB fields of vector instruction codes."
+  (let ((iv1 (rix v1 :vc)) (iv2 (rix v2 :vc)) (iv3 (rix v3 :vc)) (iv4 (rix v4 :vc)))
+    (+ (if iv1 (ash (logand #b10000 iv1) -1) 0)
+       (if iv2 (ash (logand #b10000 iv2) -2) 0)
+       (if iv3 (ash (logand #b10000 iv3) -3) 0)
+       (if iv4 (ash (logand #b10000 iv4) -4) 0))))
 
 (defun add-longdisp (hi4 lo12)
   (+ lo12 (ash hi4 12)))
@@ -141,14 +161,6 @@
 ;;      (if v2 (ash (logand #b10000 (gprix v2)) -2) 0)
 ;;      (if v3 (ash (logand #b10000 (gprix v3)) -3) 0)
 ;;      (if v4 (ash (logand #b10000 (gprix v4)) -4) 0)))
-
-(defun vrmsbits (v1 &optional v2 v3 v4)
-  "Get most significant bits from indices of vector registers passed as operands to a vector instruction. Used to populate the RXB fields of vector instruction codes."
-  (let ((iv1 (vcrix v1)) (iv2 (vcrix v2)) (iv3 (vcrix v3)) (iv4 (vcrix v4)))
-    (+ (if iv1 (ash (logand #b10000 iv1) -1) 0)
-       (if iv2 (ash (logand #b10000 iv2) -2) 0)
-       (if iv3 (ash (logand #b10000 iv3) -3) 0)
-       (if iv4 (ash (logand #b10000 iv4) -4) 0))))
 
 (defmacro specop-z (mnemonic format opcode)
   (destructuring-bind (assemble-fn &optional disassemble-fn) (macroexpand (list format opcode mnemonic))
@@ -209,13 +221,13 @@
 (mqbase zformat-ri-a opc mne (r1 i2)
     "AAAAAAAA.RRRRZZZZ.IIIIIIII.IIIIIIII"
   ((:static (a (rs4 opc)) (z (lo4 opc))))
-  ((r (gprix r1)) (i i2))
+  ((r (rix r1 :gp)) (i i2))
   (list mne r i))
 
 (mqbase zformat-ri-b opc mne (r1 ri2)
     "AAAAAAAA.RRRRZZZZ.IIIIIIII.IIIIIIII"
   ((:static (a (rs4 opc)) (z (lo4 opc))))
-  ((r (gprix r1)) (i (of-program :label 16 16 ri2)))
+  ((r (rix r1 :gp)) (i (of-program :label 16 16 ri2)))
   (list mne r i))
 
 (mqbase zformat-ri-c opc mne (m1 ri2)
@@ -227,55 +239,55 @@
 (mqbase zformat-rie-a opc mne (r1 i2 m3)
     "AAAAAAAA.RRRR0000.IIIIIIII.IIIIIIII.MMMM0000.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (gprix r1)) (i i2) (m m3))
+  ((r (rix r1 :gp)) (i i2) (m m3))
   (list mne r i m))
 
 (mqbase zformat-rie-b opc mne (r1 r2 m3 ri4)
     "AAAAAAAA.RRRRSSSS.IIIIIIII.IIIIIIII.MMMM0000.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (gprix r1)) (s (gprix r2)) (i (of-program :label 16 16 ri4)) (m m3))
+  ((r (rix r1 :gp)) (s (gprix r2)) (i (of-program :label 16 16 ri4)) (m m3))
   (list mne r s m i))
 
 (mqbase zformat-rie-c opc mne (r1 i2 m3 ri4)
     "AAAAAAAA.RRRRMMMM.IIIIIIII.IIIIIIII.JJJJJJJJ.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (gprix r1)) (m m3) (i (of-program :label 16 16 ri4)) (j i2))
+  ((r (rix r1 :gp)) (m m3) (i (of-program :label 16 16 ri4)) (j i2))
   (list mne r j m i))
 
 (mqbase zformat-rie-d opc mne (r1 i2 r3)
     "AAAAAAAA.RRRRSSSS.IIIIIIII.IIIIIIII.00000000.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (gprix r1)) (s (gprix r3)) (i i2))
+  ((r (rix r1 :gp)) (s (gprix r3)) (i i2))
   (list mne r i s))
 
 (mqbase zformat-rie-e opc mne (r1 ri2 r3)
     "AAAAAAAA.RRRRSSSS.IIIIIIII.IIIIIIII.00000000.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (gprix r1)) (s (gprix r3)) (i (of-program :label 16 16 ri2)))
+  ((r (rix r1 :gp)) (s (gprix r3)) (i (of-program :label 16 16 ri2)))
   (list mne r i s))
 
 (mqbase zformat-rie-f opc mne (r1 r2 i3 i4 i5)
     "AAAAAAAA.RRRRSSSS.IIIIIIII.JJJJJJJJ.KKKKKKKK.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (gprix r1)) (s (gprix r2)) (i i3) (j i4) (k i5))
+  ((r (rix r1 :gp)) (s (gprix r2)) (i i3) (j i4) (k i5))
   (list mne r s i j k))
 
 (mqbase zformat-rie-g opc mne (r1 i2 m3)
     "AAAAAAAA.RRRRMMMM.IIIIIIII.IIIIIIII.00000000.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (gprix r1)) (m m3) (i i2))
+  ((r (rix r1 :gp)) (m m3) (i i2))
   (list mne r i m))
 
 (mqbase zformat-ril-a opc mne (r1 i2)
     "AAAAAAAA.RRRRZZZZ.IIIIIIII.IIIIIIII.IIIIIIII.IIIIIIII"
   ((:static (a (rs4 opc)) (z (lo4 opc))))
-  ((r (gprix r1)) (i i2))
+  ((r (rix r1 :gp)) (i i2))
   (list mne r i))
 
 (mqbase zformat-ril-b opc mne (r1 ri2)
     "AAAAAAAA.RRRRZZZZ.IIIIIIII.IIIIIIII.IIIIIIII.IIIIIIII"
   ((:static (a (rs4 opc)) (z (lo4 opc))))
-  ((r (gprix r1)) (i (of-program :label 16 32 ri2)))
+  ((r (rix r1 :gp)) (i (of-program :label 16 32 ri2)))
   (list mne r i))
 
 (mqbase zformat-ril-c opc mne (m1 ri2)
@@ -287,19 +299,19 @@
 (mqbase zformat-ris opc mne (r1 i2 m3 bd4)
     "AAAAAAAA.RRRRMMMM.BBBBDDDD.DDDDDDDD.IIIIIIII.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (gprix r1)) (m m3) (b (mas-base bd4)) (d (mas-displ bd4)) (i i2))
+  ((r (rix r1 :gp)) (m m3) (b (mas-base bd4)) (d (mas-displ bd4)) (i i2))
   (list mne r i m (derive-mas b nil d)))
 
 (mqbase zformat-rr opc mne (r1 r2)
     "AAAAAAAA.RRRRSSSS"
   ((:static (a opc)))
-  ((r (gprix r1)) (s (gprix r2)))
+  ((r (rix r1 :gp)) (s (gprix r2)))
   (list mne r s))
 
 (mqbase zformat-rrd opc mne (r1 r2 r3)
     "AAAAAAAA.AAAAAAAA.QQQQ0000.RRRRSSSS"
   ((:static (a opc)))
-  ((q (gprix r1)) (r (gprix r2)) (s (gprix r3)))
+  ((q (rix r1 :gp)) (r (gprix r2)) (s (gprix r3)))
   (list mne q r s))
 
 (mqbase zformat-rre opc mne (&optional r1 r2)
@@ -311,55 +323,55 @@
 (mqbase zformat-rrf-a opc mne (r1 r2 r3 &optional m4)
     "AAAAAAAA.AAAAAAAA.QQQQMMMM.RRRRSSSS"
   ((:static (a opc)))
-  ((q (gprix r3)) (m m4) (r (gprix r1)) (s (gprix r2)))
+  ((q (gprix r3)) (m m4) (r (rix r1 :gp)) (s (gprix r2)))
   (list mne r s q m))
 
 (mqbase zformat-rrf-b opc mne (r1 r2 r3 &optional m4)
     "AAAAAAAA.AAAAAAAA.QQQQMMMM.RRRRSSSS"
   ((:static (a opc)))
-  ((q (gprix r3)) (m (or m4 0)) (r (gprix r1)) (s (gprix r2)))
+  ((q (gprix r3)) (m (or m4 0)) (r (rix r1 :gp)) (s (gprix r2)))
   (list mne r s q m))
 
 (mqbase zformat-rrf-c opc mne (r1 r2 &optional m3 m4)
     "AAAAAAAA.AAAAAAAA.MMMMNNNN.RRRRSSSS"
   ((:static (a opc)))
-  ((m (or m3 0)) (n (or m4 0)) (r (gprix r1)) (s (gprix r2)))
+  ((m (or m3 0)) (n (or m4 0)) (r (rix r1 :gp)) (s (gprix r2)))
   (list mne r s m n))
 
 (mqbase zformat-rrf-d opc mne (r1 r2 &optional m3 m4)
     "AAAAAAAA.AAAAAAAA.MMMMNNNN.RRRRSSSS"
   ((:static (a opc)))
-  ((m (or m3 0)) (n (or m4 0)) (r (gprix r1)) (s (gprix r2)))
+  ((m (or m3 0)) (n (or m4 0)) (r (rix r1 :gp)) (s (gprix r2)))
   (list mne r s m n))
 
 (mqbase zformat-rrf-e opc mne (r1 r2 &optional m3 m4)
     "AAAAAAAA.AAAAAAAA.MMMMNNNN.RRRRSSSS"
   ((:static (a opc)))
-  ((m (or m3 0)) (n (or m4 0)) (r (gprix r1)) (s (gprix r2)))
+  ((m (or m3 0)) (n (or m4 0)) (r (rix r1 :gp)) (s (gprix r2)))
   (list mne r s m n))
 
 (mqbase zformat-rrs opc mne (r1 r2 m3 bd4)
     "AAAAAAAA.RRRRSSSS.BBBBDDDD.DDDDDDDD.MMMM0000.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (gprix r1)) (s (gprix r2)) (b (mas-base bd4)) (d (mas-displ bd4)) (m m3))
+  ((r (rix r1 :gp)) (s (gprix r2)) (b (mas-base bd4)) (d (mas-displ bd4)) (m m3))
   (list mne r s m (derive-mas b nil d)))
 
 (mqbase zformat-rs-a opc mne (r1 bd2 &optional r3)
     "AAAAAAAA.RRRRSSSS.BBBBDDDD.DDDDDDDD"
   ((:static (a opc)))
-  ((r (gprix r1)) (s (gprix (or r3 0))) (b (mas-base bd2)) (d (mas-displ bd2)))
+  ((r (rix r1 :gp)) (s (gprix (or r3 0))) (b (mas-base bd2)) (d (mas-displ bd2)))
   (list mne r (derive-mas b nil d) s))
 
 (mqbase zformat-rs-b opc mne (r1 bd2 m3)
     "AAAAAAAA.RRRRMMMM.BBBBDDDD.DDDDDDDD"
   ((:static (a opc)))
-  ((r (gprix r1)) (m m3) (b (mas-base bd2)) (d (mas-displ bd2)))
+  ((r (rix r1 :gp)) (m m3) (b (mas-base bd2)) (d (mas-displ bd2)))
   (list mne r (derive-mas b nil d) m))
 
 (mqbase zformat-rsi opc mne (r1 ri2 r3)
     "AAAAAAAA.RRRRSSSS.IIIIIIII.IIIIIIII"
   ((:static (a opc)))
-  ((r (gprix r1)) (s (gprix r3)) (i (of-program :label 16 16 ri2)))
+  ((r (rix r1 :gp)) (s (gprix r3)) (i (of-program :label 16 16 ri2)))
   (list mne r i s))
 
 (mqbase zformat-rsl-a opc mne (bld1)
@@ -377,20 +389,20 @@
 (mqbase zformat-rsy-a opc mne (r1 bdd2 r3)
     "AAAAAAAA.RRRRSSSS.BBBBDDDD.DDDDDDDD.HHHHHHHH.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (gprix r1)) (s (gprix r3))
+  ((r (rix r1 :gp)) (s (gprix r3))
    (b (mas-base bdd2)) (d (z-masd-lo12 bdd2)) (h (z-masd-rs12 bdd2)))
   (list mne r (derive-mas b nil (add-longdisp h d)) s))
 
 (mqbase zformat-rsy-b opc mne (r1 bdd2 m3)
     "AAAAAAAA.RRRRMMMM.BBBBDDDD.DDDDDDDD.HHHHHHHH.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (gprix r1)) (m m3) (b (mas-base bdd2)) (d (z-masd-lo12 bdd2)) (h (z-masd-rs12 bdd2)))
+  ((r (rix r1 :gp)) (m m3) (b (mas-base bdd2)) (d (z-masd-lo12 bdd2)) (h (z-masd-rs12 bdd2)))
   (list mne r (derive-mas b nil (add-longdisp h d)) m))
 
 (mqbase zformat-rx-a opc mne (r1 bdx2)
     "AAAAAAAA.RRRRXXXX.BBBBDDDD.DDDDDDDD"
   ((:static (a opc)))
-  ((r (gprix r1)) (x (mas-index bdx2)) (b (mas-base bdx2)) (d (mas-displ bdx2)))
+  ((r (rix r1 :gp)) (x (mas-index bdx2)) (b (mas-base bdx2)) (d (mas-displ bdx2)))
   (list mne r (derive-mas b x d)))
 
 (mqbase zformat-rx-b opc mne (m1 bdx2)
@@ -402,7 +414,7 @@
 (mqbase zformat-rxe opc mne (r1 bdx2 &optional m3)
     "AAAAAAAA.RRRRXXXX.BBBBDDDD.DDDDDDDD.MMMM0000.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (gprix r1)) (x (mas-index bdx2)) (b (mas-base bdx2)) (d (mas-displ bdx2)) (m (or m3 0)))
+  ((r (rix r1 :gp)) (x (mas-index bdx2)) (b (mas-base bdx2)) (d (mas-displ bdx2)) (m (or m3 0)))
   (list mne r (derive-mas b x d) m))
 
 (mqbase zformat-rxf opc mne (r1 bdx2 r3)
@@ -410,13 +422,13 @@
   ((:static (a (rs8 opc)) (z (lo8 opc))))
   ((r (gprix r3))
    (x (mas-index bdx2)) (b (mas-base bdx2)) (d (mas-displ bdx2))
-   (s (gprix r1)))
+   (s (rix r1 :gp)))
   (list mne r (derive-mas b x d) s))
 
 (mqbase zformat-rxy-a opc mne (r1 bddx2)
     "AAAAAAAA.RRRRXXXX.BBBBDDDD.DDDDDDDD.HHHHHHHH.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (gprix r1)) (x (mas-index bddx2))
+  ((r (rix r1 :gp)) (x (mas-index bddx2))
    (b (mas-base bddx2)) (d (z-masd-lo12 bddx2)) (h (z-masd-rs12 bddx2)))
   (list mne r (derive-mas b x (add-longdisp h d))))
 
@@ -481,14 +493,14 @@
 (mqbase zformat-ss-d opc mne (r1 bd2 bd3 r4)
     "AAAAAAAA.RRRRSSSS.BBBBDDDD.DDDDDDDD.EEEEFFFF.FFFFFFFF"
   ((:static (a opc))) ;; ?? how does this work ??
-  ((r (gprix r1)) (s r4)
+  ((r (rix r1 :gp)) (s r4)
    (b (mas-base bd2)) (d (mas-displ bd2)) (e (mas-base bd3)) (f (mas-displ bd3)))
   (list mne r (derive-mas b nil d) (derive-mas e nil f) s))
 
 (mqbase zformat-ss-e opc mne (r1 bd2 r3 bd4)
     "AAAAAAAA.RRRRSSSS.BBBBDDDD.DDDDDDDD.EEEEFFFF.FFFFFFFF"
   ((:static (a opc)))
-  ((r (gprix r1)) (s (gprix r3))
+  ((r (rix r1 :gp)) (s (gprix r3))
    (b (mas-base bd2)) (d (mas-displ bd2)) (e (mas-base bd4)) (f (mas-displ bd4)))
   (list mne r (derive-mas b nil d) s (derive-mas e nil f)))
 
@@ -627,7 +639,7 @@
 (mqbase zformat-vrr-i opc mne (r1 v2 m3 &optional m4)
     "AAAAAAAA.RRRRVVVV.00000000.MMMMNNNN.0000YYYY.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (gprix r1)) (v (z-vcr-loix v2)) (m m3) (n (or m4 0)) (y (vrmsbits nil v2)))
+  ((r (rix r1 :gp)) (v (z-vcr-loix v2)) (m m3) (n (or m4 0)) (y (vrmsbits nil v2)))
   (list mne r (derive-vra 1 v y) m n))
 
 (mqbase zformat-vrs-a opc mne (v1 bd2 v3 &optional m4)
@@ -647,7 +659,7 @@
 (mqbase zformat-vrs-c opc mne (r1 bd2 v3 m4)
     "AAAAAAAA.RRRRVVVV.BBBBDDDD.DDDDDDDD.MMMMYYYY.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (gprix r1)) (v (z-vcr-loix v3)) (b (mas-base bd2)) (d (mas-displ bd2))
+  ((r (rix r1 :gp)) (v (z-vcr-loix v3)) (b (mas-base bd2)) (d (mas-displ bd2))
    (m m4) (y (vrmsbits nil nil v3)))
   (list mne r (derive-mas b nil d) (derive-vra 2 v y) m))
 

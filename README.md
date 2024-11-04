@@ -122,7 +122,7 @@ An architecture like M68K is relatively simple to assemble for, but X86 requires
   ((sz? rex #x83 modz0 sib0      op1 ) ((:w :q) (:gxm   ) (:imm  8)))
   ((sz? rex #x81 modz0 sib0 (w 2 op1)) ((:w :w) (:gxm   ) (:imm 16)))
   ((sz? rex #x81 modz0 sib0 (w 4 op1)) ((:w :d) (:gxm   ) (:imm 32)))
-  ((sz? rex #x81 modz0 sib0 (w 4 op1)) ((:w :q) (:gxm   ) (:imm 64)))
+  ((sz? rex #x81 modz0 sib0 (w 4 op1)) ((:w :q) (:gxm   ) (:imm 32)))
   ((sz? rex #x00 mod10 sib0          ) ((:w :b) (:gxm   ) (:gpr   )))
   ((sz? rex #x01 mod10 sib0          ) ((:w :w) (:gxm   ) (:gpr   )))
   ((sz? rex #x01 mod10 sib0          ) ((:w :d) (:gxm   ) (:gpr   )))
