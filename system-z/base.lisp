@@ -194,6 +194,8 @@
 
 ;; IBM's docs count the operands from 1 and these functions do the same
 
+;; (determine ((w width) (op0 gpr (mas mas-simple)) (op1 gpr (mas mas-simple)))
+
 (mqbase zformat-e opc mne ()
     "AAAAAAAA"
   ((:static (a opc)))

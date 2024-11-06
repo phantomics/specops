@@ -302,7 +302,6 @@
   (unmasque "11000010.DDDDDDDD" word (d)
     (list :mov :l :r0 (list '@0 d))))
 
-
 (readops-sh mov.b.r-d12 (word read) ;; mov.b Rm,@(disp12,Rn)
   (unmasque "0011NNNN.MMMM0001.0000DDDD.DDDDDDDD" word (n m d)
     (list :mov :b (drv-gpr m) (list '@> (drv-gpr n) d))))

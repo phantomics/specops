@@ -215,6 +215,11 @@
            :documentation "The register's index."))
   (:documentation "Generic class for registers."))
 
+(defmethod reg-name ((register t))
+  "Objects not recognized as registers return nil for a register name check."
+  (declare (ignore register))
+  nil)
+
 (defmethod reg-name ((register symbol))
   "For registers modeled using symbols, (reg-name) simply returns the symbol."
   register)
@@ -240,6 +245,11 @@
            :initarg  :width
            :documentation "The value's width in bits."))
   (:documentation "Base class for immediate-values."))
+
+(defmethod imm-value ((value t))
+  "Immediates not recognised as a number return nil when their value is checked."
+  (declare (ignore value))
+  nil)
 
 (defmethod imm-value ((value number))
   "For immediates modeled as plain numbers, (imm-value) simply returns the number."

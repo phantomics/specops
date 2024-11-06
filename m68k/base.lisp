@@ -57,7 +57,7 @@
   (and (typep item 'mas-m68k)
        (mas-displ item) (adr-p (mas-base item))))
 
-(defun mas-i+disp-p (item)
+(defun mas-bi+disp-p (item)
   (and (typep item 'mas-m68k)
        (mas-displ item) (adr-p (mas-base item)) (adr-p (mas-index item))))
 
@@ -88,7 +88,7 @@
 
 (deftype mas-disp     () `(satisfies mas-disp-p))
 
-(deftype mas-i+disp   () `(satisfies mas-i+disp-p))
+(deftype mas-bi+disp   () `(satisfies mas-bi+disp-p))
 
 (deftype mas-pc+disp  () `(satisfies mas-pc+disp-p))
 
@@ -119,12 +119,6 @@
 (defun @= (addr)
   (make-instance 'mas-m68k-addr :addr addr))
 
-(defun encode-extension-word (width access)
-  (if (or (typep access 'mas-i+disp) (typep access 'mas-pci+disp))
-      (masque "MXXXS000.DDDDDDDD"
-              (m 0) (x (rix (mas-index access) :ad))
-              (s (case width (:w 0) (:l 1) (t 0))) (d (mas-displ access)))))
-
 (defun encode-location (location)
   (typecase location
     (gpr          (values #b000 (rix            location  :gp)))
@@ -133,12 +127,18 @@
     (mas-postinc  (values #b011 (rix  (mas-base location) :ad)))
     (mas-predecr  (values #b100 (rix  (mas-base location) :ad)))
     (mas-disp     (values #b101 (rix  (mas-base location) :ad) (mas-displ location)))
-    (mas-i+disp   (values #b110 (rix  (mas-base location) :ad)))
+    (mas-bi+disp   (values #b110 (rix  (mas-base location) :ad)))
     (mas-pc+disp  (values #b111 #b010 (mas-displ location)))
     (mas-pci+disp (values #b111 #b011))
     (mas-abs-w    (values #b111 #b000 (mas-addr location)))
     (mas-abs-l    (values #b111 #b001 (mas-addr location)))
     (integer      (values #b111 #b100 location))))
+
+(defun encode-extension-word (width access)
+  (if (or (typep access 'mas-bi+disp) (typep access 'mas-pci+disp))
+      (masque "MXXXS000.DDDDDDDD"
+              (m 0) (x (rix (mas-index access) :ad))
+              (s (case width (:w 0) (:l 1) (t 0))) (d (mas-displ access)))))
 
 (defvar *assembler-prototype-m68k*)
 
@@ -220,48 +220,75 @@
   (typecase type
     (symbol (case type
               (width `(member (wspec-name ,operand) '(:b :w :l)))
+              (width-prefix `(member (wspec-name ,operand) '(:b :w :l)))
+              (width-bit `(member (wspec-name ,operand) '(:w :l)))
               (gpr `(gpr-p ,operand))
               (adr `(adr-p ,operand))
-              (mas `(typep ,operand 'mas-m68k))))
+              (mas-all `(typep ,operand 'mas-m68k))
+              (mas-all-but-pc `(and (typep ,operand 'mas-m68k)
+                                    (not (or (typep ,operand 'mas-bi+disp)
+                                             (typep ,operand 'mas-pci+disp)))))
+              (vector `(and (integerp (imm-value ,operand))
+                            (<= 0 (imm-value ,operand) 15)))
+              (reg-list `(listp ,operand)))) ;; this should be more detailed
     (list (destructuring-bind (type &rest qualities) type
             (case type
-              (width `(member ,operand ,qualities))
-              (imm `(and (integerp ,operand)
-                         (< ,operand ,(expt 2 (reduce #'max qualities)))))
+              (width `(member ,operand ',qualities))
+              (imm `(and (integerp (imm-value ,operand))
+                         (< (imm-value ,operand) ,(expt 2 (reduce #'max qualities)))))
               (mas `(and (typep ,operand 'mas-m68k)
-                         (or ,@(loop :for q :in qualities :collect `(typep ,operand ',q))))))))))
+                         (or ,@(loop :for q :in qualities :collect `(typep ,operand ',q)))))
+              (reg-fixed `(eq (reg-name ,operand) ,(first qualities))))))))
 
 (defun verbalize-operand (spec)
   (flet ((mas-express (mas-type)
            (case mas-type
-             (mas-simple "(An)") (mas-postinc "(An)+") (mas-predecr "-(An)") (mas-b+disp "(d16,An)")
+             (mas-simple "(An)") (mas-postinc "(An)+") (mas-predecr "-(An)") (mas-disp "(d16,An)")
              (mas-bi+disp "(d8,An,Xn)") (mas-pc+disp "(d16,PC)") (mas-pci+disp "(d8,PC,Xn)")
              (mas-abs-w "ABS.W") (mas-abs-l "ABS.L"))))
-    (format nil "~a~%" (typecase spec
-                         (symbol (case spec
-                                   (width "width: any")
-                                   (gpr "general purpose register: any")
-                                   (adr "address register: any")))
-                         (list (destructuring-bind (type &rest qualities) spec
-                                 (case type
-                                   (width (format nil "width: ~{~a~^, ~}" qualities))
-                                   (imm (format nil "immediate value : ~{~a~^ ~^/ ~} bits" qualities))
-                                   (mas (format nil "memory access: ~{~a ~}"
-                                                (mapcar #'mas-express qualities))))))))))
+    (let ((mas-all-list '(mas-simple mas-postinc mas-predecr mas-disp mas-bi+disp
+                          mas-abs-w mas-abs-l mas-pc+disp mas-pci+disp))
+          (mas-no-pc-list '(mas-simple mas-postinc mas-predecr mas-disp mas-bi+disp mas-abs-w mas-abs-l)))
+      (format nil "~a~%" (typecase spec
+                           (symbol (case spec
+                                     (width "width : any")
+                                     (width-bit "width : B / W")
+                                     (width-prefix "width : any")
+                                     (gpr "general purpose register : any")
+                                     (adr "address register : any")
+                                     (mas-all (format nil "memory access : ~{~a ~}"
+                                                      (mapcar #'mas-express mas-all-list)))
+                                     (mas-all-but-pc (format nil "memory access : ~{~a ~}"
+                                                             (mapcar #'mas-express mas-no-pc-list)))
+                                     (vector "immediate vector index: 0-15")
+                                     (reg-list "register list")))
+                           (list (destructuring-bind (type &rest qualities) spec
+                                   (case type
+                                     (width (format nil "width : ~{~a~^ ~^/ ~}" qualities))
+                                     (imm (format nil "immediate value : ~{~a~^ ~^/ ~} bits" qualities))
+                                     (mas (format nil "memory access : ~{~a ~}"
+                                                  (mapcar #'mas-express qualities)))
+                                     (reg-fixed (format nil "~a (fixed register)"
+                                                        (first qualities)))))))))))
 
 (defun derive-operand (operand type)
   (typecase type
     (symbol (case type
               (width `(determine-width (wspec-name ,operand)))
-              (gpr `(encode-location ,operand))
-              (adr `(encode-location ,operand))
-              ((mas-simple mas-postinc mas-predecr mas-b+disp mas-bi+disp mas-pc+disp mas-pci+disp mas-abs)
-               `(typep ,operand ,type))))
+              (width-prefix `(determine-width (wspec-name ,operand) t))
+              (width-bit `(determine-width-bit (wspec-name ,operand)))
+              ((gpr adr mas-all mas-all-but-pc mas-simple mas-postinc mas-predecr mas-disp
+                    mas-bi+disp mas-pc+disp mas-pci+disp mas-abs)
+               `(encode-location ,operand))
+              (vector `(imm-value ,operand))
+              (reg-list operand)))
     (list (destructuring-bind (type &rest qualities) type
             (declare (ignore qualities))
             (case type
               (width `(determine-width ,operand))
-              (imm (list 'imm operand)))))))
+              (imm (list 'imm-value operand))
+              (mas `(encode-location ,operand))
+              (reg-fixed `(reg-name ,operand)))))))
 
 (defmacro determine (mnemonic specs &optional bindings &body body)
   `(determine-in-context ,(list :qualify #'qualify-operand :verbalize #'verbalize-operand
