@@ -9,9 +9,29 @@
 ;;                                operands '*assembler-prototype-m68k*)
 ;;                          params)))
 
+;; (defmacro specop (symbol operands &body params)
+;;   (cons 'specops (append (list symbol operands '*assembler-prototype-m68k*)
+;;                          (complete-dforms symbol 'determine params))))
+
+(defun form-process (symbol options form)
+  (declare (ignore options))
+  (if (eql 'determine (first form))
+      (append (list 'determine-in-context
+                    (list :qualify #'qualify-operand :verbalize #'verbalize-operand
+                          :derive #'derive-operand)
+                    symbol)
+              (rest form))))
+
 (defmacro specop (symbol operands &body params)
-  (cons 'specops (append (list symbol operands '*assembler-prototype-m68k*)
-                         (complete-dforms symbol 'determine params))))
+  (let* ((options (and (listp (first params))
+                       (listp (caar params))
+                       (keywordp (caaar params))
+                       (first params)))
+         (operations (if options (rest params) params)))
+    (cons 'specops (append (list symbol operands '*assembler-prototype-m68k*)
+                           (cons (cons (cons :process-forms 'form-process)
+                                       options)
+                                 operations)))))
 
 ;; (defmacro specop (symbol operands &body params)
 ;;   (specify-ops *assembler-prototype-m68k* '*assembler-prototype-m68k* symbol operands params))

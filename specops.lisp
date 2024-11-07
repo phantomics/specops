@@ -258,8 +258,8 @@
 (defgeneric make-immediate (value &optional type width)
   (:documentation "Fucntion to create an immediate value."))
 
-(defgeneric imm (value &rest type)
-  (:documentation "Get a register's index."))
+;; (defgeneric imm (value &rest type)
+;;   (:documentation "Get a register's index."))
 
 (defmethod make-immediate (value &optional type width)
   (when width
@@ -268,14 +268,15 @@
                             (zerop (ash value (- width))))
                        (value width) "Immediate integer value ~a overflows its width of ~a."))))
   (make-instance 'immediate :width width :value (if (integerp value) value)
-                            :type (typecase value
-                                    (integer 'integer))))
+                            :type (or type (typecase value
+                                             (integer 'integer)))))
 
-(defmethod imm ((value integer) &rest type)
-  (if (not type) value))
+;; (defmethod imm ((value integer) &rest type)
+;;   (if (not type) value))
 
-(defmethod imm ((value immediate) &rest type)
-  (imm-value value))
+;; (defmethod imm ((value immediate) &rest type)
+;;   (declare (ignore type))
+;;   (imm-value value))
 
 (defclass memory-access-scheme ()
   () (:documentation "Base class for memory access schemes."))
@@ -560,36 +561,52 @@
       (append (mapcar #'encoder-and-maybe-decoder-for clauses)
               prefixes))))
 
+(defun complete-dforms (processor symbol options form)
+  "A function that facilitates processing of forms within an operation spec; it is now used mainly for the composition of (determine-in-context) macros according to the parameters of (specops) forms they appear in."
+  (if (not processor)
+      form (typecase form
+             (atom form)
+             (list (or (funcall processor symbol options form)
+                        (loop :for item :in form
+                             :collect (complete-dforms processor symbol options item)))))))
+
 (defmethod specify-ops ((assembler assembler) op-symbol operands params operations)
   "A simple scheme for implementing operations - the (specop) content is directly placed within functions in the lexicon hash table."
-  (cond ((assoc :combine params)
-         ;; combinatoric parameters are used to specify mnemonics and opcodes that can be derived
-         ;; by combining lists of base components, such as the Xcc conditional instructions seen
-         ;; in many ISAs, where many different conditions share a common numeric and mnemonic base
-         (destructuring-bind (co-symbol join-by indexer &rest combinators)
-             (rest (assoc :combine params))
-           (cons 'progn (loop :for co :in combinators :for i :from 0
-                              :collect (let ((comp-sym (case join-by
-                                                         (:appending (intern (format nil "~a~a" op-symbol co)
-                                                                             "KEYWORD"))))
-                                             (index (funcall (case indexer (:by-index #'identity))
-                                                             i)))
-                                         (clause-processor
-                                          assembler 'of-lexicon comp-sym operands
-                                          (append (list (cons :wrap-body
-                                                              (lambda (body)
-                                                                `((let ((,co-symbol ,index)) ,@body)))))
+  ;; retrieve the form processor specified in the params, if any - this is often added in the
+  ;; course of macro currying performed in specific architecture modules
+  (let ((form-processor (and (rest (assoc :process-forms params))
+                             (symbol-function (rest (assoc :process-forms params))))))
+    (cond ((assoc :combine params)
+           ;; combinatoric parameters are used to specify mnemonics and opcodes that can be derived
+           ;; by combining lists of base components, such as the Xcc conditional instructions seen
+           ;; in many ISAs, where many different conditions share a common numeric and mnemonic base
+           (destructuring-bind (co-symbol join-by indexer &rest combinators)
+               (rest (assoc :combine params))
+             (cons 'progn (loop :for co :in combinators :for i :from 0
+                                :collect (let ((comp-sym (case join-by
+                                                           (:appending (intern (format nil "~a~a" op-symbol co)
+                                                                               "KEYWORD"))))
+                                               (index (funcall (case indexer (:by-index #'identity))
+                                                               i)))
+                                           (clause-processor
+                                            assembler 'of-lexicon comp-sym operands
+                                            (append (list (cons :wrap-body
+                                                                (lambda (body)
+                                                                  `((let ((,co-symbol ,index)) ,@body)))))
                                                   params)
-                                          operations))))))
+                                          (complete-dforms form-processor comp-sym params operations)))))))
         ((assoc :tabular params)
          ;; tabular parameters are used to specify many opcodes for ISAs like Z80 and 6502 along
          ;; with more recent one-byte instruction sets like WebAssembly
          (destructuring-bind (mode &rest properties) (rest (assoc :tabular params))
            (declare (ignore properties))
            (case mode (:cross-adding
-                       (cons 'progn (process-clause-matrix assembler op-symbol
-                                                           operands params operations))))))
-        (t (clause-processor assembler 'of-lexicon op-symbol operands params operations))))
+                       (cons 'progn (process-clause-matrix
+                                     assembler op-symbol
+                                     operands params (complete-dforms form-processor op-symbol
+                                                                      params operations)))))))
+        (t (clause-processor assembler 'of-lexicon op-symbol operands params
+                             (complete-dforms form-processor op-symbol params operations))))))
 
 (defmacro readops (symbol operands assembler &body items)
   (let* ((params (if (not (and (listp (first items)) (listp (caar items))
@@ -620,39 +637,40 @@
 ;;         `(of-decoder *assembler-prototype-m68k* ,symbol ,function)
 ;;         `(of-battery *assembler-prototype-m68k* ,(intern (string symbol) "KEYWORD") ,function))))
 
-(defun qualify-operand (operand type)
-  type)
+;; (defun qualify-operand (operand type)
+;;   (declare (ignore operand))
+;;   type)
 
-(defun derive-operand (operand type)
-  operand)
+;; (defun derive-operand (operand type)
+;;   operand)
 
-(defun verbalize-operand (spec)
-  (format nil "~a~%" spec))
+;; (defun verbalize-operand (spec)
+;;   (format nil "~a~%" spec))
 
-(defmacro determine (mnemonic &rest specs)
-  `(determine-in-context ,(list :qualify #'qualify-operand :verbalize #'verbalize-operand
-                                :derive #'derive-operand)
-                         ,mnemonic ,@specs))
+;; (defmacro determine (mnemonic &rest specs)
+;;   `(determine-in-context ,(list :qualify #'qualify-operand :verbalize #'verbalize-operand
+;;                                 :derive #'derive-operand)
+;;                          ,mnemonic ,@specs))
 
-(defun complete-dforms (msym dsym form)
-  (typecase form
-    (atom form)
-    (list (if (not (eql dsym (first form)))
-              (loop :for item :in form :collect (complete-dforms msym dsym item))
-              (append (list dsym msym)
-                      (loop :for item :in (rest form)
-                            :collect (complete-dforms msym dsym item)))))))
-                           
+;; (defun complete-dforms (msym dsym form)
+;;   (typecase form
+;;     (atom form)
+;;     (list (if (not (eql dsym (first form)))
+;;               (loop :for item :in form :collect (complete-dforms msym dsym item))
+;;               (append (list dsym msym)
+;;                       (loop :for item :in (rest form)
+;;                             :collect (complete-dforms msym dsym item)))))))
 
 (defmacro determine-in-context (utils mnemonic specs &optional bindings &rest body)
   (destructuring-bind (&key qualify derive verbalize &allow-other-keys) utils
     (labels ((process-level (body bindings specs)
                (if (not bindings)
-                   body (if (not (listp (first bindings)))
-                            (process-level body (rest bindings) (rest specs))
+                   body (if (and (first bindings) (listp (first bindings)))
                             `((multiple-value-bind ,(first bindings)
-                                  ,(funcall derive (caar specs) (cadar specs))
-                                ,@(process-level body (rest bindings) (rest specs))))))))
+                                  ;; ,(funcall derive (caar specs) (cadar specs))
+                                  ,(funcall derive (first specs))
+                                ,@(process-level body (rest bindings) (rest specs))))
+                            (process-level body (rest bindings) (rest specs))))))
       (let* ((mnem-length (length (string mnemonic)))
              (op-strings (loop :for spec :in specs :collect (string (first spec))))
              (op-max-length (reduce #'max (loop :for string :in op-strings :collect (length string)))))
@@ -662,8 +680,7 @@
                                                           :collect (funcall qualify operand type))))))
              ,(if body `(let ,(if bindings (loop :for b :in bindings :for s :in specs
                                                  :when (and b (symbolp b))
-                                                   :collect (list b (funcall derive (first s)
-                                                                             (second s)))))
+                                                   :collect (list b (funcall derive s))))
                          ,@(process-level body bindings specs)))
              (error ,(apply #'concatenate 'string
                             (format nil "Invalid operand(s) for instruction ~a. Format: ~%" mnemonic)

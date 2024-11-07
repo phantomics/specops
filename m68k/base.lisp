@@ -88,7 +88,7 @@
 
 (deftype mas-disp     () `(satisfies mas-disp-p))
 
-(deftype mas-bi+disp   () `(satisfies mas-bi+disp-p))
+(deftype mas-bi+disp  () `(satisfies mas-bi+disp-p))
 
 (deftype mas-pc+disp  () `(satisfies mas-pc+disp-p))
 
@@ -127,7 +127,7 @@
     (mas-postinc  (values #b011 (rix  (mas-base location) :ad)))
     (mas-predecr  (values #b100 (rix  (mas-base location) :ad)))
     (mas-disp     (values #b101 (rix  (mas-base location) :ad) (mas-displ location)))
-    (mas-bi+disp   (values #b110 (rix  (mas-base location) :ad)))
+    (mas-bi+disp  (values #b110 (rix  (mas-base location) :ad)))
     (mas-pc+disp  (values #b111 #b010 (mas-displ location)))
     (mas-pci+disp (values #b111 #b011))
     (mas-abs-w    (values #b111 #b000 (mas-addr location)))
@@ -244,8 +244,8 @@
   (flet ((mas-express (mas-type)
            (case mas-type
              (mas-simple "(An)") (mas-postinc "(An)+") (mas-predecr "-(An)") (mas-disp "(d16,An)")
-             (mas-bi+disp "(d8,An,Xn)") (mas-pc+disp "(d16,PC)") (mas-pci+disp "(d8,PC,Xn)")
-             (mas-abs-w "ABS.W") (mas-abs-l "ABS.L"))))
+             (mas-bi+disp "(d8,An,Xn)") (mas-abs-w "ABS.W") (mas-abs-l "ABS.L")
+             (mas-pc+disp "(d16,PC)") (mas-pci+disp "(d8,PC,Xn)"))))
     (let ((mas-all-list '(mas-simple mas-postinc mas-predecr mas-disp mas-bi+disp
                           mas-abs-w mas-abs-l mas-pc+disp mas-pci+disp))
           (mas-no-pc-list '(mas-simple mas-postinc mas-predecr mas-disp mas-bi+disp mas-abs-w mas-abs-l)))
@@ -271,29 +271,56 @@
                                      (reg-fixed (format nil "~a (fixed register)"
                                                         (first qualities)))))))))))
 
-(defun derive-operand (operand type)
-  (typecase type
-    (symbol (case type
-              (width `(determine-width (wspec-name ,operand)))
-              (width-prefix `(determine-width (wspec-name ,operand) t))
-              (width-bit `(determine-width-bit (wspec-name ,operand)))
-              ((gpr adr mas-all mas-all-but-pc mas-simple mas-postinc mas-predecr mas-disp
-                    mas-bi+disp mas-pc+disp mas-pci+disp mas-abs)
-               `(encode-location ,operand))
-              (vector `(imm-value ,operand))
-              (reg-list operand)))
-    (list (destructuring-bind (type &rest qualities) type
-            (declare (ignore qualities))
-            (case type
-              (width `(determine-width ,operand))
-              (imm (list 'imm-value operand))
-              (mas `(encode-location ,operand))
-              (reg-fixed `(reg-name ,operand)))))))
+(defun derive-operand (spec)
+  ;; (print (list :oo operand type))
+  (destructuring-bind (operand &rest types) spec
+    (cons 'or (loop :for type :in types :collect
+                    (typecase type
+                      (symbol (case type
+                                (width `(determine-width (wspec-name ,operand)))
+                                (width-prefix `(determine-width (wspec-name ,operand) t))
+                                (width-bit `(determine-width-bit (wspec-name ,operand)))
+                                ((gpr adr mas-all mas-all-but-pc mas-simple mas-postinc mas-predecr
+                                      mas-disp mas-bi+disp mas-pc+disp mas-pci+disp mas-abs)
+                                 `(encode-location ,operand))
+                                (vector `(imm-value ,operand))
+                                (reg-list operand)))
+                      (list (destructuring-bind (type &rest qualities) type
+                              (declare (ignore qualities))
+                              (case type
+                                (width `(determine-width ,operand))
+                                (imm (list 'imm-value operand))
+                                (mas `(encode-location ,operand))
+                                (reg-fixed `(reg-name ,operand))))))))))
 
-(defmacro determine (mnemonic specs &optional bindings &body body)
-  `(determine-in-context ,(list :qualify #'qualify-operand :verbalize #'verbalize-operand
-                                :derive #'derive-operand)
-                         ,mnemonic ,specs ,bindings ,@body))
+;; (defun derive-operand (operand type)
+;;   (print (list :oo operand type))
+;;   (typecase type
+;;     (symbol (case type
+;;               (width `(determine-width (wspec-name ,operand)))
+;;               (width-prefix `(determine-width (wspec-name ,operand) t))
+;;               (width-bit `(determine-width-bit (wspec-name ,operand)))
+;;               ((gpr adr mas-all mas-all-but-pc mas-simple mas-postinc mas-predecr mas-disp
+;;                     mas-bi+disp mas-pc+disp mas-pci+disp mas-abs)
+;;                `(encode-location ,operand))
+;;               (vector `(imm-value ,operand))
+;;               (reg-list operand)))
+;;     (list (destructuring-bind (type &rest qualities) type
+;;             (declare (ignore qualities))
+;;             (case type
+;;               (width `(determine-width ,operand))
+;;               (imm (list 'imm-value operand))
+;;               (mas `(encode-location ,operand))
+;;               (reg-fixed `(reg-name ,operand)))))))
+
+;; (defmacro determine (mnemonic specs &optional bindings &body body)
+;;   `(determine-in-context ,(list :qualify #'qualify-operand :verbalize #'verbalize-operand
+;;                                 :derive #'derive-operand)
+;;                          ,mnemonic ,specs ,bindings ,@body))
+
+(defmacro determine (specs &optional bindings &body body)
+  "This placeholder macro is not meant to be evaluated but to inform indentation algorithms; (determine) forms will be converted to determine-in-context forms as (specops) forms are expanded."
+  (list specs bindings body))
 
 (defun derive-location (addressing-mode index &key base displacement)
   (case addressing-mode
@@ -307,10 +334,9 @@
   (if (typep key 'mas-m68k)
       (values (rix (mas-base key) :ad)
               ;; (position (mas-base key) (getf (asm-storage assembler) :ad))
-              (case (mas-m68k-qualifier key)
-                (:postinc #b011) (:predecr #b100)
-                (t (if (not (mas-displ key))
-                       #b010 (if (mas-index key) #b110 #b101)))))
+              (typecase key (mas-m68k-postinc #b011) (mas-m68k-predecr #b100)
+                        (t (if (not (mas-displ key))
+                               #b010 (if (mas-index key) #b110 #b101)))))
       ;; (multiple-value-bind (index type) (call-next-method)
       ;;   (values index (case type (:gp #b000) (:ad #b001))))
       (multiple-value-bind (index type) (rix key)

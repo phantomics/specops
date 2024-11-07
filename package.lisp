@@ -4,7 +4,7 @@
   (:use #:cl)
   (:export #:width-spec #:wspec-name #:wspec-bits
            #:register #:reg-name #:reg-index #:reg-type #:of-register-type-index
-           #:immediate #:imm-value #:make-immediate #:imm
+           #:immediate #:imm-value #:make-immediate ;; #:imm
            #:memory-access-scheme
            #:mas-based #:mas-base #:mas-indexed #:mas-index #:mas-displaced #:mas-displ
            #:mas-scaling-displaced #:mas-sdisp-scale #:mas-absolute #:mas-addr

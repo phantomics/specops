@@ -4,22 +4,17 @@
 
 (specop ori (w op0 op1)
   (case (reg-name op1)
-    (:ccr (determine ((w (width :b)) (op0 (imm 8)) (op1 (reg-fixed :ccr)))
-              (nil en0 nil)
-              (joinw (masque "00000000.00111100")
-                     en0)))
-    (:sr  (determine ((w (width :w)) (op0 (imm 16)) (op1 (reg-fixed :sr)))
-              (nil en0)
-              (joinw (masque "00000000.01111100")
-                     en0)))
-    (t    (determine ((w width) (op0 (imm 8 16 32))
-                      (op1 gpr (mas mas-simple mas-postinc mas-predecr mas-disp
-                                    mas-bi+disp mas-abs-w mas-abs-l)))
-              (enw en0 (ix1 ad1))
-              (joinw (masque "00000000.SSMMMXXX"
-                             (s enw) (m ad1) (x ix1))
-                     (encode-extension-word w op1)
-                     en0)))))
+    (:ccr (determine ((w (width :b)) (op0 (imm 8)) (op1 (reg-fixed :ccr))) (nil en0 nil)
+            (joinw (masque "00000000.00111100")
+                   en0)))
+    (:sr  (determine ((w (width :w)) (op0 (imm 16)) (op1 (reg-fixed :sr))) (nil en0)
+            (joinw (masque "00000000.01111100")
+                   en0)))
+    (t    (determine ((w width) (op0 (imm 8 16 32)) (op1 gpr mas-all-but-pc)) (enw en0 (ix1 ad1))
+            (joinw (masque "00000000.SSMMMXXX"
+                           (s enw) (m ad1) (x ix1))
+                   (encode-extension-word w op1)
+                   en0)))))
 
 (readop (masque "00000000.00111100") (read)
   (list :ori :b (funcall read 1) :ccr))
@@ -35,19 +30,17 @@
   (case (reg-name op1)
     (:ccr (determine ((w (width :b)) (op0 (imm 8)) (op1 (reg-fixed :ccr)))
               (nil en0 nil)
-              (joinw (masque "00000010.00111100")
-                     en0)))
+            (joinw (masque "00000010.00111100")
+                   en0)))
     (:sr  (determine ((w (width :w)) (op0 (imm 16)) (op1 (reg-fixed :sr)))
               (nil en0)
-              (joinw (masque "00000010.01111100")
-                     en0)))
-    (t    (determine ((w width) (op0 (imm 8 16 32)) (op1 gpr (mas mas-simple mas-postinc mas-predecr mas-disp
-                                                                  mas-bi+disp mas-abs-w mas-abs-l)))
-              (enw en0 (ix1 ad1))
-              (joinw (masque "00000010.SSMMMXXX"
-                             (s enw) (m ad1) (x ix1))
-                     (encode-extension-word w op1)
-                     en0)))))
+            (joinw (masque "00000010.01111100")
+                   en0)))
+    (t    (determine ((w width) (op0 (imm 8 16 32)) (op1 gpr mas-all-but-pc)) (enw en0 (ix1 ad1))
+            (joinw (masque "00000010.SSMMMXXX"
+                           (s enw) (m ad1) (x ix1))
+                   (encode-extension-word w op1)
+                   en0)))))
 
 (readop (masque "00000010.00111100") (read)
   (list :andi (funcall read 1) :ccr))
@@ -64,13 +57,11 @@
   ;;         (op0 op1)
   ;;         "SUBI operands ~a and ~a must be an immediate integer fitting within 32 bits and a location.")
   ;; (address (op1) ((index1 amode1))
-  (determine ((w width) (op0 (imm 8 16 32)) (op1 gpr (mas mas-simple mas-postinc mas-predecr mas-disp
-                                                          mas-bi+disp mas-abs-w mas-abs-l)))
-      (enw en0 (ix1 ad1))
-      (joinw (masque "00000100.SSMMMXXX"
-                     (s enw) (m ad1) (x ix1))
-             (encode-extension-word w op1)
-             en0)))
+  (determine ((w width) (op0 (imm 8 16 32)) (op1 gpr mas-all-but-pc)) (enw en0 (ix1 ad1))
+    (joinw (masque "00000100.SSMMMXXX"
+                   (s enw) (m ad1) (x ix1))
+           (encode-extension-word w op1)
+           en0)))
 
 (readop subi (word read)
   (unmasque "00000100.SSMMMXXX" word (s m x)
@@ -82,13 +73,11 @@
   ;;         (op0 op1)
   ;;         "ADDI operands ~a and ~a must be an immediate integer fitting within 32 bits and a location.")
   ;; (address (op1) ((index1 amode1))
-  (determine ((w width) (op0 (imm 8 16 32)) (op1 gpr (mas mas-simple mas-postinc mas-predecr mas-disp
-                                                          mas-bi+disp mas-abs-w mas-abs-l)))
-      (enw en0 (ix1 ad1))
-      (joinw (masque "00000110.SSMMMXXX"
-                     (s enw) (m ad1) (x ix1))
-             (encode-extension-word w op1)
-             en0)))
+  (determine ((w width) (op0 (imm 8 16 32)) (op1 gpr mas-all-but-pc)) (enw en0 (ix1 ad1))
+    (joinw (masque "00000110.SSMMMXXX"
+                   (s enw) (m ad1) (x ix1))
+           (encode-extension-word w op1)
+           en0)))
 
 (readop addi (word read)
   (unmasque "00000110.SSMMMXXX" word (s m x)
@@ -96,22 +85,17 @@
 
 (specop eori (w op0 op1)
   (case (reg-name op1)
-    (:ccr (determine ((w (width :b)) (op0 (imm 8)))
-              (nil en0)
-              (joinw (masque "00001010.00111100") 
-                     en0)))
-    (:sr  (determine ((w (width :w)) (op0 (imm 16)))
-              (nil en0)
-              (joinw (masque "00001010.01111100")
-                     en0)))
-    (t    (determine ((w width) (op0 (imm 8 16 32))
-                      (op1 gpr (mas mas-simple mas-postinc mas-predecr mas-disp
-                                    mas-bi+disp mas-abs-w mas-abs-l)))
-              (enw en0 (ix1 ad1))
-              (joinw (masque "00001010.SSMMMXXX"
-                             (s enw) (m ad1) (x ix1))
-                     (encode-extension-word w op1)
-                     en0)))))
+    (:ccr (determine ((w (width :b)) (op0 (imm 8)) (op1 (reg-fixed :ccr))) (nil en0)
+            (joinw (masque "00001010.00111100")
+                   en0)))
+    (:sr  (determine ((w (width :w)) (op0 (imm 16)) (op1 (reg-fixed :sr))) (nil en0)
+            (joinw (masque "00001010.01111100")
+                   en0)))
+    (t    (determine ((w width) (op0 (imm 8 16 32)) (op1 gpr mas-all-but-pc)) (enw en0 (ix1 ad1))
+            (joinw (masque "00001010.SSMMMXXX"
+                           (s enw) (m ad1) (x ix1))
+                   (encode-extension-word w op1)
+                   en0)))))
 
 (readop (masque "00001010.00111100") (read)
   (list :eori :b (funcall read 1) :ccr))
@@ -124,13 +108,11 @@
     (list :eori (derive-width s) (funcall read 1) (derive-location m x))))
 
 (specop cmpi (w op0 op1)
-  (determine ((w width) (op0 (imm 8 16 32)) (op1 gpr (mas mas-simple mas-postinc mas-predecr mas-disp
-                                                          mas-bi+disp mas-abs-w mas-abs-l)))
-      (enw en0 (ix1 ad1))
-      (joinw (masque "00001100.SSMMMXXX"
-                     (s enw) (m ad1) (x ix1))
-             (encode-extension-word w op1)
-             en0)))
+  (determine ((w width) (op0 (imm 8 16 32)) (op1 gpr mas-all-but-pc)) (enw en0 (ix1 ad1))
+    (joinw (masque "00001100.SSMMMXXX"
+                   (s enw) (m ad1) (x ix1))
+           (encode-extension-word w op1)
+           en0)))
 
 (readop cmpi (word read)
   (unmasque "00001010.SSMMMXXX" word (s m x)
@@ -138,16 +120,16 @@
 
 (specop btst (op0 op1)
   (determine ((op0 gpr (imm 8)) (op1 gpr integer mas-all)) (bn0 (ix1 ad1 word))
-      (if (numberp op0)
-          (if (imm-value op1)
-              (error "BTST may not use an immediate value as its first and second operands.")
-              (joinw (masque "00001000.00MMMXXX"
-                             (m ad1) (x ix1))
-                     (encode-extension-word :w op1)
-                     bn0))
-          (joinw (masque "0000DDD1.00MMMXXX"
-                         (d bn0) (m ad1) (x ix1))
-                 (or word (encode-extension-word :l op1))))))
+    (if (numberp op0)
+        (if (imm-value op1)
+            (error "BTST may not use an immediate value as its first and second operands.")
+            (joinw (masque "00001000.00MMMXXX"
+                           (m ad1) (x ix1))
+                   (encode-extension-word :w op1)
+                   bn0))
+        (joinw (masque "0000DDD1.00MMMXXX"
+                       (d bn0) (m ad1) (x ix1))
+               (or word (encode-extension-word :l op1))))))
 
 ;; (specop btst (op0 op1)
 ;;   (if (numberp op0)
@@ -169,14 +151,14 @@
 
 (specop bchg (op0 op1)
   (determine ((op0 gpr (imm 8)) (op1 gpr mas-all-but-pc)) (bn0 (ix1 ad1 word1))
-      (if (numberp op0)
-          (joinw (masque "00001000.01MMMXXX"
-                         (m ad1) (x ix1))
-                 (or word1 (encode-extension-word 0 op1))
-                 bn0)
-          (joinw (masque "0000DDD1.01MMMXXX"
-                         (d bn0) (m ad1) (x ix1))
-                 (or word1 (encode-extension-word 0 op1))))))
+    (if (numberp op0)
+        (joinw (masque "00001000.01MMMXXX"
+                       (m ad1) (x ix1))
+               (or word1 (encode-extension-word 0 op1))
+               bn0)
+        (joinw (masque "0000DDD1.01MMMXXX"
+                       (d bn0) (m ad1) (x ix1))
+               (or word1 (encode-extension-word 0 op1))))))
 
 (readop bchg-n (word read)
   (unmasque "00001000.01MMMXXX" word (m x)
@@ -188,14 +170,14 @@
 
 (specop bclr (op0 op1)
   (determine ((op0 gpr (imm 8)) (op1 gpr mas-all-but-pc)) (bn0 (ix1 ad1 word1))
-      (if (numberp op0)
-          (joinw (masque "00001000.10MMMXXX"
-                         (m ad1) (x ix1))
-                 (encode-extension-word 0 op1)
-                 bn0)
-          (joinw (masque "0000DDD1.10MMMXXX"
-                         (d bn0) (m ad1) (x ix1))
-                 (or word1 (encode-extension-word 0 op1))))))
+    (if (numberp op0)
+        (joinw (masque "00001000.10MMMXXX"
+                       (m ad1) (x ix1))
+               (encode-extension-word 0 op1)
+               bn0)
+        (joinw (masque "0000DDD1.10MMMXXX"
+                       (d bn0) (m ad1) (x ix1))
+               (or word1 (encode-extension-word 0 op1))))))
 
 (readop bclr-n (word read)
   (unmasque "00001000.10MMMXXX" word (m x)
@@ -206,17 +188,15 @@
     (list :bclr d (derive-location m x))))
 
 (specop bset (op0 op1)
-  (determine ((op0 gpr (imm 8)) (op1 gpr (mas mas-simple mas-postinc mas-predecr mas-disp
-                                              mas-bi+disp mas-abs-w mas-abs-l)))
-      (bn0 (ix1 ad1 word1))
-      (if (numberp op0)
-          (joinw (masque "00001000.11MMMXXX"
-                         (m ad1) (x ix1))
-                 (encode-extension-word 0 op1)
-                 bn0 word1)
-          (joinw (masque "0000DDD1.11MMMXXX"
-                         (d bn0) (m ad1) (x ix1))
-                 (or word1 (encode-extension-word 0 op1))))))
+  (determine ((op0 gpr (imm 8)) (op1 gpr mas-all-but-pc)) (bn0 (ix1 ad1 word1))
+    (if (numberp op0)
+        (joinw (masque "00001000.11MMMXXX"
+                       (m ad1) (x ix1))
+               (encode-extension-word 0 op1)
+               bn0 word1)
+        (joinw (masque "0000DDD1.11MMMXXX"
+                       (d bn0) (m ad1) (x ix1))
+               (or word1 (encode-extension-word 0 op1))))))
 
 (readop bset-n (word read)
   (unmasque "00001000.11MMMXXX" word (m x)
@@ -229,10 +209,10 @@
 (specop movep (w op0 op1)
   (determine ((w width-bit) (op0 gpr (mas mas-disp)) (op1 gpr (mas mas-disp)))
       (enw (ix0 _ word0) (ix1 ad1 word1))
-      (joinw (masque "0000RRR1.DS001XXX" ;; ad1 as zero indicates that data is moved to a register
-                     (r (if (zerop ad1) ix1 ix0)) (d (if (zerop ad1) 0 1))
-                     (s enw) (x (if (zerop ad1) ix0 ix1)))
-             (or word0 word1))))
+    (joinw (masque "0000RRR1.DS001XXX" ;; ad1 as zero indicates that data is moved to a register
+                   (r (if (zerop ad1) ix1 ix0)) (d (if (zerop ad1) 0 1))
+                   (s enw) (x (if (zerop ad1) ix0 ix1)))
+           (or word0 word1))))
 
 ;; (specop movep (w op0 op1)
 ;;   (let ((to-reg (position op1 (getf *m68k-layout* :gpr))))
@@ -255,14 +235,11 @@
                            (derive-location 0 r))))))
 
 (specop movea (w op0 op1)
-  (determine ((w (width :w :l)) (op0 gpr adr integer
-                                     (mas mas-simple mas-postinc mas-predecr mas-disp
-                                          mas-bi+disp mas-abs-w mas-abs-l mas-pc+disp mas-pci+disp))
-              (op1 adr))
+  (determine ((w (width :w :l)) (op0 gpr adr integer mas-all) (op1 adr))
       (enw (ix0 ad0 word) ix1)
-      (joinw (masque "00SSRRR0.01MMMXXX"
-                     (s enw) (r ix1) (m ad0) (x ix0))
-             (or word (encode-extension-word w op0)))))
+    (joinw (masque "00SSRRR0.01MMMXXX"
+                   (s enw) (r ix1) (m ad0) (x ix0))
+           (or word (encode-extension-word w op0)))))
 
 (readop movea (word read)
   (unmasque "0000DDD1.11MMMXXX" word (d m x)
@@ -270,49 +247,32 @@
 
 (specop move (w op0 op1)
   (case (reg-name op1)
-    (:ccr ;; move to CCR
-     (determine ((w (width :w)) (op0 gpr integer
-                                     (mas mas-simple mas-postinc mas-predecr mas-disp
-                                          mas-bi+disp mas-abs-w mas-abs-l mas-pc+disp mas-pci+disp))
-                 (op1 (reg-fixed :ccr)))
-         (nil (ix0 ad0 word))
-         (joinw (masque "01000100.11MMMXXX"
-                        (m ad0) (x ix0))
-                (or word (encode-extension-word w op1)))))
+    (:ccr (determine ((w (width :w)) (op0 gpr integer mas-all) (op1 (reg-fixed :ccr))) (nil (ix0 ad0 word))
+            (joinw (masque "01000100.11MMMXXX" ;; move to CCR
+                           (m ad0) (x ix0))
+                   (or word (encode-extension-word w op1)))))
 
-    (:sr ;; move to SR
-     (determine ((w (width :w)) (op0 gpr integer
-                                     (mas mas-simple mas-postinc mas-predecr mas-disp
-                                          mas-bi+disp mas-abs-w mas-abs-l mas-pc+disp mas-pci+disp))
-                 (op1 (reg-fixed :sr)))
-         (nil (ix0 ad0 word))
-         (joinw (masque "01000110.11MMMXXX"
-                        (m ad0) (x ix0))
-                word)))
-    (t (cond ((eq :sr (reg-name op0)) ;; move from SR
-              (determine ((w (width :w)) (op0 (reg-fixed :sr))
-                          (op1 gpr (mas mas-simple mas-postinc mas-predecr mas-disp
-                                        mas-bi+disp mas-abs-w mas-abs-l)))
-                  (nil nil (ix1 ad1 word))
-                  (joinw (masque "01000000.11MMMXXX"
-                                 (m ad1) (x ix1))
-                         word)))
-             ((or (eq :usp (reg-name op0)) (eq :usp (reg-name op1))) ;; move to/from USP
-              (determine ((w (width :l)) (op0 adr (reg-fixed :usp)) (op1 adr (reg-fixed :usp)))
-                  (nil ix0 ix1)
-              (masque "01001110.0110DAAA"
-                      (d (if (eq :usp (reg-name op0)) 0   1))
-                      (a (if (eq :usp (reg-name op0)) ix1 ix0)))))
-             (t (determine ((w width-prefix)
-                            (op0 gpr adr integer
-                                 (mas mas-simple mas-postinc mas-predecr mas-disp
-                                      mas-bi+disp mas-abs-w mas-abs-l mas-pc+disp mas-pci+disp))
-                            (op0 gpr (mas mas-simple mas-postinc mas-predecr mas-disp
-                                          mas-bi+disp mas-abs-w mas-abs-l)))
-                    (enw (ix0 ad0 word) (ix1 ad1))
-                    (joinw (masque "00SSYYYA.AAMMMXXX"
-                                   (s enw) (y ix1) (a ad1) (m ad0) (x ix0))
-                           word)))))))
+    (:sr  (determine ((w (width :w)) (op0 gpr integer mas-all) (op1 (reg-fixed :sr))) (nil (ix0 ad0 word))
+            (joinw (masque "01000110.11MMMXXX" ;; move to SR
+                           (m ad0) (x ix0))
+                   word)))
+    (t    (cond ((eq :sr (reg-name op0)) ;; move from SR
+                 (determine ((w (width :w)) (op0 (reg-fixed :sr)) (op1 gpr mas-all-but-pc))
+                     (nil nil (ix1 ad1 word))
+                   (joinw (masque "01000000.11MMMXXX"
+                                  (m ad1) (x ix1))
+                          word)))
+                ((or (eq :usp (reg-name op0)) (eq :usp (reg-name op1))) ;; move to/from USP
+                 (determine ((w (width :l)) (op0 adr (reg-fixed :usp)) (op1 adr (reg-fixed :usp)))
+                     (nil ix0 ix1)
+                   (masque "01001110.0110DAAA"
+                           (d (if (eq :usp (reg-name op0)) 0   1))
+                           (a (if (eq :usp (reg-name op0)) ix1 ix0)))))
+                (t (determine ((w width-prefix) (op0 gpr adr integer mas-all) (op1 gpr mas-all-but-pc))
+                       (enw (ix0 ad0 word0) (ix1 ad1 word1))
+                     (joinw (masque "00SSYYYA.AAMMMXXX"
+                                    (s enw) (y ix1) (a ad1) (m ad0) (x ix0))
+                            (or word0 word1))))))))
 
 (readop move-to-ccr (word read)
   (unmasque "01000100.11MMMXXX" word (m x)
@@ -337,33 +297,27 @@
     (list :move (derive-width s) (derive-location m x) (derive-location a y))))
 
 (specop negx (w op0)
-  (determine ((w width) (op0 gpr (mas mas-simple mas-postinc mas-predecr mas-disp
-                                      mas-bi+disp mas-abs-w mas-abs-l)))
-      (enw (ix0 ad0 word))
-      (joinw (masque "01000000.SSMMMXXX"
-                     (s enw) (m ad0) (x ix0))
-             (or word (encode-extension-word w op0)))))
+  (determine ((w width) (op0 gpr mas-all-but-pc)) (enw (ix0 ad0 word))
+    (joinw (masque "01000000.SSMMMXXX"
+                   (s enw) (m ad0) (x ix0))
+           (or word (encode-extension-word w op0)))))
 
 (readop negx (word read)
   (unmasque "01000000.SSMMMXXX" word (s m x)
     (list :negx (derive-width s) (derive-location m x))))
-  
+
 (specop clr (w op0)
-  (determine ((w width) (op0 gpr (mas mas-simple mas-postinc mas-predecr mas-disp
-                                      mas-bi+disp mas-abs-w mas-abs-l)))
-      (enw (ix0 ad0 word))
-      (joinw (masque "01000010.SSMMMXXX"
-                     (s enw) (m ad0) (x ix0))
-             (or word (encode-extension-word w op0)))))
+  (determine ((w width) (op0 gpr mas-all-but-pc)) (enw (ix0 ad0 word))
+    (joinw (masque "01000010.SSMMMXXX"
+                   (s enw) (m ad0) (x ix0))
+           (or word (encode-extension-word w op0)))))
 
 (readop clr (word read)
   (unmasque "01000010.SSMMMXXX" word (s m x)
     (list :clr (derive-width s) (derive-location m x))))
 
 (specop neg (w op0)
-  (determine ((w width) (op0 gpr (mas mas-simple mas-postinc mas-predecr mas-disp
-                                      mas-bi+disp mas-abs-w mas-abs-l)))
-      (enw (ix0 ad0 word))
+  (determine ((w width) (op0 gpr mas-all-but-pc)) (enw (ix0 ad0 word))
     (joinw (masque "01000100.SSMMMXXX"
                    (s enw) (m ad0) (x ix0))
            (or word (encode-extension-word w op0)))))
@@ -376,9 +330,9 @@
   (determine ((w width) (op0 gpr (mas mas-simple mas-postinc mas-predecr mas-disp
                                       mas-bi+disp mas-abs-w mas-abs-l)))
       (enw (ix0 ad0 word))
-      (joinw (masque "01000110.SSMMMXXX"
-                     (s enw) (m ad0) (x ix0))
-             (or word (encode-extension-word w op0)))))
+    (joinw (masque "01000110.SSMMMXXX"
+                   (s enw) (m ad0) (x ix0))
+           (or word (encode-extension-word w op0)))))
 
 (readop not (word read)
   (unmasque "01000110.SSMMMXXX" word (s m x)
@@ -387,8 +341,8 @@
 (specop ext (w op0)
   (determine ((w width-bit) (op0 gpr))
       (enw ix0)
-      (joinw (masque "01001000.1S000XXX"
-                     (s enw) (x ix0)))))
+    (joinw (masque "01001000.1S000XXX"
+                   (s enw) (x ix0)))))
 
 (readop ext (word read)
   (unmasque "01001000.1S000XXX" word (s x)
@@ -412,13 +366,13 @@
 (readop swap (word read)
   (unmasque "01001000.01000XXX" word (x)
     (list :swap (derive-location 0 x))))
-  
+
 (specop pea (op0)
   (determine ((op0 (mas mas-simple mas-disp mas-bi+disp mas-abs-w mas-abs-l mas-pc+disp mas-pci+disp)))
       ((ix0 ad0 word))
-      (joinw (masque "01001000.01MMMXXX"
-                     (m ad0) (x ix0))
-             (or word (encode-extension-word :l op0)))))
+    (joinw (masque "01001000.01MMMXXX"
+                   (m ad0) (x ix0))
+           (or word (encode-extension-word :l op0)))))
 
 (readop pea (word read)
   (unmasque "01001000.01MMMXXX" word (m x)
@@ -431,9 +385,7 @@
   (list :illegal))
 
 (specop tas (op0)
-  (determine ((op0 gpr (mas mas-simple mas-postinc mas-predecr mas-disp
-                                      mas-bi+disp mas-abs-w mas-abs-l)))
-      ((ix0 ad0 word))
+  (determine ((op0 gpr mas-all-but-pc)) ((ix0 ad0 word))
     (joinw (masque "01001010.11MMMXXX"
                    (m ad0) (x ix0))
            (or word (encode-extension-word :b op0)))))
@@ -443,12 +395,11 @@
     (list :tas (derive-location m x))))
 
 (specop tst (w op0)
-  (determine ((w width) (op0 gpr (mas mas-simple mas-postinc mas-predecr mas-disp
-                                      mas-bi+disp mas-abs-w mas-abs-l)))
+  (determine ((w width) (op0 gpr mas-all-but-pc))
       (enw (ix0 ad0 word))
-      (joinw (masque "01001010.SSMMMXXX"
-                     (s enw) (m ad0) (x ix0))
-             (or word (encode-extension-word :w op0)))))
+    (joinw (masque "01001010.SSMMMXXX"
+                   (s enw) (m ad0) (x ix0))
+           (or word (encode-extension-word :w op0)))))
 
 (readop tst (word read)
   (unmasque "01001010.SSMMMXXX" word (s m x)
@@ -456,8 +407,8 @@
 
 (specop trap (op0)
   (determine ((op0 vector)) (env)
-      (joinw (masque "01001110.0100VVVV"
-                     (v env)))))
+    (joinw (masque "01001110.0100VVVV"
+                   (v env)))))
 
 (readop trap (word read)
   (unmasque "01001110.0100VVVV" word (v)
@@ -465,9 +416,9 @@
 
 (specop link (op0 op1)
   (determine ((op0 adr) (op1 (imm 32))) (ix0 im1)
-      (joinw (masque "01001110.01010AAA"
-                     (a ix0))
-             im1)))
+    (joinw (masque "01001110.01010AAA"
+                   (a ix0))
+           im1)))
 
 (readop link (word read)
   (unmasque "01001110.01010AAA" word (a)
@@ -475,8 +426,8 @@
 
 (specop unlk (op0)
   (determine ((op0 adr)) (ix0)
-      (joinw (masque "01001110.01011AAA"
-                     (a ix0)))))
+    (joinw (masque "01001110.01011AAA"
+                   (a ix0)))))
 
 (readop unlk (word read)
   (unmasque "01001110.01011AAA" word (a)
@@ -496,8 +447,8 @@
 
 (specop stop (op0)
   (determine ((op0 (imm 32))) (im0)
-      (joinw (masque "01001110.01110010")
-             im0)))
+    (joinw (masque "01001110.01110010")
+           im0)))
 
 (readop (masque "01001110.01110010") (read)
   (list :stop (funcall read 1)))
@@ -571,8 +522,6 @@
 ;;                  encoding)
 ;;                (or word0 word1)))))
 
-;; START
-
 (flet ((mask-to-list (is-predec mask)
          (let ((collected))
            (loop :for i :across (if is-predec #(:d0 :d1 :d2 :d3 :d4 :d5 :d6 :d7
@@ -591,54 +540,44 @@
 
 
 (specop lea (op0 op1)
-  (assert (match-types op0 op1  location gpr)
-          (op0 op1)
-          "LEA operands ~a and ~a must be a location and an address register.")
-  (address (op0 op1) ((index0 amode0) (index1))
+  (determine ((op0 (mas mas-simple mas-disp mas-bi+disp mas-abs-w mas-abs-l mas-pc+disp mas-pci+disp))
+              (op1 adr))
+      ((ix0 ad0 word) ix1)
     (joinw (masque "0100AAA1.11MMMXXX"
-                   (a index1) (m amode0) (x index0)))))
+                   (a ix1) (m ad0) (x ix0))
+           (or word (encode-extension-word 0 op0)))))
 
 (readop lea (word read)
   (unmasque "0100AAA1.11MMMXXX" word (a m x)
     (list :lea (derive-location m x) (derive-location 1 a))))
 
 (specop chk (op0 op1)
-  (assert (match-types op0 op1  location gpr)
-          (op0 op1)
-          "CHK operands ~a and ~a must be a location and a general-purpose register.")
-  (address (op0 op1) ((index0 amode0) (index1))
+  (determine ((op0 gpr integer mas-all) (op1 gpr)) ((ix0 ad0 word) ix1)
     (joinw (masque "0100DDD1.10MMMXXX"
-                   ;; memory address
-                   (d index1) (m amode0) (x index0)))))
+                   (d ix1) (m ad0) (x ix0)) ;; memory address
+           (or word (encode-extension-word 0 op0)))))
 
 (readop chk (word read)
   (unmasque "0100DDD1.10MMMXXX" word (d m x)
-    (list :chk (derive-location m x) (derive-location 1 d))))
+    (list :chk (derive-width d) (derive-location m x) (derive-location 1 d))))
 
 ;; note: the immediate value is encoded in the bitfield as 1-7 if the number is the same,
 ;; but encoded as 0 if the number is 8, amounting to (logand #b111 n)
-(specop addq (w op0 op1)
-  (assert (match-types op0 op1  integer location)
-          (op0 op1)
-          "ADDQ operands ~a and ~a must be an immediate integer (range 1-8) and a location.")
-  (address (op1) ((index1 amode1))
+(specop addq (w op0 op1) ;; TODO: NEEDS ACCOMODATION FOR 8 VALUE
+  (determine ((w width) (op0 (imm 3)) (op1 gpr adr mas-all-but-pc)) (enw im0 (ix1 ad1))
     (joinw (masque "0101NNN0.SSMMMXXX"
-                   (n (logand #b111 op0)) (s (determine-width w))
-                   (m amode1) (x index1)))))
+                   (n (logand #b111 im0)) (s enw) (m ad1) (x ix1))
+           (encode-extension-word w op1))))
 
 (readop addq (word read)
   (unmasque "0101NNN0.SSMMMXXX" word (n s m x)
     (list :addq (derive-width s) (if (zerop n) 8 n) (derive-location m x))))
 
-(specop subq (w op0 op1)
-  (assert (and (match-types op0 op1  integer location)
-               (zerop (logand #b111 op0)))
-          (op0 op1)
-          "SUBQ operands ~a and ~a must be an immediate integer (range 1-8) and a location.")
-  (address (op1) ((index1 amode1))
+(specop subq (w op0 op1) ;; TODO: NEEDS ACCOMODATION FOR 8 VALUE
+  (determine ((w width) (op0 (imm 3)) (op1 gpr adr mas-all-but-pc)) (enw im0 (ix1 ad1))
     (joinw (masque "0101NNN1.SSMMMXXX"
-                   (n (logand #b111 op0)) (s (determine-width w))
-                   (m amode1) (x index1)))))
+                   (n im0) (s enw) (m ad1) (x ix1))
+           (encode-extension-word w op1))))
 
 (readop subq (word read)
   (unmasque "0101NNN1.SSMMMXXX" word (n s m x)
@@ -647,22 +586,23 @@
 (specop s (op0)
   ((:combine condition :appending :by-index
     :t :f :hi :ls :cc :cs :ne :eq :vc :vs :pl :mi :ge :lt :gt :le))
-  (address (op0) ((index0 amode0))
+  (determine ((op0 gpr mas-all-but-pc)) ((ix0 ad0 word))
     (joinw (masque "0101CCCC.11MMMXXX"
-                   (c condition) (m amode0) (x index0)))))
+                   (c condition) (m ad0) (x ix0))
+           (or word (encode-extension-word 0 op0)))))
 
 (readop s (word read)
   (unmasque "0101CCCC.11MMMXXX" word (c m x)
     (list (nth c '(:st :sf :shi :sls :scc :scs :sne :seq :svc :svs :spl :smi :sge :slt :sgt :sle))
           (derive-location m x))))
 
-(specop db (op0 op1)
+(specop db (op0 op1) ;; TODO : ENABLE PROGRAM API
   ((:combine condition :appending :by-index
     :t :f :hi :ls :cc :cs :ne :eq :vc :vs :pl :mi :ge :lt :gt :le))
-  (address (op0) ((index0))
+  (determine ((op0 gpr) (op1 (imm 16))) (ix0)
     (joinw (masque "0101CCCC.11001XXX"
-                   (c condition) (x index0))
-           (imm op1))))
+                   (c condition) (x ix0))
+           (imm-value op1))))
 
 (readop db (word read)
   (unmasque "0101CCCC.11001XXX" word (c x)
@@ -670,6 +610,8 @@
                    :dbvc :dbvs :dbpl :dbmi :dbge :dblt :dbgt :dble))
           (derive-location 0 x)
           (funcall read 1))))
+
+;; START
 
 (specop bra (op0)
   (assert (or (symbolp op0) (integerp op0)) (op0)
