@@ -599,10 +599,10 @@
 (specop db (op0 op1) ;; TODO : ENABLE PROGRAM API
   ((:combine condition :appending :by-index
     :t :f :hi :ls :cc :cs :ne :eq :vc :vs :pl :mi :ge :lt :gt :le))
-  (determine ((op0 gpr) (op1 (imm 16))) (ix0)
+  (determine ((op0 gpr) (op1 (imm 16))) (ix0 im1)
     (joinw (masque "0101CCCC.11001XXX"
                    (c condition) (x ix0))
-           (imm-value op1))))
+           (imm-value im1))))
 
 (readop db (word read)
   (unmasque "0101CCCC.11001XXX" word (c x)
@@ -610,8 +610,6 @@
                    :dbvc :dbvs :dbpl :dbmi :dbge :dblt :dbgt :dble))
           (derive-location 0 x)
           (funcall read 1))))
-
-;; START
 
 (specop bra (op0)
   ;; (assert (or (symbolp op0) (integerp op0)) (op0)
@@ -621,20 +619,21 @@
         (joinw (masque "01100000.DDDDDDDD"
                        (d ix0)))
         (joinw (masque "01100000.00000000") ;; case for 16-bit displacement
-               (of-program :label 16 16 ix0))))) 
+               (of-program :label 16 16 ix0)))))
 
 (readop bra (word read)
   (unmasque "01100000.DDDDDDDD" word (d)
     (list :bra (if (not (zerop d)) d (funcall read 1)))))
 
 (specop bsr (op0)
-  (assert (or (symbolp op0) (integerp op0)) (op0)
-          "BSR can only take an integer or location tag as operand.")
-  (if (and (integerp op0) (ash op0 -8))
-      (joinw (masque "01100001.DDDDDDDD"
-                     (d op0)))
-      (joinw (masque "01100001.00000000") ;; case for 16-bit displacement
-             (of-program :label 16 16 op0))))
+  ;; (assert (or (symbolp op0) (integerp op0)) (op0)
+  ;;         "BSR can only take an integer or location tag as operand.")
+  (determine ((op0 label)) (ix0)
+    (if (and (integerp ix0) (ash ix0 -8))
+        (joinw (masque "01100001.DDDDDDDD"
+                       (d ix0)))
+        (joinw (masque "01100001.00000000") ;; case for 16-bit displacement
+               (of-program :label 16 16 ix0)))))
 
 (readop bsr (word read)
   (unmasque "01100000.DDDDDDDD" word (d)
@@ -643,9 +642,11 @@
 (specop b (op0)
   ((:combine condition :appending :by-index
     :t :f :hi :ls :cc :cs :ne :eq :vc :vs :pl :mi :ge :lt :gt :le))
-  (joinw (masque "0101CCCC.NNNNNNNN"
-                 (c condition) (n (if (zerop (ash op0 -8)) (of-program :label 16 16 op0) 0)))
-         (if (zerop (ash op0 -8)) nil (of-program :label 16 16 op0))))
+  (determine ((op0 label)) (lb0)
+    (let ((offset (of-program :label 16 16 lb0)))
+      (joinw (masque "0101CCCC.NNNNNNNN"
+                     (c condition) (n (if (zerop (ash offset -8)) offset 0)))
+             (if (zerop (ash offset -8)) nil offset)))))
 
 (readop b (word read)
   (unmasque "0101CCCC.NNNNNNNN" word (c n)
@@ -653,52 +654,57 @@
           (if (not (zerop n)) n (funcall read 1)))))
 
 (specop moveq (op0 op1)
-  (address (op1) ((index1))
+  (determine ((op0 (imm 8)) (op1 gpr)) (im0 ix1)
     (joinw (masque "0111DDD0.NNNNNNNN"
-                   (d index1) (n op0)))))
+                   (d ix1) (n im0)))))
 
 (readop moveq (word read)
   (unmasque "0111DDD0.NNNNNNNN" word (d n)
     (list :moveq n (derive-location 0 d))))
 
 (specop divu (op0 op1)
-  (address (op0 op1) ((index0 amode0) (index1))
+  (determine ((op0 gpr integer mas-all) (op1 gpr)) ((ix0 ad0 word) ix1)
     (joinw (masque "1000AAA0.11MMMXXX"
-                   (a index1) (m amode0) (x index0)))))
+                   (a ix1) (m ad0) (x ix0))
+           (or word (encode-extension-word 0 op0)))))
 
 (readop divu (word read)
   (unmasque "1000AAA0.11MMMXXX" word (a m x)
     (list :divu (derive-location m x) (derive-location 0 a))))
 
 (specop divs (op0 op1)
-  (address (op0 op1) ((index0 amode0) (index1))
+  (determine ((op0 gpr integer mas-all) (op1 gpr)) ((ix0 ad0 word) ix1)
     (joinw (masque "1000AAA1.11MMMXXX"
-                   (a index1) (m amode0) (x index0)))))
+                   (a ix1) (m ad0) (x ix0))
+           (or word (encode-extension-word 0 op0)))))
 
 (readop divs (word read)
   (unmasque "1000AAA1.11MMMXXX" word (a m x)
     (list :divs (derive-location m x) (derive-location 0 a))))
 
 (specop sbcd (op0 op1)
-  ;; CHECK FOR D or -A
-  (address (op0 op1) ((index0) (index1))
+  (determine ((op0 gpr (mas mas-predecr)) (op1 gpr (mas mas-predecr))) (ix0 ix1)
+    (assert (or (match-types op0 op1  gpr gpr)
+                (match-types op0 op1  mas-predecr mas-predecr))
+            () "SBCD operands must either both be data registers or pre-decrementing memory accesses.")
     (joinw (masque "1000AAA1.0000MXXX"
-                   (a index1)
-                   (m (if (typep op1 'mas-m68k) 1 0))
-                   (x index0)))))
+                   (a ix1) (m (if (mas-predecr-p op1) 1 0)) (x ix0)))))
 
 (readop sbcd (word read)
   (unmasque "1000AAA1.0000MXXX" word (a m x)
     (list :sbcd (derive-location (* m #b100) x) (derive-location (* m #b100) a))))
 
 (specop or (w op0 op1)
-  (address (op0 op1) ((index0 amode0) (index1 amode1))
+  (determine ((w width) (op0 gpr integer mas-all) (op1 gpr mas-all-but-pc)) (enw (ix0 ad0) (ix1 ad1))
+    (assert (or (and (gpr-p op0) (typep op1 'mas-m68k))
+                (gpr-p op1))
+            () "If the source operand of OP is a general purpose register, the destination operand must be a memory alterable location.")
     (joinw (masque "1000AAAD.SSMMMXXX"
-                   (a (if (typep op1 'mas-m68k) index0 index1))
-                   (d (if (typep op1 'mas-m68k) 1      0))
-                   (s (determine-width w))
-                   (m (if (typep op1 'mas-m68k) amode1 amode0))
-                   (x (if (typep op1 'mas-m68k) index1 index0))))))
+                   (a (if (typep op1 'mas-m68k) ix0 ix1))
+                   (d (if (typep op1 'mas-m68k)   1   0))
+                   (s enw)
+                   (m (if (typep op1 'mas-m68k) ad1 ad0))
+                   (x (if (typep op1 'mas-m68k) ix1 ix0))))))
 
 (readop or (word read)
   (unmasque "1000AAAD.SSMMMXXX" word (a d s m x)
@@ -706,29 +712,26 @@
           (if (zerop d) (derive-location m x) (derive-location 0 a)))))
 
 (specop sub (w op0 op1)
-  (address (op0 op1) ((index0 amode0) (index1 amode1))
+  (determine ((w width) (op0 gpr integer mas-all) (op1 gpr mas-all-but-pc)) (enw (ix0 ad0) (ix1 ad1))
     (joinw (masque "1001AAAD.SSMMMXXX"
-                   (a (if (typep op1 'mas-m68k) index0 index1))
-                   (d (if (typep op1 'mas-m68k) 1      0))
-                   (s (determine-width w))
-                   (m (if (typep op1 'mas-m68k) amode1 amode0))
-                   (x (if (typep op1 'mas-m68k) index1 index0))))))
+                   (a (if (typep op1 'mas-m68k) ix0 ix1))
+                   (d (if (typep op1 'mas-m68k)   1   0))
+                   (s enw)
+                   (m (if (typep op1 'mas-m68k) ad1 ad0))
+                   (x (if (typep op1 'mas-m68k) ix1 ix0))))))
 
 (readop sub (word read)
-  (unmasque "1000AAAD.SSMMMXXX" word (a d s m x)
+  (unmasque "1001AAAD.SSMMMXXX" word (a d s m x)
     (list :sub (derive-width s) (if (zerop d) (derive-location 0 a) (derive-location m x))
           (if (zerop d) (derive-location m x) (derive-location 0 a)))))
 
 (specop subx (w op0 op1)
-  (assert (or (match-types op0 op1  gpr gpr)
-              (match-types op0 op1  mas-predecr mas-predecr))
-           (op0 op1)
-           "SUBX operands ~a and ~a must both be data registers or post-decrementing address registers.")
-  (address (op0 op1) ((index0) (index1))
+  (determine ((w width) (op0 gpr (mas mas-predecr)) (op1 gpr (mas mas-predecr))) (enw ix0 ix1)
+    (assert (or (match-types op0 op1  gpr gpr)
+                (match-types op0 op1  mas-predecr mas-predecr))
+            () "SUBX operands must both be data registers or pre-decrementing address registers.")
     (joinw (masque "1001YYY1.SS00MXXX"
-                   (y index1) (s (determine-width w))
-                   (m (if (typep op1 'mas-m68k) 1 0))
-                   (x index0)))))
+                   (y ix1) (s enw) (m (if (typep op1 'mas-m68k) 1 0)) (x ix0)))))
 
 (readop subx (word read)
   (unmasque "1001YYY1.SS00MXXX" word (y s m x)
@@ -736,115 +739,92 @@
           (derive-location (* m #b100) y))))
 
 (specop suba (w op0 op1)
-  (assert (match-types op0 op1  location adr)
-          (op1)
-          "SUBA operand 1 must be an address register.")
-  (address (op0 op1) ((index0 amode0) (index1))
+  (determine ((w width) (op0 gpr adr integer mas-all) (op1 adr)) (enw (ix0 ad0 word) ix1)
     (joinw (masque "1001AAAS.11MMMXXX"
-                   (a index1) (s (determine-width-bit w))
-                   (m amode0) (x index0)))))
+                   (a ix1) (s enw) (m ad0) (x ix0))
+           (or word (encode-extension-word w op0)))))
 
 (readop suba (word read)
   (unmasque "1001AAAS.11MMMXXX" word (a s m x)
     (list :suba (derive-width-bit s) (derive-location 1 a) (derive-location m x))))
 
 (specop eor (w op0 op1)
-  (assert (match-types op0 op1  gpr location)
-          (op1)
-          "EOR operands must be a GPR and a location.")
-  (address (op0 op1) ((index0) (index1 amode1))
+  (determine ((w width) (op0 gpr) (op1 gpr mas-all-but-pc)) (enw ix0 (ix1 ad1 word))
     (joinw (masque "1011AAA1.SSMMMXXX"
-                   (a index0) (s (determine-width w))
-                   (m amode1) (x index1)))))
+                   (a ix0) (s enw) (m ad1) (x ix1))
+           (or word (encode-extension-word w op1)))))
 
 (readop eor (word read)
   (unmasque "1011AAA1.SSMMMXXX" word (a s m x)
     (list :eor (derive-width s) (derive-location 0 a) (derive-location m x))))
 
 (specop cmpm (w op0 op1)
-  (assert (match-types op0 op1  mas-postinc mas-postinc)
-          (op1)
-          "CMPM operands must be postincrement-addressed locations.")
-  (address (op0 op1) ((index0) (index1))
+  (determine ((w width) (op0 (mas mas-postinc)) (op1 (mas mas-postinc))) (enw ix0 ix1)
     (joinw (masque "1011AAA1.SS001XXX"
-                   (a index1) (s (determine-width w))
-                   (x index0)))))
+                   (a ix1) (s enw) (x ix0)))))
 
 (readop cmpm (word read)
   (unmasque "1011AAA1.SS001XXX" word (a s x)
     (list :cmpm (derive-width s) (derive-location #b011 x) (derive-location #b011 a))))
 
 (specop cmp (w op0 op1)
-  (assert (match-types op0 op1  location gpr)
-          (op1)
-          "CMP operand 1 must be a data register.")
-  (address (op0 op1) ((index0 amode0) (index1))
+  (determine ((w width) (op0 gpr adr integer mas-all) (op1 gpr)) (enw (ix0 ad0 word) ix1)
     (joinw (masque "1011DDD0.SSMMMXXX"
-                   (d index1) (s (determine-width w))
-                   (m amode0) (x index0)))))
+                   (d ix1) (s enw) (m ad0) (x ix0))
+           (or word (encode-extension-word w op0)))))
 
 (readop cmp (word read)
   (unmasque "1011DDD0.SSMMMXXX" word (d s m x)
     (list :cmp (derive-width s) (derive-location m x) (derive-location 0 d))))
 
 (specop cmpa (w op0 op1)
-  (assert (storage-type-p :adr op1) (op1)
-          "CMPA operand 1 must be an address register.")
-  (address (op0 op1) ((index0 amode0) (index1))
+  (determine ((w width) (op0 gpr adr integer mas-all) (op1 adr)) (enw (ix0 ad0 word) ix1)
     (joinw (masque "1011AAAS.11MMMXXX"
-                   (a index1) (s (determine-width-bit w))
-                   (m amode0) (x index0)))))
+                   (a ix1) (s enw) (m ad0) (x ix0))
+           (or word (encode-extension-word w op0)))))
 
 (readop cmpa (word read)
   (unmasque "1011AAAS.11MMMXXX" word (a s m x)
     (list :cmpa (derive-width-bit s) (derive-location m x) (derive-location 1 a))))
 
 (specop mulu (op0 op1)
-  (address (op0 op1) ((index0 amode0) (index1))
+  (determine ((op0 gpr integer mas-all) (op1 gpr)) ((ix0 ad0 word) ix1)
     (joinw (masque "1100DDD0.11MMMXXX"
-                   (d index1) (m amode0) (x index0)))))
+                   (d ix1) (m ad0) (x ix0))
+           (or word (encode-extension-word 0 op0)))))
 
 (readop mulu (word read)
   (unmasque "1100DDD0.11MMMXXX" word (d m x)
     (list :mulu (derive-location m x) (derive-location 0 d))))
 
 (specop muls (op0 op1)
-  (address (op0 op1) ((index0 amode0) (index1))
+  (determine ((op0 gpr integer mas-all) (op1 gpr)) ((ix0 ad0 word) ix1)
     (joinw (masque "1100DDD1.11MMMXXX"
-                   (d index1) (m amode0) (x index0)))))
+                   (d ix1) (m ad0) (x ix0))
+           (or word (encode-extension-word 0 op0)))))
 
-(readop mulu (word read)
+(readop muls (word read)
   (unmasque "1100DDD1.11MMMXXX" word (d m x)
     (list :muls (derive-location m x) (derive-location 0 d))))
 
 (specop abcd (op0 op1)
-  (assert (or (match-types op0 op1  gpr gpr)
-              (match-types op0 op1  mas-predecr mas-predecr))
-           (op0 op1)
-           "ABCD operands ~a and ~a must both be data registers or post-decrementing address registers.")
-  (address (op0 op1) ((index0) (index1))
+  (determine ((w width) (op0 gpr (mas mas-predecr)) (op1 gpr (mas mas-predecr))) (enw ix0 ix1)
+    (assert (or (match-types op0 op1  gpr gpr)
+                (match-types op0 op1  mas-predecr mas-predecr))
+            () "ABCD operands must both be data registers or pre-decrementing address registers.")
     (joinw (masque "1100XXX1.0000MYYY"
-                   (x index1)
-                   (m (if (typep op1 'mas-m68k) 1 0))
-                   (y index0)))))
+                   (x ix1) (m (if (typep op1 'mas-m68k) 1 0)) (y ix0)))))
 
 (readop abcd (word read) ;; uses either 0 data register mode or 4 predecrement addressing mode
   (unmasque "1100XXX1.0000MYYY" word (x m y)
     (list :abcd (derive-location (* m #b100) y) (derive-location (* m #b100) x))))
 
 (specop exg (op0 op1)
-  (assert (and (or (typep op0 'gpr) (typep op0 'adr))
-               (or (typep op1 'gpr) (typep op1 'adr)))
-          (op1)
-          "EXG operands must be general-purpose or address registers.")
-  (address (op0 op1) ((index0) (index1))
+  (determine ((op0 gpr adr) (op1 gpr adr)) (ix0 ix1)
+    (assert (not (and (typep op0 'adr) (typep op1 'gpr)))
+            () "EXG may not take an address register as source and a general purpose register as destination.")
     (joinw (masque "1100XXX1.MMMMMYYY"
-                   (x index0)
-                   (m (if (storage-type-p :gpr op0)
-                          (if (storage-type-p :gpr op1)
-                              #b01000 #b10001)
-                          #b01001))
-                   (y index1)))))
+                   (x ix0) (m (if (gpr-p op0) (if (gpr-p op1) #b01000 #b10001) #b01001)) (y ix1)))))
 
 (readop exg (word read)
   (unmasque "1100XXX1.MMMMMYYY" word (x m y)
@@ -852,17 +832,16 @@
           (derive-location (logand m 1) y))))
 
 (specop and (w op0 op1)
-  (assert (or (match-types op0 op1  location gpr)
-              (match-types op0 op1  gpr location))
-           (op0 op1)
-          "AND operands ~a and ~a must both be data registers or post-decrementing address registers.")
-  (address (op0 op1) ((index0 amode0) (index1 amode1))
+  (determine ((w width) (op0 gpr integer mas-all) (op1 gpr mas-all-but-pc)) (enw (ix0 ad0) (ix1 ad1))
+    (assert (or (and (gpr-p op0) (typep op1 'mas-m68k))
+                (gpr-p op1))
+            () "If the source operand of AND is a general purpose register, the destination operand must be a memory alterable location.")
     (joinw (masque "1100AAAD.SSMMMXXX"
-                   (a (if (typep op1 'mas-m68k) index0 index1))
-                   (d (if (typep op1 'mas-m68k) 1      0))
-                   (s (determine-width w))
-                   (m (if (typep op1 'mas-m68k) amode1 amode0))
-                   (x (if (typep op1 'mas-m68k) index1 index0))))))
+                   (a (if (typep op1 'mas-m68k) ix0 ix1))
+                   (d (if (typep op1 'mas-m68k)   1   0))
+                   (s enw)
+                   (m (if (typep op1 'mas-m68k) ad1 ad0))
+                   (x (if (typep op1 'mas-m68k) ix1 ix0))))))
 
 (readop and (word read)
   (unmasque "1100AAAD.SSMMMXXX" word (a d s m x)
@@ -870,17 +849,16 @@
           (if (zerop d) (derive-location m x) (derive-location 0 a)))))
 
 (specop add (w op0 op1)
-  (assert (or (match-types op0 op1  location gpr)
-              (match-types op0 op1  gpr location))
-           (op0 op1)
-          "ADD operands ~a and ~a must both be data registers or post-decrementing address registers.")
-  (address (op0 op1) ((index0 amode0) (index1 amode1))
+  (determine ((w width) (op0 gpr integer mas-all) (op1 gpr mas-all-but-pc)) (enw (ix0 ad0) (ix1 ad1))
+    (assert (or (and (gpr-p op0) (typep op1 'mas-m68k))
+                (gpr-p op1))
+            () "If the source operand of AND is a general purpose register, the destination operand must be a memory alterable location.")
     (joinw (masque "1101AAAD.SSMMMXXX"
-                   (a (if (typep op1 'mas-m68k) index0 index1))
-                   (d (if (typep op1 'mas-m68k) 1      0))
-                   (s (determine-width w))
-                   (m (if (typep op1 'mas-m68k) amode1 amode0))
-                   (x (if (typep op1 'mas-m68k) index1 index0))))))
+                   (a (if (typep op1 'mas-m68k) ix0 ix1))
+                   (d (if (typep op1 'mas-m68k)   1   0))
+                   (s enw)
+                   (m (if (typep op1 'mas-m68k) ad1 ad0))
+                   (x (if (typep op1 'mas-m68k) ix1 ix0))))))
 
 (readop add (word read)
   (unmasque "1101AAAD.SSMMMXXX" word (a d s m x)
@@ -888,20 +866,19 @@
           (if (zerop d) (derive-location m x) (derive-location 0 a)))))
 
 (specop addx (w op0 op1)
-  (assert (or (match-types op0 op1  gpr gpr)
-              (match-types op0 op1  mas-predecr mas-predecr))
-           (op0 op1)
-           "ADDX operands ~a and ~a must both be data registers or post-decrementing address registers.")
-  (address (op0 op1) ((index0) (index1))
+  (determine ((w width) (op0 gpr (mas mas-predecr)) (op1 gpr (mas mas-predecr))) (enw ix0 ix1)
+    (assert (or (match-types op0 op1  gpr gpr)
+                (match-types op0 op1  mas-predecr mas-predecr))
+            () "ADDX operands must both be data registers or pre-decrementing address registers.")
     (joinw (masque "1101XXX1.SS00MYYY"
-                   (x index1) (s (determine-width w))
-                   (m (if (typep op1 'mas-m68k) 1 0))
-                   (y index0)))))
+                   (x ix1) (s enw) (m (if (typep op1 'mas-m68k) 1 0)) (y ix0)))))
 
 (readop addx (word read)
   (unmasque "1101XXX1.SS00MYYY" word (x s m y)
     (list :addx (derive-width s) (derive-location (* m #b011) x)
           (derive-location (* m #b011) y))))
+
+;; START
 
 (specop adda (w op0 op1)
   (assert (match-types op0 op1 location adr)
