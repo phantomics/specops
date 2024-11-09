@@ -614,13 +614,14 @@
 ;; START
 
 (specop bra (op0)
-  (assert (or (symbolp op0) (integerp op0)) (op0)
-          "BRA can only take an integer or location tag as operand.")
-  (if (and (integerp op0) (zerop (ash op0 -8)))
-      (joinw (masque "01100000.DDDDDDDD"
-                     (d op0)))
-      (joinw (masque "01100000.00000000") ;; case for 16-bit displacement
-             (of-program :label 16 16 op0))))
+  ;; (assert (or (symbolp op0) (integerp op0)) (op0)
+  ;;         "BRA can only take an integer or location tag as operand.")
+  (determine ((op0 label)) (ix0)
+    (if (and (integerp ix0) (zerop (ash ix0 -8)))
+        (joinw (masque "01100000.DDDDDDDD"
+                       (d ix0)))
+        (joinw (masque "01100000.00000000") ;; case for 16-bit displacement
+               (of-program :label 16 16 ix0))))) 
 
 (readop bra (word read)
   (unmasque "01100000.DDDDDDDD" word (d)

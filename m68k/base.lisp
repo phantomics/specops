@@ -224,6 +224,7 @@
               (width-bit `(member (wspec-name ,operand) '(:w :l)))
               (gpr `(gpr-p ,operand))
               (adr `(adr-p ,operand))
+              (label `(or (gpr-p ,operand) (symbolp ,operand)))
               (mas-all `(typep ,operand 'mas-m68k))
               (mas-all-but-pc `(and (typep ,operand 'mas-m68k)
                                     (not (or (typep ,operand 'mas-bi+disp)
@@ -256,6 +257,7 @@
                                      (width-prefix "width : any")
                                      (gpr "general purpose register : any")
                                      (adr "address register : any")
+                                     (label "label")
                                      (mas-all (format nil "memory access : ~{~a ~}"
                                                       (mapcar #'mas-express mas-all-list)))
                                      (mas-all-but-pc (format nil "memory access : ~{~a ~}"
@@ -274,24 +276,27 @@
 (defun derive-operand (spec)
   ;; (print (list :oo operand type))
   (destructuring-bind (operand &rest types) spec
-    (cons 'or (loop :for type :in types :collect
-                    (typecase type
-                      (symbol (case type
-                                (width `(determine-width (wspec-name ,operand)))
-                                (width-prefix `(determine-width (wspec-name ,operand) t))
-                                (width-bit `(determine-width-bit (wspec-name ,operand)))
-                                ((gpr adr mas-all mas-all-but-pc mas-simple mas-postinc mas-predecr
-                                      mas-disp mas-bi+disp mas-pc+disp mas-pci+disp mas-abs)
-                                 `(encode-location ,operand))
-                                (vector `(imm-value ,operand))
-                                (reg-list operand)))
-                      (list (destructuring-bind (type &rest qualities) type
-                              (declare (ignore qualities))
-                              (case type
-                                (width `(determine-width ,operand))
-                                (imm (list 'imm-value operand))
-                                (mas `(encode-location ,operand))
-                                (reg-fixed `(reg-name ,operand))))))))))
+    (cons 'cond (loop :for type :in types
+                    :collect
+                    (list (qualify-operand operand type)
+                          (typecase type
+                            (symbol (case type
+                                      (width `(determine-width (wspec-name ,operand)))
+                                      (width-prefix `(determine-width (wspec-name ,operand) t))
+                                      (width-bit `(determine-width-bit (wspec-name ,operand)))
+                                      ((gpr adr mas-all mas-all-but-pc mas-simple mas-postinc mas-predecr
+                                            mas-disp mas-bi+disp mas-pc+disp mas-pci+disp mas-abs)
+                                       `(encode-location ,operand))
+                                      (label operand)
+                                      (vector `(imm-value ,operand))
+                                      (reg-list operand)))
+                            (list (destructuring-bind (type &rest qualities) type
+                                    (declare (ignore qualities))
+                                    (case type
+                                      (width `(determine-width ,operand))
+                                      (imm (list 'imm-value operand))
+                                      (mas `(encode-location ,operand))
+                                      (reg-fixed `(reg-name ,operand)))))))))))
 
 ;; (defun derive-operand (operand type)
 ;;   (print (list :oo operand type))

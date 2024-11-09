@@ -783,7 +783,6 @@ ANDI OP0 - GPR
                   (symbol (push (cons item (fill-pointer codes)) (getf props :marked-points)))
                   (list   (destructuring-bind (instruction &rest operands) item
                             (let ((build-instruction (of-lexicon assembler instruction)))
-                              ;; (print (list :bi build-instruction))
                               (multiple-value-bind (code properties)
                                   (if (not (functionp build-instruction))
                                       build-instruction (apply build-instruction api-access operands))
