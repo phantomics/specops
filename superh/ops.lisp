@@ -557,8 +557,6 @@
 ;;   (masque "0000NNNN.00101001" ;; movt Rn
 ;;           (n (rix op0 :gp))))
 
-;;; AAA
-
 (specops-sh movt (op0)
   ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
   (determine ((op0 gpr)) (ix0)
@@ -580,11 +578,12 @@
 
 (specops-sh swap (w op0 op1)
   ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
-  (case w
-    (:b (masque "0110NNNN.MMMM1000" ;; swap.b Rm,Rn
-                (n (rix op1 :gp)) (m (rix op0 :gp))))
-    (:w (masque "0110NNNN.MMMM1001" ;; swap.w Rm,Rn
-                (n (rix op1 :gp)) (m (rix op0 :gp))))))
+  (determine ((w (width :b :w)) (op0 gpr) (op1 gpr)) (nil ix0 ix1)
+    (case w
+      (:b (masque "0110NNNN.MMMM1000" ;; swap.b Rm,Rn
+                  (n ix1) (m ix0)))
+      (:w (masque "0110NNNN.MMMM1001" ;; swap.w Rm,Rn
+                  (n ix1) (m ix0))))))
 
 (readops-sh swap.b (word read) ;; swap.b Rm,Rn
   (unmasque "0110NNNN.MMMM1000" word (n m)
@@ -596,19 +595,19 @@
 
 (specops-sh xtrct (op0 op1)
   ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
-  (masque "0010NNNN.MMMM1101" ;; xtrct Rm,Rn
-          (n (rix op1 :gp)) (m (rix op0 :gp))))
+  (determine ((op0 gpr) (op1 gpr)) (ix0 ix1)
+    (masque "0010NNNN.MMMM1101" ;; xtrct Rm,Rn
+            (n ix1) (m ix0))))
 
 (readops-sh xtrct (word read) ;; xtrct Rm,Rn
   (unmasque "0010NNNN.MMMM1101" word (n m)
     (list :xtrct (drv-gpr m) (drv-gpr n))))
 
-(specops-sh band.b (op0 op1)
+(specops-sh band.b (op0 op1) gpr mas-disp12
   ((:for-types :sh2a))
-  (if (match-types op0 op1  integer mas-disp12)
-      (masque "0011NNNN.0III1001.0100DDDD.DDDDDDDD" ;; band.b #imm3,@disp12,Rn
-              (n (rix (mas-base op1) :gp)) (i op0) (d (mas-displ op1)))
-      (error "BAND.B can only take an immediate value and base+displacement memory access as operands.")))
+  (determine ((op0 (imm 3)) (op1 mas-disp12)) (im0 (ix1 ds1))
+    (masque "0011NNNN.0III1001.0100DDDD.DDDDDDDD" ;; band.b #imm3,@(disp12,Rn)
+            (n ix1) (i im0) (d ds1))))
 
 (readops-sh bandnot.b (word read)
   (unmasque "0011NNNN.0III1001.0100DDDD.DDDDDDDD" word (n i d) 
@@ -616,10 +615,9 @@
 
 (specops-sh bandnot.b (op0 op1)
   ((:for-types :sh2a))
-  (if (match-types op0 op1  integer mas-disp12)
-      (masque "0011NNNN.0III1001.1100DDDD.DDDDDDDD" ;; bandnot.b #imm3,@(disp12,Rn)
-              (n (rix (mas-base op1) :gp)) (i op0) (d (mas-displ op1)))
-      (error "BANDNOT.B can only take an immediate value and base+displacement memory access as operands.")))
+  (determine ((op0 (imm 3)) (op1 mas-disp12)) (im0 (ix1 ds1))
+    (masque "0011NNNN.0III1001.1100DDDD.DDDDDDDD" ;; bandnot.b #imm3,@(disp12,Rn)
+            (n ix1) (i im0) (d ds1))))
 
 (readops-sh bandnot.b (word read)
   (unmasque "0011NNNN.0III1001.1100DDDD.DDDDDDDD" word (n i d) 
@@ -627,10 +625,9 @@
 
 (specops-sh bclr.b (op0 op1)
   ((:for-types :sh2a))
-  (if (match-types op0 op1  integer mas-disp12)
-      (masque "0011NNNN.0III1001.0000DDDD.DDDDDDDD" ;; bclr.b #imm3,@(disp12,Rn)
-              (n (rix (mas-base op1) :gp)) (i op0) (d (mas-displ op1)))
-      (error "BCLR.B can only be called on a 3-bit integer value and a displaced memory access.")))
+  (determine ((op0 (imm 3)) (op1 mas-disp12)) (im0 (ix1 ds1))
+    (masque "0011NNNN.0III1001.0000DDDD.DDDDDDDD" ;; bclr.b #imm3,@(disp12,Rn)
+            (n ix1) (i im0) (d ds1))))
 
 (readops-sh bclr.b (word read) ;; bclr.b #imm3,@(disp12,Rn)
   (unmasque "0011NNNN.0III1001.0000DDDD.DDDDDDDD" word (n i d)
@@ -638,10 +635,9 @@
 
 (specops-sh bclr (op0 op1)
   ((:for-types :sh2a))
-  (if (match-types op0 op1  integer gpr)
-      (masque "10000110.NNNN0III" ;; bclr #imm3,Rn
-              (n (rix op1 :gp)) (i op0))
-      (error "Invalid operands passed to BCLR.")))
+  (determine ((op0 (imm 3)) (op1 gpr)) (im0 ix1)
+    (masque "10000110.NNNN0III" ;; bclr #imm3,Rn
+            (n ix1) (i im0))))
 
 (readops-sh bclr (word read) ;; bclr #imm3,Rn
   (unmasque "10000110.NNNN0III" word (n i)
@@ -649,21 +645,19 @@
 
 (specops-sh bld.b (op0 op1)
   ((:for-types :sh2a))
-  (if (match-types op0 op1  integer mas-disp12)
-      (masque "0011NNNN.0III1001.0011DDDD.DDDDDDDD" ;; bld.b #imm3,@(disp12,Rn)
-              (n (rix (mas-base op1) :gp)) (i op0) (d (mas-displ op1)))
-      (error "Invalid operands passed to BLD.B.")))
+  (determine ((op0 (imm 3)) (op1 mas-disp12)) (im0 (ix1 ds1))
+    (masque "0011NNNN.0III1001.0011DDDD.DDDDDDDD" ;; bld.b #imm3,@(disp12,Rn)
+            (n ix1) (i im0) (d ds1))))
 
 (readops-sh bld.b (word read) ;; bld.b #imm3,@(disp12,Rn)
   (unmasque "0011NNNN.0III1001.0011DDDD.DDDDDDDD" word (n i d)
     (list :bld.b i (list '@> (drv-gpr n) d))))
 
 (specops-sh bld (op0 op1)
-  ((:for-types :sh2a)) 
-  (if (and (match-types op0 op1  integer gpr) (zerop (ash op0 -3)))
-      (masque "10000111.NNNN1III" ;; bld #imm3,Rn
-              (n (rix op1 :gp)) (i op0))
-      (error "Invalid operands passed to BLD.")))
+  ((:for-types :sh2a))
+  (determine ((op0 (imm 3)) (op1 gpr)) (im0 ix1)
+    (masque "10000111.NNNN1III" ;; bld #imm3,Rn
+            (n ix1) (i im0))))
 
 (readops-sh bld (word read) ;; bld #imm3,Rn
   (unmasque "10000111.NNNN1III" word (n i)
@@ -671,10 +665,9 @@
 
 (specops-sh bldnot.b (op0 op1)
   ((:for-types :sh2a))
-  (if (match-types op0 op1  gpr mas-disp12)
-      (masque "0011NNNN.0III1001.1011DDDD.DDDDDDDD" ;; bldnot.b #imm3,@(disp12,Rn)
-              (n (rix (mas-base op1) :gp)) (i op0) (d (mas-displ op1)))
-      (error "Invalid operands passed to BLDNOT.")))
+  (determine ((op0 (imm 3)) (op1 mas-disp12)) (im0 (ix1 ds1))
+    (masque "0011NNNN.0III1001.1011DDDD.DDDDDDDD" ;; bldnot.b #imm3,@(disp12,Rn)
+            (n ix1) (i im0) (d ds1))))
 
 (readops-sh bldnot.b (word read) ;; bldnot.b #imm3,@(disp12,Rn)
   (unmasque "0011NNNN.0III1001.1011DDDD.DDDDDDDD" word (n i d)
@@ -682,10 +675,9 @@
 
 (specops-sh bor.b (op0 op1)
   ((:for-types :sh2a))
-  (if (match-types op0 op1  integer mas-disp12)
-      (masque "0011NNNN.0III1001.0101DDDD.DDDDDDDD" ;; bor.b #imm3,@(disp12,Rn)
-              (n (rix (mas-base op1) :gp)) (i op0) (d (mas-displ op1)))
-      (error "BOR can only be called at width B with an immediate value and base+displacement memory access as its operands.")))
+  (determine ((op0 (imm 3)) (op1 mas-disp12)) (im0 (ix1 ds1))
+    (masque "0011NNNN.0III1001.0101DDDD.DDDDDDDD" ;; bor.b #imm3,@(disp12,Rn)
+            (n ix1) (i im0) (d ds1))))
 
 (readops-sh bor.b (word read) ;; bor.b #imm3,@(disp12,Rn)
   (unmasque "0011NNNN.0III1001.0101DDDD.DDDDDDDD" word (n i d)
@@ -693,10 +685,9 @@
 
 (specops-sh bornot.b (op0 op1)
   ((:for-types :sh2a))
-  (if (match-types op0 op1  integer mas-disp12)
-      (masque "0011NNNN.0III1001.1101DDDD.DDDDDDDD" ;; bornot.b #imm3,@(disp12,Rn)
-              (n (rix (mas-base op1) :gp)) (i op0) (d (mas-displ op1)))
-      (error "BORNOT can only be called at width B with an immediate value and base+displacement memory access as its operands.")))
+  (determine ((op0 (imm 3)) (op1 mas-disp12)) (im0 (ix1 ds1))
+    (masque "0011NNNN.0III1001.1101DDDD.DDDDDDDD" ;; bornot.b #imm3,@(disp12,Rn)
+             (n ix1) (i im0) (d ds1))))
 
 (readops-sh bornot.b (word read) ;; bornot.b #imm3,@(disp12,Rn)
   (unmasque "0011NNNN.0III1001.0101DDDD.DDDDDDDD" word (n i d)
@@ -704,11 +695,9 @@
 
 (specops-sh bset.b (op0 op1)
   ((:for-types :sh2a))
-  ;; (determine ((op0 (imm :width 3)) (op1 mas-disp)))
-  (if (match-types op0 op1  integer mas-disp12)
-      (masque "0011NNNN.0III1001.0001DDDD.DDDDDDDD" ;; bset.b #imm3,@(disp12,Rn)
-              (n (rix (mas-base op1) :gp)) (i op0) (d (mas-displ op1)))
-      (error "BSET can only be called with an immediate value and base+displacement memory access as its operands at width B.")))
+  (determine ((op0 (imm 3)) (op1 mas-disp12)) (im0 (ix1 ds1))
+    (masque "0011NNNN.0III1001.0001DDDD.DDDDDDDD" ;; bset.b #imm3,@(disp12,Rn)
+            (n ix1) (i im0) (d ds1))))
 
 (readops-sh bset.b (word read) ;; bset.b #imm3,@(disp12,Rn)
   (unmasque "0011NNNN.0III1001.0001DDDD.DDDDDDDD" word (n i d)
@@ -716,10 +705,9 @@
 
 (specops-sh bset (op0 op1)
   ((:for-types :sh2a))
-  (if (match-types op0 op1  integer gpr)
-      (masque "10000110.NNNN1III" ;; bset #imm3,Rn
-              (n (rix op1 :gp)) (i op0))
-      (error "Invalid operands passed to BSET.")))
+  (determine ((op0 (imm 3)) (op1 gpr)) (im0 ix1)
+    (masque "10000110.NNNN1III" ;; bset #imm3,Rn
+            (n ix1) (i im0))))
 
 (readops-sh bset (word read) ;; bset #imm3,Rn
   (unmasque "10000110.NNNN1III" word (n i)
@@ -727,10 +715,9 @@
 
 (specops-sh bst.b (op0 op1)
   ((:for-types :sh2a))
-  (if (match-types op0 op1  integer mas-disp12)
-      (masque "0011NNNN.0III1001.0010DDDD.DDDDDDDD" ;; bst.b #imm3,@(disp12,Rn)
-              (n (rix (mas-base op1) :gp)) (i op0) (d (mas-displ op1)))
-      (error "BST can only be called with an immediate value and base+displacement memory access as its operands at width B.")))
+  (determine ((op0 (imm 3)) (op1 mas-disp12)) (im0 (ix1 ds1))
+    (masque "0011NNNN.0III1001.0010DDDD.DDDDDDDD" ;; bst.b #imm3,@(disp12,Rn)
+            (n ix1) (i im0) (d ds1))))
 
 (readops-sh bst.b (word read) ;; bst.b #imm3,@(disp12,Rn)
   (unmasque "0011NNNN.0III1001.0010DDDD.DDDDDDDD" word (n i d)
@@ -738,10 +725,9 @@
 
 (specops-sh bst (op0 op1)
   ((:for-types :sh2a))
-  (if (match-types op0 op1  integer gpr)
-      (masque "10000111.NNNN0III" ;; bst #imm3,Rn
-              (n (rix op1 :gp)) (i op0))
-      (error "Invalid operands passed to BSET.")))
+  (determine ((op0 (imm 3)) (op1 gpr)) (im0 ix1)
+    (masque "10000111.NNNN0III" ;; bst #imm3,Rn
+            (n ix1) (i im0))))
 
 (readops-sh bst (word read) ;; bst #imm3,Rn
   (unmasque "10000111.NNNN0III" word (n i)
@@ -749,10 +735,9 @@
 
 (specops-sh bxor.b (op0 op1)
   ((:for-types :sh2a))
-  (if (match-types op0 op1  gpr mas-disp12)
-      (masque "0011NNNN.0III1001.0110DDDD.DDDDDDDD" ;; bxor.b #imm3,@(disp12,Rn)
-              (n (rix (mas-base op1) :gp)) (i op0) (d (mas-displ op1)))
-      (error "Invalid operands passed to BXOR.")))
+  (determine ((op0 (imm 3)) (op1 mas-disp12)) (im0 (ix1 ds1))
+    (masque "0011NNNN.0III1001.0110DDDD.DDDDDDDD" ;; bxor.b #imm3,@(disp12,Rn)
+            (n ix1) (i im0) (d ds1))))
 
 (readops-sh bxor.b (word read) ;; bxor.b #imm3,@(disp12,Rn)
   (unmasque "0011NNNN.0III1001.0110DDDD.DDDDDDDD" word (n i d)
@@ -762,12 +747,12 @@
 
 (specops-sh add (op0 op1)
   ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
-  (cond ((match-types op0 op1  gpr gpr)
-         (masque "0011NNNN.MMMM1100" ;; add Rm,Rn
-                 (n (rix op1 :gp)) (m (rix op0 :gp))))
-        ((match-types op0 op1  integer gpr)
-         (masque "0111NNNN.IIIIIIII" ;; add #imm,Rn
-                 (n (rix op1 :gp)) (i op0)))))
+  (determine ((op0 gpr (imm 8)) (op1 gpr)) (ii0 ix1)
+    (if (gpr-p op0)
+        (masque "0011NNNN.MMMM1100" ;; add Rm,Rn
+                (n ix1) (m ii0))
+        (masque "0111NNNN.IIIIIIII" ;; add #imm,Rn
+                (n ix1) (i ii0)))))
 
 (readops-sh add.r-r (word read) ;; add Rm,Rn
   (unmasque "0011NNNN.MMMM1100" word (n m)
@@ -779,8 +764,9 @@
 
 (specops-sh addc (op0 op1)
   ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
-  (masque "0011NNNN.MMMM1110" ;; addc Rm,Rn
-          (n (rix op1 :gp)) (m (rix op0 :gp))))
+  (determine ((op0 gpr) (op1 gpr)) (ix0 ix1)
+    (masque "0011NNNN.MMMM1110" ;; addc Rm,Rn
+            (n ix1) (m ix0))))
 
 (readops-sh addc (word read) ;; addc Rm,Rn
   (unmasque "0011NNNN.MMMM1110" word (n m)
@@ -788,8 +774,11 @@
 
 (specops-sh addv (op0 op1)
   ((:for-types :sh1 :sh2 :sh3 :sh4 :sh4a :sh2a))
-  (masque "0011NNNN.MMMM1111" ;; addv Rm,Rn
-          (n (rix op1 :gp)) (m (rix op0 :gp))))
+  (determine ((op0 gpr) (op1 gpr)) (ix0 ix1)
+    (masque "0011NNNN.MMMM1111" ;; addv Rm,Rn
+            (n ix1) (m ix0))))
+
+;;; AAA
 
 (readops-sh addv (word read)
   (unmasque "0011NNNN.MMMM1111" word (n m)
