@@ -489,22 +489,35 @@
 (defmethod clause-processor :around ((assembler assembler) action mnemonic operands params body)
   (declare (ignore assembler))
   ;; (print (list :pa params))
-  (let ((args (gensym))
+  (let ((args (gensym)) (types-to-match (gensym))
         (wrap-body (or (rest (assoc :wrap-body params)) #'identity))
         (api-access-sym (asm-program-api assembler))
         (api-access (asm-program-api-access assembler))
-        (operands (case action (of-lexicon operands) (t))))
+        (operands (case action (of-lexicon operands) (t)))
+        (asm-sym (rest (assoc :assembler-sym params))))
     ;; (print (list :abc action mnemonic operands body))
     (multiple-value-bind (content key is-constant) (call-next-method)
       ;; (print (list :gg content key action params operands))
-      (list action (rest (assoc :assembler-sym params))
-            key ;; (intern (string mnemonic) "KEYWORD")
-            ;; (let ((content (funcall wrap-body (call-next-method))))
+      (list action asm-sym key
             (if is-constant content
                 `(lambda ,(cons api-access-sym operands)
-                   (flet ((,api-access (&rest ,args) (apply ,api-access-sym ,args)))
-                     (declare (ignorable (function ,api-access)))
-                     ;; (declare (ignorable ,api-access))
+                   (flet ((,api-access (&rest ,args) (apply ,api-access-sym ,args))
+                          ,@(if (assoc :type-matcher params)
+                                ;; generate type-matching function for use within instruction assembler
+                                `((,(rest (assoc :type-matcher params))
+                                   (&rest ,types-to-match)
+                                   (intersection ,types-to-match (funcall ,api-access-sym
+                                                                          :assembler-type))))))
+                     ;; make API and type-checking function (if present) ignorable
+                     (declare (ignorable (function ,api-access)
+                                         ,@(if (assoc :type-matcher params)
+                                               `((function ,(rest (assoc :type-matcher params)))))))
+                     ,@(if (assoc :for-types params)
+                           ;; generate top-level type-checking code
+                           `((assert (intersection (,api-access :assembler-type)
+                                                   ',(rest (assoc :for-types params)))
+                                     () ,(format nil "Instruction ~a is not compatible ~a."
+                                                 key "with this architecture"))))
                      ,@(funcall wrap-body content))))))))
 
 (defmethod extend-clauses ((assembler assembler) mnemonic operands params body)
@@ -513,8 +526,7 @@
 
 (defmethod clause-processor ((assembler assembler) action mnemonic operands params body)
   (declare (ignore assembler action operands params))
-  (values body ;; mnemonic
-          (intern (string mnemonic) "KEYWORD")))
+  (values body (intern (string mnemonic) "KEYWORD")))
 
 (defun process-clause-matrix (assembler op-symbol operands params operations)
   (let ((clauses) (prefixes) (opcode-base (if (numberp op-symbol) op-symbol 0)))
@@ -637,30 +649,6 @@
 ;;         `(of-decoder *assembler-prototype-m68k* ,symbol ,function)
 ;;         `(of-battery *assembler-prototype-m68k* ,(intern (string symbol) "KEYWORD") ,function))))
 
-;; (defun qualify-operand (operand type)
-;;   (declare (ignore operand))
-;;   type)
-
-;; (defun derive-operand (operand type)
-;;   operand)
-
-;; (defun verbalize-operand (spec)
-;;   (format nil "~a~%" spec))
-
-;; (defmacro determine (mnemonic &rest specs)
-;;   `(determine-in-context ,(list :qualify #'qualify-operand :verbalize #'verbalize-operand
-;;                                 :derive #'derive-operand)
-;;                          ,mnemonic ,@specs))
-
-;; (defun complete-dforms (msym dsym form)
-;;   (typecase form
-;;     (atom form)
-;;     (list (if (not (eql dsym (first form)))
-;;               (loop :for item :in form :collect (complete-dforms msym dsym item))
-;;               (append (list dsym msym)
-;;                       (loop :for item :in (rest form)
-;;                             :collect (complete-dforms msym dsym item)))))))
-
 (defmacro determine-in-context (utils mnemonic specs &optional bindings &rest body)
   (destructuring-bind (&key qualify derive verbalize &allow-other-keys) utils
     (labels ((process-level (body bindings specs)
@@ -700,23 +688,6 @@
                                                                           (+ mnem-length 3 op-max-length)
                                                                           #\ (funcall verbalize sub-spec)))
                                                         ))))))))))
-
-#|
-
-(determine andi ((op0 gpr (adr)) (op1 (imm 16)))
-          (en0 (en1 en2)))
-
-(IF (AND (OR GPR (ADR)) (OR (IMM 16)))
-    NIL
-    (ERROR "
-ANDI OP0 - GPR
-           (ADR)
-     OP1 -      (IMM 16)
-"))
-
-
-
-|#
 
 (defparameter *default-segment* 1000)
 
@@ -763,6 +734,7 @@ ANDI OP0 - GPR
          (two-power (floor (log unit 2)))
          (api-access (lambda (mode &rest args)
                        (case mode
+                         (:assembler-type (asm-type assembler))
                          (:exmode (or (rest (assoc :exmode params))
                                       (first (asm-exmodes assembler))))
                          (:label (destructuring-bind (offset-bits field-length symbol) args

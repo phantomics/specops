@@ -140,6 +140,25 @@
               (m 0) (x (rix (mas-index access) :ad))
               (s (case width (:w 0) (:l 1) (t 0))) (d (mas-displ access)))))
 
+(defun derive-location (mode index &key base displacement (pa (lambda (a b) (declare (ignore a b)) 0)))
+  (case mode
+    (#b000           (nth index (getf *m68k-layout* :gp)))  ;; Dn
+    (#b001           (nth index (getf *m68k-layout* :ad)))  ;; An
+    (#b010 (list '@  (nth index (getf *m68k-layout* :ad)))) ;; (An)
+    (#b011 (list '@+ (nth index (getf *m68k-layout* :ad)))) ;; (An)+
+    (#b100 (list '-@ (nth index (getf *m68k-layout* :ad)))) ;; -(An)
+    (#b101 (list '@~ (nth index (getf *m68k-layout* :ad)) nil (funcall pa :read 1))) ;; (d16,An)
+    (#b110 (unmasque "MXXXS000.DDDDDDDD" (funcall pa :read 1) (m x s d) ;; (d8,An,Xn)
+             (list '@~ (nth index (getf *m68k-layout* :ad))
+                   (nth x (getf *m68k-layout* :ad)) d)))
+    (#b111 (case index
+             (#b000 (list '@= (funcall pa :read 1)))         ;; (xxx).W
+             (#b001 (list '@= (funcall pa :read 2)))         ;; (xxx).L
+             (#b010 (list '@~ :pc nil (funcall pa :read 1))) ;; (d16,PC)
+             (#b011 (unmasque "MXXXS000.DDDDDDDD" (funcall pa :read 1) (m x s d) ;; (d8,PC,Xn)
+                      (list '@~ :pc (nth x (getf *m68k-layout* :ad)))))
+             (#b100 (funcall pa :read 1)))))) ;; #imm
+
 (defvar *assembler-prototype-m68k*)
 
 (defclass assembler-m68k (assembler-encoding assembler-masking)
@@ -175,50 +194,25 @@
              :initform   #'joinw
              :initarg    :joiner)))
 
-;; (defmethod initialize-instance :after ((assembler assembler-m68k) &key)
-;;   (derive-domains assembler (t (:gpr 8) (:ad 8))))
-
-(defun determine-width (width &optional prefix)
-  (if prefix
-      (case width (:b #b01) (:w #b11) (:l #b10))
-      (case width (:b #b00) (:w #b01) (:l #b10))))
+;; (defun determine-width (width &optional prefix)
+;;   (if prefix
+;;       (case width (:b #b01) (:w #b11) (:l #b10))
+;;       (case width (:b #b00) (:w #b01) (:l #b10))))
 
 (defun derive-width (width &optional prefix)
   (if prefix
       (case width (#b01 :b) (#b11 :w) (#b10 :l))
       (case width (#b00 :b) (#b01 :w) (#b10 :l))))
 
-(defun determine-width-bit (width)
-  (case width (:w 0) (:l 1)))
+;; (defun determine-width-bit (width)
+;;   (case width (:w 0) (:l 1)))
 
 (defun derive-width-bit (width)
   (if (zerop width) :w :l))
   
-(defun base-or-reg-index (item)
-  (if (typep item 'mas-m68k)
-      (reg-index (mas-base item))
-      (reg-index item)))
-
 (defun match-imm-width (addressing-mode width immediate)
   (if (not (and addressing-mode (= #b111 addressing-mode)))
       t (zerop (ash (imm-value immediate) (case width (:b -8) (:w -16) (:l -32))))))
-
-;; (defun special-reg-p (item name)
-;;   (and (typep item 'm68k-spregister)
-;;        (eq name (reg-name op0))))
-
-;; (defun determine-amode (operand)
-;;   (typecase operand
-;;     (m68k-gpregister #b000)
-;;     (m68k-adregister #b001)
-;;     (mas-m68k
-;;      (case (mas-m68k-qualifier operand)
-;;        (nil          #b010)
-;;        (:postinc     #b011)
-;;        (:predecr     #b100)
-;;        (:displ       #b101)
-;;        (:index       #b110)))
-;;     (t               #b111)))
 
 (defun qualify-operand (operand type)
   (typecase type
@@ -290,7 +284,6 @@
                                                         (first qualities)))))))))))
 
 (defun derive-operand (spec)
-  ;; (print (list :oo operand type))
   (destructuring-bind (operand &rest types) spec
     (cons 'cond (loop :for type :in types
                     :collect
@@ -315,67 +308,21 @@
                                       (mas `(encode-location ,operand))
                                       (reg-fixed `(reg-name ,operand)))))))))))
 
-;; (defun derive-operand (operand type)
-;;   (print (list :oo operand type))
-;;   (typecase type
-;;     (symbol (case type
-;;               (width `(determine-width (wspec-name ,operand)))
-;;               (width-prefix `(determine-width (wspec-name ,operand) t))
-;;               (width-bit `(determine-width-bit (wspec-name ,operand)))
-;;               ((gpr adr mas-all mas-all-but-pc mas-simple mas-postinc mas-predecr mas-disp
-;;                     mas-bi+disp mas-pc+disp mas-pci+disp mas-abs)
-;;                `(encode-location ,operand))
-;;               (vector `(imm-value ,operand))
-;;               (reg-list operand)))
-;;     (list (destructuring-bind (type &rest qualities) type
-;;             (declare (ignore qualities))
-;;             (case type
-;;               (width `(determine-width ,operand))
-;;               (imm (list 'imm-value operand))
-;;               (mas `(encode-location ,operand))
-;;               (reg-fixed `(reg-name ,operand)))))))
-
-;; (defmacro determine (mnemonic specs &optional bindings &body body)
-;;   `(determine-in-context ,(list :qualify #'qualify-operand :verbalize #'verbalize-operand
-;;                                 :derive #'derive-operand)
-;;                          ,mnemonic ,specs ,bindings ,@body))
-
 (defmacro determine (specs &optional bindings &body body)
   "This placeholder macro is not meant to be evaluated but to inform indentation algorithms; (determine) forms will be converted to determine-in-context forms as (specops) forms are expanded."
   (list specs bindings body))
 
-(defun derive-location (mode index &key base displacement
-                                     (pa (lambda (a b) (declare (ignore a b)) 0)))
-  (case mode
-    (#b000           (nth index (getf *m68k-layout* :gp)))
-    (#b001           (nth index (getf *m68k-layout* :ad)))
-    (#b010 (list '@  (nth index (getf *m68k-layout* :ad))))
-    (#b011 (list '@+ (nth index (getf *m68k-layout* :ad))))
-    (#b100 (list '-@ (nth index (getf *m68k-layout* :ad))))
-    (#b101 (list '@~ (nth index (getf *m68k-layout* :ad)) nil (funcall pa :read 1)))
-    (#b110 (unmasque "MXXXS000.DDDDDDDD" (funcall pa :read 1) (m x s d)
-             (list '@~ (nth index (getf *m68k-layout* :ad))
-                   (nth x (getf *m68k-layout* :ad)) d)))
-    (#b111 (case index
-             (#b000 (list '@= (funcall pa :read 1)))
-             (#b001 (list '@= (funcall pa :read 2)))
-             (#b010 (list '@~ :pc nil (funcall pa :read 1)))
-             (#b011 (unmasque "MXXXS000.DDDDDDDD" (funcall pa :read 1) (m x s d)
-                      (list '@~ :pc (nth x (getf *m68k-layout* :ad)))))
-             (#b100 (funcall pa :read 1))))))
-
-(defmethod of-storage ((assembler assembler-m68k) key)
-  (if (typep key 'mas-m68k)
-      (values (rix (mas-base key) :ad)
-              ;; (position (mas-base key) (getf (asm-storage assembler) :ad))
-              (typecase key (mas-m68k-postinc #b011) (mas-m68k-predecr #b100)
-                        (t (if (not (mas-displ key))
-                               #b010 (if (mas-index key) #b110 #b101)))))
-      ;; (multiple-value-bind (index type) (call-next-method)
-      ;;   (values index (case type (:gp #b000) (:ad #b001))))
-      (multiple-value-bind (index type) (rix key)
-        (values index (case type (:gp #b000) (:ad #b001))))
-      ))
+;; (defmethod of-storage ((assembler assembler-m68k) key)
+;;   (if (typep key 'mas-m68k)
+;;       (values (rix (mas-base key) :ad)
+;;               (typecase key (mas-m68k-postinc #b011) (mas-m68k-predecr #b100)
+;;                         (t (if (not (mas-displ key))
+;;                                #b010 (if (mas-index key) #b110 #b101)))))
+;;       ;; (multiple-value-bind (index type) (call-next-method)
+;;       ;;   (values index (case type (:gp #b000) (:ad #b001))))
+;;       (multiple-value-bind (index type) (rix key)
+;;         (values index (case type (:gp #b000) (:ad #b001))))
+;;       ))
 
 ;; (defmethod locate ((assembler assembler-m68k) asm-sym items)
 ;;   (let ((domains (copy-tree (asm-domains assembler)))
@@ -431,48 +378,3 @@
 
 
 |#
-
-
-
-
-
-;; (defclass m68k-register (register)
-;;   ())
-
-;; (defclass m68k-gpregister (m68k-register)
-;;   ((%width :accessor   reg-width
-;;            :allocation :class
-;;            :initform   32
-;;            :initarg    :width
-;;            :documentation "The register's width.")))
-
-;; (defclass m68k-adregister (m68k-register)
-;;   ())
-
-;; (defclass m68k-saregister (m68k-register)
-;;   ())
-
-;; (defclass m68k-spregister (m68k-register)
-;;   ())
-
-;; (setf *m68k-storage*
-;;       (list :gpr (vector (make-instance 'm68k-gpregister :name :d0 :index 0)
-;;                          (make-instance 'm68k-gpregister :name :d1 :index 1)
-;;                          (make-instance 'm68k-gpregister :name :d2 :index 2)
-;;                          (make-instance 'm68k-gpregister :name :d3 :index 3)
-;;                          (make-instance 'm68k-gpregister :name :d4 :index 4)
-;;                          (make-instance 'm68k-gpregister :name :d5 :index 5)
-;;                          (make-instance 'm68k-gpregister :name :d6 :index 6)
-;;                          (make-instance 'm68k-gpregister :name :d7 :index 7))
-;;             :adr (vector (make-instance 'm68k-adregister :name :a0 :index 0)
-;;                          (make-instance 'm68k-adregister :name :a1 :index 1)
-;;                          (make-instance 'm68k-adregister :name :a2 :index 2)
-;;                          (make-instance 'm68k-adregister :name :a3 :index 3)
-;;                          (make-instance 'm68k-adregister :name :a4 :index 4)
-;;                          (make-instance 'm68k-adregister :name :a5 :index 5)
-;;                          (make-instance 'm68k-adregister :name :a6 :index 6)
-;;                          (make-instance 'm68k-saregister :name :a7 :index 7))
-            
-;;             :usp (make-instance 'm68k-spregister :name :usp :width 32 :index 0)
-;;             :sr  (make-instance 'm68k-spregister :name :sr  :width 16 :index 0)
-;;             :ccr (make-instance 'm68k-spregister :name :ccr :width 8  :index 0)))

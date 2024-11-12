@@ -4,15 +4,6 @@
 
 (setf *assembler-prototype-m68k* (make-instance 'assembler-m68k))
 
-;; (defmacro specop (symbol operands &body params)
-;;   (cons 'specops (append (list (intern (string symbol) "KEYWORD")
-;;                                operands '*assembler-prototype-m68k*)
-;;                          params)))
-
-;; (defmacro specop (symbol operands &body params)
-;;   (cons 'specops (append (list symbol operands '*assembler-prototype-m68k*)
-;;                          (complete-dforms symbol 'determine params))))
-
 (defun form-process (symbol options form)
   (declare (ignore options))
   (if (eql 'determine (first form))
@@ -22,7 +13,7 @@
                     symbol)
               (rest form))))
 
-(defmacro specop (symbol operands &body params)
+(defmacro specop-68k (symbol operands &body params)
   (let* ((options (and (listp (first params))
                        (listp (caar params))
                        (keywordp (caaar params))
@@ -36,7 +27,7 @@
 ;; (defmacro specop (symbol operands &body params)
 ;;   (specify-ops *assembler-prototype-m68k* '*assembler-prototype-m68k* symbol operands params))
 
-(defmacro readop (symbol args &body body)
+(defmacro readop-68k (symbol args &body body)
   (let ((symbol (macroexpand symbol))
         (function `(lambda ,args (declare (ignorable ,@args)) ,@body)))
     (if (numberp symbol)
