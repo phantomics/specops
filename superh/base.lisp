@@ -119,10 +119,34 @@
        (eq :r0 (mas-base item))
        (typep (mas-index item) 'gpr)))
 
-(defun mas-bs+disp-p (item)
+(defun mas-disp-p (item)
   (and (typep item 'mas-super-h)
        (mas-displ item)
        (typep (mas-base item) 'gpr)))
+
+(defun mas-disp4-p (item)
+  (and (typep item 'mas-super-h)
+       (mas-displ item)
+       (zerop (ash (mas-displ item) -4))
+       (gpr-p (mas-base item))))
+
+(defun mas-disp8-p (item)
+  (and (typep item 'mas-super-h)
+       (mas-displ item)
+       (zerop (ash (mas-displ item) -8))
+       (gpr-p (mas-base item))))
+
+(defun mas-disp12-p (item)
+  (and (typep item 'mas-super-h)
+       (mas-displ item)
+       (zerop (ash (mas-displ item) -12))
+       (gpr-p (mas-base item))))
+
+(defun mas-disp20-p (item)
+  (and (typep item 'mas-super-h)
+       (mas-displ item)
+       (zerop (ash (mas-displ item) -20))
+       (gpr-p (mas-base item))))
 
 (defun mas-pc+disp-p (item)
   (and (typep item 'mas-super-h)
@@ -132,6 +156,7 @@
 (defun mas-gb+disp-p (item)
   (and (typep item 'mas-super-h)
        (mas-displ item)
+       (zerop (ash (mas-displ item) -8))
        (eq :gbr (mas-base item))))
 
 (defun mas-gb+rzro-p (item)
@@ -153,7 +178,15 @@
 
 (deftype mas-b+rzero () `(satisfies mas-b+rzero-p))
 
-(deftype mas-bs+disp () `(satisfies mas-bs+disp-p))
+(deftype mas-disp    () `(satisfies mas-disp-p))
+
+(deftype mas-disp4   () `(satisfies mas-disp4-p))
+
+(deftype mas-disp8   () `(satisfies mas-disp8-p))
+
+(deftype mas-disp12  () `(satisfies mas-disp12-p))
+
+(deftype mas-disp20  () `(satisfies mas-disp20-p))
 
 (deftype mas-pc+disp () `(satisfies mas-pc+disp-p))
 
@@ -241,8 +274,9 @@
            (case mas-type
              (mas-simple "(Rx)") (mas-postinc "(Rx)+") (mas-predecr "-(Rx)")
              (mas-postinc-r15 "R15+") (mas-predecr-r15 "-R15")
-             (mas-bs+disp4 "(disp4,Rx)") (mas-bs+disp12 "(disp12,Rx)")
-             (mas-b+rzero "(R0,Rx)") (mas-gb+rzro "(R0,GBR)") (mas-gb+disp "(disp8,GBR)")
+             (mas-disp4 "(disp4,Rx)") (mas-disp8 "(disp8,Rx)") (mas-disp12 "(disp12,Rx)")
+             (mas-b+rzero "(R0,Rx)") (mas-gb+rzro "(R0,GBR)")
+             (mas-pc+disp "(disp,PC)")(mas-gb+disp "(disp8,GBR)")
              )))
     (format nil "~a~%" (typecase spec
                          (symbol (case spec
@@ -267,7 +301,10 @@
                           (typecase type
                             (symbol (case type
                                       (width `(determine-width (wspec-name ,operand)))
-                                      ((gpr fpr) `(reg-index ,operand))
+                                      (gpr `(position (reg-name ,operand)
+                                                      (getf *super-h-layout* :gp)))
+                                      (fpr `(position (reg-name ,operand)
+                                                      (getf *super-h-layout* :fp)))
                                       (label operand)))
                             (list (destructuring-bind (type &rest qualities) type
                                     (declare (ignore qualities))
@@ -290,19 +327,19 @@
                     symbol)
               (rest form))))
 
-;; (defmacro specops-sh (symbol operands &body params)
-;;   (let* ((options (and (listp (first params))
-;;                        (listp (caar params))
-;;                        (keywordp (caaar params))
-;;                        (first params)))
-;;          (operations (if options (rest params) params)))
-;;     (cons 'specops (append (list symbol operands '*assembler-prototype-m68k*)
-;;                            (cons (cons (cons :process-forms 'form-process)
-;;                                        options)
-;;                                  operations)))))
-
 (defmacro specops-sh (symbol operands &body params)
-  (cons 'specops (append (list symbol operands '*assembler-prototype-super-h*) params)))
+  (let* ((options (and (listp (first params))
+                       (listp (caar params))
+                       (keywordp (caaar params))
+                       (first params)))
+         (operations (if options (rest params) params)))
+    (cons 'specops (append (list symbol operands '*assembler-prototype-super-h*)
+                           (cons (cons (cons :process-forms 'form-process)
+                                       options)
+                                 operations)))))
+
+;; (defmacro specops-sh (symbol operands &body params)
+;;   (cons 'specops (append (list symbol operands '*assembler-prototype-super-h*) params)))
 
 (defmacro readops-sh (symbol operands &body params)
   (cons 'readops (append (list symbol operands '*assembler-prototype-super-h*) params)))
