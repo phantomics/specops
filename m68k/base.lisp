@@ -121,18 +121,18 @@
 
 (defun encode-location (location)
   (typecase location
-    (gpr          (values #b000 (rix            location  :gp)))
-    (adr          (values #b001 (rix            location  :ad)))
-    (mas-simple   (values #b010 (rix  (mas-base location) :ad)))
-    (mas-postinc  (values #b011 (rix  (mas-base location) :ad)))
-    (mas-predecr  (values #b100 (rix  (mas-base location) :ad)))
-    (mas-disp     (values #b101 (rix  (mas-base location) :ad) (mas-displ location)))
-    (mas-bi+disp  (values #b110 (rix  (mas-base location) :ad)))
-    (mas-pc+disp  (values #b111 #b010 (mas-displ location)))
-    (mas-pci+disp (values #b111 #b011))
-    (mas-abs-w    (values #b111 #b000 (mas-addr location)))
-    (mas-abs-l    (values #b111 #b001 (mas-addr location)))
-    (integer      (values #b111 #b100 location))))
+    (gpr          (values (rix            location  :gp) #b000))
+    (adr          (values (rix            location  :ad) #b001))
+    (mas-simple   (values (rix  (mas-base location) :ad) #b010))
+    (mas-postinc  (values (rix  (mas-base location) :ad) #b011))
+    (mas-predecr  (values (rix  (mas-base location) :ad) #b100))
+    (mas-disp     (values (rix  (mas-base location) :ad) #b101 (mas-displ location)))
+    (mas-bi+disp  (values (rix  (mas-base location) :ad) #b110))
+    (mas-abs-w    (values #b000                          #b111 (mas-addr  location)))
+    (mas-abs-l    (values #b001                          #b111 (mas-addr  location)))
+    (mas-pc+disp  (values #b010                          #b111 (mas-displ location)))
+    (mas-pci+disp (values #b011                          #b111))
+    (immediate    (values #b100                          #b111 (imm-value location)))))
 
 (defun encode-extension-word (width access)
   (if (or (typep access 'mas-bi+disp) (typep access 'mas-pci+disp))
@@ -199,6 +199,10 @@
       (reg-index (mas-base item))
       (reg-index item)))
 
+(defun match-imm-width (addressing-mode width immediate)
+  (if (not (and addressing-mode (= #b111 addressing-mode)))
+      t (zerop (ash (imm-value immediate) (case width (:b -8) (:w -16) (:l -32))))))
+
 ;; (defun special-reg-p (item name)
 ;;   (and (typep item 'm68k-spregister)
 ;;        (eq name (reg-name op0))))
@@ -219,6 +223,7 @@
 (defun qualify-operand (operand type)
   (typecase type
     (symbol (case type
+              (nil `(null ,operand))
               (width `(member (wspec-name ,operand) '(:b :w :l)))
               (width-prefix `(member (wspec-name ,operand) '(:b :w :l)))
               (width-bit `(member (wspec-name ,operand) '(:w :l)))
@@ -235,8 +240,13 @@
     (list (destructuring-bind (type &rest qualities) type
             (case type
               (width `(member ,operand ',qualities))
-              (imm `(and (integerp (imm-value ,operand))
-                         (< (imm-value ,operand) ,(expt 2 (reduce #'max qualities)))))
+              (imm (case (first qualities)
+                     (:width `(and (imm-value ,operand)
+                                   (< (imm-value ,operand) ,(expt 2 (second qualities)))))
+                     (:range `(and (imm-value ,operand)
+                                   (<= ,(second qualities) (imm-value ,operand) ,(third qualities))))))
+              (idata `(and (imm-value ,operand)
+                           (< (imm-value ,operand) ,(expt 2 (first qualities)))))
               (mas `(and (typep ,operand 'mas-m68k)
                          (or ,@(loop :for q :in qualities :collect `(typep ,operand ',q)))))
               (reg-fixed `(eq (reg-name ,operand) ,(first qualities))))))))
@@ -252,6 +262,7 @@
           (mas-no-pc-list '(mas-simple mas-postinc mas-predecr mas-disp mas-bi+disp mas-abs-w mas-abs-l)))
       (format nil "~a~%" (typecase spec
                            (symbol (case spec
+                                     (nil "null")
                                      (width "width : any")
                                      (width-bit "width : B / W")
                                      (width-prefix "width : any")
@@ -267,7 +278,12 @@
                            (list (destructuring-bind (type &rest qualities) spec
                                    (case type
                                      (width (format nil "width : ~{~a~^ ~^/ ~}" qualities))
-                                     (imm (format nil "immediate value : ~{~a~^ ~^/ ~} bits" qualities))
+                                     (imm (case (first qualities)
+                                            (:width (format nil "immediate value : ~d bits"
+                                                            (second qualities)))
+                                            (:range (format nil "immediate value: ~d to ~d"
+                                                            (second qualities) (third qualities)))))
+                                     (idata (format nil "immediate data : ~a bits" (first qualities)))
                                      (mas (format nil "memory access : ~{~a ~}"
                                                   (mapcar #'mas-express qualities)))
                                      (reg-fixed (format nil "~a (fixed register)"
@@ -295,6 +311,7 @@
                                     (case type
                                       (width `(determine-width ,operand))
                                       (imm (list 'imm-value operand))
+                                      (idata (list 'encode-location operand))
                                       (mas `(encode-location ,operand))
                                       (reg-fixed `(reg-name ,operand)))))))))))
 
@@ -327,13 +344,25 @@
   "This placeholder macro is not meant to be evaluated but to inform indentation algorithms; (determine) forms will be converted to determine-in-context forms as (specops) forms are expanded."
   (list specs bindings body))
 
-(defun derive-location (addressing-mode index &key base displacement)
-  (case addressing-mode
-    (#b000 (nth index (getf *m68k-layout* :gp)))
-    (#b001 (nth index (getf *m68k-layout* :ad)))
+(defun derive-location (mode index &key base displacement
+                                     (pa (lambda (a b) (declare (ignore a b)) 0)))
+  (case mode
+    (#b000           (nth index (getf *m68k-layout* :gp)))
+    (#b001           (nth index (getf *m68k-layout* :ad)))
+    (#b010 (list '@  (nth index (getf *m68k-layout* :ad))))
     (#b011 (list '@+ (nth index (getf *m68k-layout* :ad))))
     (#b100 (list '-@ (nth index (getf *m68k-layout* :ad))))
-    (#b101 (list '@~ (nth base (getf *m68k-layout* :ad)) nil displacement))))
+    (#b101 (list '@~ (nth index (getf *m68k-layout* :ad)) nil (funcall pa :read 1)))
+    (#b110 (unmasque "MXXXS000.DDDDDDDD" (funcall pa :read 1) (m x s d)
+             (list '@~ (nth index (getf *m68k-layout* :ad))
+                   (nth x (getf *m68k-layout* :ad)) d)))
+    (#b111 (case index
+             (#b000 (list '@= (funcall pa :read 1)))
+             (#b001 (list '@= (funcall pa :read 2)))
+             (#b010 (list '@~ :pc nil (funcall pa :read 1)))
+             (#b011 (unmasque "MXXXS000.DDDDDDDD" (funcall pa :read 1) (m x s d)
+                      (list '@~ :pc (nth x (getf *m68k-layout* :ad)))))
+             (#b100 (funcall pa :read 1))))))
 
 (defmethod of-storage ((assembler assembler-m68k) key)
   (if (typep key 'mas-m68k)

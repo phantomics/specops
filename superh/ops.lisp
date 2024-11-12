@@ -613,6 +613,7 @@
 
 (specops-sh bset.b (op0 op1)
   ((:for-types :sh2a))
+  ;; (determine ((op0 (imm :width 3)) (op1 mas-bs+disp)))
   (if (match-types op0 op1  integer mas-bs+disp)
       (masque "0011NNNN.0III1001.0001DDDD.DDDDDDDD" ;; bset.b #imm3,@(disp12,Rn)
               (n (rix (mas-base op1) :gp)) (i op0) (d (mas-displ op1)))

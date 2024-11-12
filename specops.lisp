@@ -829,6 +829,61 @@ ANDI OP0 - GPR
          (expressions (if (not params) expressions (rest expressions))))
     (%assemble (symbol-value assembler) assembler params expressions)))
 
+;; (defmethod interpret ((assembler assembler) params array)
+;;   "The top-level method for disassembly. Composes a list of instructions from a byte vector according to the properties of a given ISA."
+;;   (let* ((etype (let ((element-type (array-element-type array)))
+;;                   (unless (and (listp element-type)
+;;                                (eq 'unsigned-byte (first element-type)))
+;;                     (error "Invalid array."))
+;;                   (second element-type)))
+;;          (to-read (/ etype (asm-breadth assembler)))
+;;          ;; (intervals (loop :for segment :in (asm-msk-segment assembler)
+;;          ;;                  :collect (ash etype (- (+ 2 segment)))))
+;;          (intervals (coerce (asm-msk-segment assembler) 'vector))
+;;          (deltas (cons 0 (loop :for i :from (1- (length intervals)) :downto 1
+;;                                :collect (* etype (- (aref intervals i) (aref intervals (1- i)))))))
+;;          (point 0) (disassembled))
+;;     (labels ((read-words (from count)
+;;                ;; (print (list :et etype from count))
+;;                (let ((value 0))
+;;                  (loop :for c :below (* count to-read)
+;;                        :do (setf value (ash  value etype))
+;;                            (incf value (aref array (+ c from))))
+;;                  value)))
+;;       (loop :while (< point (1- (length array)))
+;;             :do (let* ((match) (this-interval) ;; (ipatterns)
+;;                        (sub-count 0)
+;;                        (reader (lambda (in)
+;;                                  (lambda (count)
+;;                                    (let ((this-count sub-count))
+;;                                      (incf sub-count count)
+;;                                      (read-words (+ point this-count in) count)))))
+;;                        (access (lambda (in)
+;;                                  (lambda (mode &rest args)
+;;                                    (case mode
+;;                                      (:read (let ((count (first args))
+;;                                                   (this-count sub-count))
+;;                                               (incf sub-count count)))))))
+;;                        ;;                      (read-words (+ point this-count in) count))))))
+;;                        (ivindex (min (1- (length intervals)) (- (length array) point 1)))
+;;                        (pattern (read-words point (aref intervals ivindex))))
+;;                   ;; (print (list :dd deltas))
+                  
+;;                   (loop :for ix :below ivindex :for delta :in deltas
+;;                         :do (setf pattern (ash pattern (- delta)))
+;;                             (let ((match? (interpret-element assembler pattern
+;;                                                              (funcall reader (aref intervals ix)))))
+;;                               (when match? (setf match         match?
+;;                                                  this-interval (aref intervals ix)))))
+                 
+;;                   (if match (progn (push match disassembled)
+;;                                    (setf point (+ point sub-count this-interval)))
+;;                       ;; (progn (push nil disassembled)
+;;                       ;;        (setf point (+ point sub-count this-interval)))
+;;                       (error "Undecipherable instruction!")
+;;                       )))
+;;       (reverse disassembled))))
+
 (defmethod interpret ((assembler assembler) params array)
   "The top-level method for disassembly. Composes a list of instructions from a byte vector according to the properties of a given ISA."
   (let* ((etype (let ((element-type (array-element-type array)))
@@ -851,21 +906,28 @@ ANDI OP0 - GPR
                            (incf value (aref array (+ c from))))
                  value)))
       (loop :while (< point (1- (length array)))
-            :do (let* ((match) (this-interval) ;; (ipatterns)
-                       (sub-count 0)
+            :do (let* ((match) (this-interval)
+                       (base 0) (sub-count 0)
                        (reader (lambda (in)
                                  (lambda (count)
                                    (let ((this-count sub-count))
                                      (incf sub-count count)
                                      (read-words (+ point this-count in) count)))))
+                       (access (lambda (in)
+                                 (lambda (mode &rest args)
+                                   (case mode
+                                     (:read (let ((count (first args))
+                                                  (this-count sub-count))
+                                              (incf sub-count count)
+                                              (read-words (+ point this-count base) count)))))))
                        (ivindex (min (1- (length intervals)) (- (length array) point 1)))
                        (pattern (read-words point (aref intervals ivindex))))
                   ;; (print (list :dd deltas))
                   
                   (loop :for ix :below ivindex :for delta :in deltas
-                        :do (setf pattern (ash pattern (- delta)))
-                            (let ((match? (interpret-element assembler pattern
-                                                             (funcall reader (aref intervals ix)))))
+                        :do (setf pattern (ash pattern (- delta))
+                                  base    (aref intervals ix))
+                            (let ((match? (interpret-element assembler pattern access)))
                               (when match? (setf match         match?
                                                  this-interval (aref intervals ix)))))
                  
