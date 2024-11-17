@@ -290,6 +290,7 @@
                     (list (qualify-operand operand type)
                           (typecase type
                             (symbol (case type
+                                      (nil nil)
                                       (width `(determine-width (wspec-name ,operand)))
                                       (width-prefix `(determine-width (wspec-name ,operand) t))
                                       (width-bit `(determine-width-bit (wspec-name ,operand)))
