@@ -234,6 +234,10 @@
           :documentation "The spec's width in bits."))
   (:documentation "Generic class for width specs."))
 
+(defmethod wspec-name ((name t))
+  "For width specs modeled using symbols, (reg-name) simply returns the symbol."
+  nil)
+
 (defmethod wspec-name ((name symbol))
   "For width specs modeled using symbols, (reg-name) simply returns the symbol."
   name)
