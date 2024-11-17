@@ -2,8 +2,8 @@
 
 (in-package #:specops.system-z)
 
-;; this keyword-referenced register file doesn't reflect standard practice in writing
-;; Z assembly, where typically registers are referenced simply by numeric indices, but it is
+;; this keyword-indexed register file doesn't reflect standard practice in writing
+;; Z assembly, where registers are typically referenced simply by numeric indices, but it is
 ;; offered to support greater clarity in expressing code
 
 (defvar *z-layout*
@@ -14,7 +14,7 @@
 (defun rix (register &optional type)
   (typecase register
     (register (of-register-type-index register type))
-    (integer (if (<= 0 register (1- (length (getf *z-layout* type)))) item nil))
+    (integer (if (<= 0 register (1- (length (getf *z-layout* type)))) register nil))
     (keyword  (if type (values (position register (getf *z-layout* type))
                                type)
                   (let ((position) (type-found))
@@ -29,16 +29,19 @@
       (if (<= 0 item (1- (length (getf *z-layout* :gp)))) item nil)
       (if (keywordp item) (position item (getf *z-layout* :gp)))))
 
-(defun vcrix (item)
-  (if (integerp item)
-      (if (<= 0 item (1- (length (getf *z-layout* :vc)))) item nil)
-      (if (keywordp item) (position item (getf *z-layout* :vc)))))
+(defun gpr-p (item) (rix item :gp))
+
+(defun vcr-p (item) (rix item :vc))
+
+(deftype gpr  () `(satisfies gpr-p))
+
+(deftype vcr  () `(satisfies gpr-p))
 
 (defclass mas-z (mas-based mas-indexed mas-displaced)
   ())
 
 (defun @ (base &optional index displacement)
-  (let ((ibase (gprix base)) (iindex (gprix index)))
+  (let ((ibase (rix base :gp)) (iindex (rix index :gp)))
     (if (not (and ibase (<= 0 ibase 15)))
         (error "Memory access must use a base register in the 0-15 range.")
         (make-instance 'mas-z :base ibase :index iindex :displ displacement))))
@@ -51,30 +54,30 @@
   `(@ ,@(if base (list base) nil) ,@(if index (list index) nil)
       ,@(if displacement (list displacement) nil)))
 
-(defclass mas-ranged-z (mas-z)
-  ((%length :accessor mas-ranged-z-length
+(defclass mas-z-ranged (mas-z)
+  ((%length :accessor mas-z-ranged-length
             :initform nil
             :initarg  :length))
   (:documentation "A ranged memory access scheme, defining access to a range of memory."))
 
-(defclass mas-disparate-z (mas-z)
+(defclass mas-z-disparate (mas-z)
   ()
   (:documentation "A disparate memory access scheme, defining access memory at disparate points within a range for the purpose of gather/scatter vector operations."))
 
 (defun @* (base length &optional displacement)
   (if (not (<= 0 base 15))
       (error "Memory access must use a base register in the 0-15 range.")
-      (make-instance 'mas-ranged-z :base base :length length :displ displacement)))
+      (make-instance 'mas-z-ranged :base base :length length :displ displacement)))
 
 (defun derive-masr (base length &optional displacement)
   `(@* ,@(if base (list base) nil) ,@(if length (list length) nil)
        ,@(if displacement (list displacement) nil)))
 
 (defun @~ (base indices displacement)
-  (let ((ibase (gprix base)) (iindices (vcrix indices)))
+  (let ((ibase (rix base :gp)) (iindices (rix indices :vc)))
     (if (not (<= 0 base 15))
         (error "Memory access must use a base register in the 0-15 range.")
-        (make-instance 'mas-ranged-z :base base :index iindices :displ displacement))))
+        (make-instance 'mas-z-ranged :base ibase :index iindices :displ displacement))))
 
 (defun derive-masd (base indices &optional displacement)
   `(@~ ,@(if base (list base) nil) ,@(if indices (list indices) nil)
@@ -92,9 +95,47 @@
 (defmethod z-masd-lo12 ((mas-z mas-z))
   (logand #xFFF (mas-displ mas-z)))
 
-(defmethod encoded-mras-length ((mas mas-ranged-z))
-  (if (zerop (mas-ranged-z-length mas))
-      0 (1- (mas-ranged-z-length mas))))
+(defmethod encoded-mras-length ((mas mas-z-ranged))
+  (if (zerop (mas-z-ranged-length mas))
+      0 (1- (mas-z-ranged-length mas))))
+
+(defun mas-bd12-p (item)
+  (and (typep item 'mas-z) (mas-displ item) (zerop (ash (mas-displ item) -12))))
+  
+(defun mas-bd20-p (item)
+  (and (typep item 'mas-z) (mas-displ item) (zerop (ash (mas-displ item) -20))))
+
+(defun mas-bid12-p (item)
+  (and (typep item 'mas-z) (mas-displ item) (mas-index item)
+       (zerop (ash (mas-displ item) -12))))
+  
+(defun mas-bid20-p (item)
+  (and (typep item 'mas-z) (mas-displ item) (mas-index item)
+       (zerop (ash (mas-displ item) -20))))
+
+(defun mas-ranged-p (item)
+  (and (typep item 'mas-z-ranged)))
+
+(defun mas-disparate-p (item)
+  (and (typep item 'mas-z-disparate)))
+
+(deftype mas-bd12      () `(satisfies mas-bd12-p))
+
+(deftype mas-bd20      () `(satisfies mas-bd20-p))
+
+(deftype mas-bid12     () `(satisfies mas-bid12-p))
+
+(deftype mas-bid20     () `(satisfies mas-bid20-p))
+
+(deftype mas-ranged    () `(satisfies mas-ranged-p))
+
+(deftype mas-disparate () `(satisfies mas-disparate-p))
+
+(defun encode-location (location)
+  (values (mas-base location) (mas-displ location)
+          (typecase location
+            (mas-ranged (mas-z-ranged-length location))
+            (t          (mas-index           location)))))
 
 (defun z-vcr-loix (register)
   (logand #xF (rix register :vc)))
@@ -155,13 +196,6 @@
 (defmacro lo8 (number)
   (list 'logand number #xFF))
 
-;; (defun vrmsbits (v1 &optional v2 v3 v4)
-;;   "Get most significant bits from indices of vector registers passed as operands to a vector instruction. Used to populate the RXB fields of vector instruction codes."
-;;   (+ (if v1 (ash (logand #b10000 (gprix v1)) -1) 0)
-;;      (if v2 (ash (logand #b10000 (gprix v2)) -2) 0)
-;;      (if v3 (ash (logand #b10000 (gprix v3)) -3) 0)
-;;      (if v4 (ash (logand #b10000 (gprix v4)) -4) 0)))
-
 (defmacro specop-z (mnemonic format opcode)
   (destructuring-bind (assemble-fn &optional disassemble-fn) (macroexpand (list format opcode mnemonic))
     `(progn (of-lexicon *assembler-prototype-z* ,(intern (string mnemonic) "KEYWORD")
@@ -192,9 +226,97 @@
 
 (setf *assembler-prototype-z* (make-instance 'assembler-z))
 
+(defun qualify-operand (operand type)
+  (typecase type
+    (symbol (case type ((gpr vcr mas-bd12 mas-bd20 mas-bid12 mas-bid20 mas-ranged mas-disparate)
+                        `(typep ,operand ',type))))
+    (list (destructuring-bind (type &rest qualities) type
+            (case type
+              (imm `(and (imm-value ,operand)
+                         (< (imm-value ,operand) ,(expt 2 (first qualities)))))
+              (label-offset `(or (gpr-p ,operand) (symbolp ,operand))))))))
+
+(defun verbalize-operand (spec)
+  (format nil "~a~%" (typecase spec
+                       (symbol (case spec
+                                 (gpr "general purpose register : any")
+                                 (vcr "vector register : any")
+                                 (mas-bd12      "memory access : (base,disp12)")
+                                 (mas-bd20      "memory access : (base,disp20)")
+                                 (mas-bid12     "memory access : (base,index,disp12)")
+                                 (mas-bid20     "memory access : (base,index,disp20)")
+                                 (mas-ranged    "memory access : (base,length,disp12)")
+                                 (mas-disparate "memory access : (base,vector,disp12)")))
+                       (list (destructuring-bind (type &rest qualities) spec
+                               (case type
+                                 (imm (format nil "immediate value : ~d bits" (first qualities)))
+                                 (label-offset "label / offset")))))))
+
+(defun derive-operand (spec)
+  (destructuring-bind (operand &rest types) spec
+    (cons 'cond (loop :for type :in types
+                    :collect
+                    (list (qualify-operand operand type)
+                          (typecase type
+                            (symbol (case type
+                                      ((gpr vcr)
+                                       (let ((file-sym (case type (gpr :gp) (vcr :vc))))
+                                         `(rix ,operand ,file-sym)))
+                                      ((mas-bd12 mas-bd20 mas-bid12 mas-bid20 mas-ranged mas-disparate)
+                                       `(encode-location ,operand))))
+                            (list (destructuring-bind (type &rest qualities) type
+                                    (case type
+                                      (imm `(imm-value ,operand))
+                                      (label-offset (destructuring-bind (api-fnsym length offset) qualities
+                                                      (list api-fnsym :label length offset operand))))))))))))
+
+(defmacro determine (mnemonic specs &optional bindings &body body)
+  "This placeholder macro is not meant to be evaluated but to inform indentation algorithms; (determine) forms will be converted to determine-in-context forms as (specops) forms are expanded."
+  (append (list 'determine-in-context (list :qualify #'qualify-operand :verbalize #'verbalize-operand
+                                            :derive #'derive-operand)
+                mnemonic specs bindings)
+          body))
+
+;; (defun form-process (symbol options form)
+;;   (declare (ignore options))
+;;   (if (eql 'determine (first form))
+;;       (append (list 'determine-in-context
+;;                     (list :qualify #'qualify-operand :verbalize #'verbalize-operand
+;;                           :derive #'derive-operand)
+;;                     symbol)
+;;               (rest form))))
+
+;; (defmacro specops-sh (symbol operands &body params)
+;;   (let* ((options (and (listp (first params))
+;;                        (listp (caar params))
+;;                        (keywordp (caaar params))
+;;                        (first params)))
+;;          (operations (if options (rest params) params)))
+;;     (cons 'specops (append (list symbol operands '*assembler-prototype-super-h*)
+;;                            (cons (cons (cons :process-forms 'form-process)
+;;                                        options)
+;;                                  operations)))))
+
 ;; IBM's docs count the operands from 1 and these functions do the same
 
-;; (determine ((w width) (op0 gpr (mas mas-simple)) (op1 gpr (mas mas-simple)))
+;; (defmacro zformat-ri-a (mnemonic opcode)
+;;   `(progn (of-lexicon *assembler-prototype-z* ,mnemonic
+;;                       (lambda (op0 op1)
+;;                         (determine ((op0 gpr) (op1 (imm 16))) (ix0 im1)
+;;                           (masque "AAAAAAAA.RRRRZZZZ.IIIIIIII.IIIIIIII"
+;;                                   ((:static (a ,(rs4 opcode)) (z ,(lo4 opcode))))
+;;                                   (r ix0) (i i2)))))
+;;           (of-battery *assembler-prototype-z* ,mnemonic
+;;                       (lambda (word program-api)
+;;                         (flet ((of-program (rest ...)))
+;;                           (declare (ignoragle )))))))
+
+;; (mqbase zformat-ri-a opc mne (r1 i2)
+;;     "AAAAAAAA.RRRRZZZZ.IIIIIIII.IIIIIIII"
+;;   ((:static (a (rs4 opc)) (z (lo4 opc)))
+;;    (:determine-by determine ((r1 gpr) (i2 (imm 16))) (ix1 im2)))
+;;   ((r ix1) (i im2))
+;;   (list mne r i))
 
 (mqbase zformat-e opc mne ()
     "AAAAAAAA"
@@ -222,8 +344,10 @@
 
 (mqbase zformat-ri-a opc mne (r1 i2)
     "AAAAAAAA.RRRRZZZZ.IIIIIIII.IIIIIIII"
-  ((:static (a (rs4 opc)) (z (lo4 opc))))
-  ((r (rix r1 :gp)) (i i2))
+  ((:static (a (rs4 opc)) (z (lo4 opc)))
+   (:determine-by determine ((r1 gpr) (i2 (imm 16))) (ix1 im2)))
+  ;; ((r (rix r1 :gp)) (i i2))
+  ((r ix1) (i im2))
   (list mne r i))
 
 (mqbase zformat-ri-b opc mne (r1 ri2)
@@ -247,7 +371,7 @@
 (mqbase zformat-rie-b opc mne (r1 r2 m3 ri4)
     "AAAAAAAA.RRRRSSSS.IIIIIIII.IIIIIIII.MMMM0000.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (rix r1 :gp)) (s (gprix r2)) (i (of-program :label 16 16 ri4)) (m m3))
+  ((r (rix r1 :gp)) (s (rix r2 :gp)) (i (of-program :label 16 16 ri4)) (m m3))
   (list mne r s m i))
 
 (mqbase zformat-rie-c opc mne (r1 i2 m3 ri4)
@@ -259,19 +383,19 @@
 (mqbase zformat-rie-d opc mne (r1 i2 r3)
     "AAAAAAAA.RRRRSSSS.IIIIIIII.IIIIIIII.00000000.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (rix r1 :gp)) (s (gprix r3)) (i i2))
+  ((r (rix r1 :gp)) (s (rix r3 :gp)) (i i2))
   (list mne r i s))
 
 (mqbase zformat-rie-e opc mne (r1 ri2 r3)
     "AAAAAAAA.RRRRSSSS.IIIIIIII.IIIIIIII.00000000.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (rix r1 :gp)) (s (gprix r3)) (i (of-program :label 16 16 ri2)))
+  ((r (rix r1 :gp)) (s (rix r3 :gp)) (i (of-program :label 16 16 ri2)))
   (list mne r i s))
 
 (mqbase zformat-rie-f opc mne (r1 r2 i3 i4 i5)
     "AAAAAAAA.RRRRSSSS.IIIIIIII.JJJJJJJJ.KKKKKKKK.ZZZZZZZZ"
   ((:static (a (rs8 opc)) (z (lo8 opc))))
-  ((r (rix r1 :gp)) (s (gprix r2)) (i i3) (j i4) (k i5))
+  ((r (rix r1 :gp)) (s (rix r2 :gp)) (i i3) (j i4) (k i5))
   (list mne r s i j k))
 
 (mqbase zformat-rie-g opc mne (r1 i2 m3)
@@ -307,13 +431,13 @@
 (mqbase zformat-rr opc mne (r1 r2)
     "AAAAAAAA.RRRRSSSS"
   ((:static (a opc)))
-  ((r (rix r1 :gp)) (s (gprix r2)))
+  ((r (rix r1 :gp)) (s (rix r2 :gp)))
   (list mne r s))
 
 (mqbase zformat-rrd opc mne (r1 r2 r3)
     "AAAAAAAA.AAAAAAAA.QQQQ0000.RRRRSSSS"
   ((:static (a opc)))
-  ((q (rix r1 :gp)) (r (gprix r2)) (s (gprix r3)))
+  ((q (rix r1 :gp)) (r (rix r2 :gp)) (s (gprix r3)))
   (list mne q r s))
 
 (mqbase zformat-rre opc mne (&optional r1 r2)

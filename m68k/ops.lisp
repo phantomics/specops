@@ -627,8 +627,6 @@
           (funcall of-program :read 1))))
 
 (specop-68k bra (op0)
-  ;; (assert (or (symbolp op0) (integerp op0)) (op0)
-  ;;         "BRA can only take an integer or location tag as operand.")
   (determine ((op0 label)) (ix0)
     (if (and (integerp ix0) (zerop (ash ix0 -8)))
         (joinw (masque "01100000.DDDDDDDD"

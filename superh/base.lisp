@@ -101,12 +101,13 @@
   (make-instance 'mas-super-h :base :gbr :index :r0))
 
 (defun @@tbr (displacement)
-  (make-instance 'mas-super-h :base :tbr :displ displacement :qualifier :x4))
+  (make-instance 'mas-super-h :base :tbr :displ displacement))
 
 (defun mas-simple-p  (item)
   (and (typep item 'mas-super-h)
        (not (mas-displ item))
-       (not (mas-super-h-qualifier item))))
+       (not (typep item 'mas-super-h-predecr))
+       (not (typep item 'mas-super-h-postinc))))
 
 (defun mas-predecr-p (item)
   (typep item 'mas-super-h-predecr))
@@ -164,10 +165,9 @@
        (eq :gbr (mas-base  item))
        (eq :r0  (mas-index item))))
 
-(defun mas-tb+dis4-p (item)
+(defun mas-tb+disp-p (item)
   (and (typep item 'mas-super-h)
        (eq :tbr (mas-base item))
-       (eq :x4  (mas-super-h-qualifier item))
        (mas-displ item)))
 
 (deftype mas-simple  () `(satisfies mas-simple-p))
@@ -190,13 +190,11 @@
 
 (deftype mas-pc+disp () `(satisfies mas-pc+disp-p))
 
-(deftype mas-pc+disp () `(satisfies mas-pc+disp-p))
-
-(deftype mas-gb+disp () `(satisfies mas-pc+disp-p))
+(deftype mas-gb+disp () `(satisfies mas-gb+disp-p))
 
 (deftype mas-gb+rzro () `(satisfies mas-gb+rzro-p))
 
-(deftype mas-tb+dis4 () `(satisfies mas-tb+dis4-p))
+(deftype mas-tb+disp () `(satisfies mas-tb+disp-p))
 
 (defun drv-gpr (index)
   (nth index (getf *super-h-layout* :gp)))
@@ -253,45 +251,55 @@
 
 (setf *assembler-prototype-super-h* (make-instance 'assembler-super-h :type '(:sh1)))
 
+(defun encode-location (location)
+  (typecase location
+    (mas-pc+disp (mas-displ location))
+    (mas-gb+disp (mas-displ location))
+    (mas-tb+disp (mas-displ location))
+    (mas-superh (values (mas-base location) (mas-displ location)))))
+
 (defun qualify-operand (operand type)
   (typecase type
     (symbol (case type
               (width `(member (wspec-name ,operand) '(:b :w :l)))
-              (gpr `(gpr-p ,operand))
-              (fpr `(fpr-p ,operand))
-              (label `(or (gpr-p ,operand) (symbolp ,operand)))))
+              ((gpr gprb fpr fvr dpr xfr xdr) `(typep ,operand ',type))))
     (list (destructuring-bind (type &rest qualities) type
             (case type
               (width `(member ,operand ',qualities))
               (imm `(and (imm-value ,operand)
                          (< (imm-value ,operand) ,(expt 2 (first qualities)))))
-              (mas `(and (typep ,operand 'mas-m68k)
+              (mas `(and (typep ,operand 'mas-superh)
                          (or ,@(loop :for q :in qualities :collect `(typep ,operand ',q)))))
-              (reg-fixed `(eq (reg-name ,operand) ,(first qualities))))))))
+              (reg-by-name `(member (reg-name ,operand) ',qualities))
+              (label-offset `(or (gpr-p ,operand) (symbolp ,operand))))))))
 
 (defun verbalize-operand (spec)
   (flet ((mas-express (mas-type)
            (case mas-type
-             (mas-simple "(Rx)") (mas-postinc "(Rx)+") (mas-predecr "-(Rx)")
-             (mas-postinc-r15 "R15+") (mas-predecr-r15 "-R15")
-             (mas-disp4 "(disp4,Rx)") (mas-disp8 "(disp8,Rx)") (mas-disp12 "(disp12,Rx)")
-             (mas-b+rzero "(R0,Rx)") (mas-gb+rzro "(R0,GBR)")
-             (mas-pc+disp "(disp,PC)")(mas-gb+disp "(disp8,GBR)")
-             )))
+             (mas-simple "@(Rx)") (mas-postinc "@(Rx)+") (mas-predecr "-@(Rx)")
+             (mas-postinc-r15 "@R15+") (mas-predecr-r15 "-@R15") (mas-disp4 "@(disp4,Rx)")
+             (mas-disp8 "@(disp8,Rx)") (mas-disp12 "@(disp12,Rx)") (mas-b+rzero "@(R0,Rx)")
+             (mas-gb+rzro "@(R0,GBR)") (mas-pc+disp "@(disp,PC)") (mas-gb+disp "@(disp8,GBR)")
+             (mas-tb+disp "@@(disp8,TBR)"))))
     (format nil "~a~%" (typecase spec
                          (symbol (case spec
                                    (width "width : any")
-                                   (gpr "general purpose register : any")
-                                   (fpr "floating point register : any")
-                                   (label "label")))
+                                   (gpr  "general purpose register : any")
+                                   (gprb "general purpose register bank : any")
+                                   (fpr  "floating point register : any")
+                                   (fvr  "floating point register vector : any")
+                                   (dpr  "double-precision floating point register : any")
+                                   (xfr  "single extended floating point register : any")
+                                   (xdr  "single extended floating point register pair : any")))
                          (list (destructuring-bind (type &rest qualities) spec
                                  (case type
                                    (width (format nil "width : ~{~a~^ ~^/ ~}" qualities))
                                    (imm (format nil "immediate value : ~d bits" (first qualities)))
                                    (mas (format nil "memory access : ~{~a ~}"
                                                 (mapcar #'mas-express qualities)))
-                                   (reg-fixed (format nil "~a (fixed register)"
-                                                      (first qualities))))))))))
+                                   (reg-by-name (format nil "specific register~a: ~{~a ~}"
+                                                      (if (second qualities) #\s "") qualities))
+                                   (label-offset "label / offset"))))))))
 
 (defun derive-operand (spec)
   (destructuring-bind (operand &rest types) spec
@@ -301,18 +309,19 @@
                           (typecase type
                             (symbol (case type
                                       (width `(determine-width (wspec-name ,operand)))
-                                      (gpr `(position (reg-name ,operand)
-                                                      (getf *super-h-layout* :gp)))
-                                      (fpr `(position (reg-name ,operand)
-                                                      (getf *super-h-layout* :fp)))
-                                      (label operand)))
+                                      ((gpr gprb fpr fvr dpr xfr xdr)
+                                       (let ((file-sym (case type (gpr :gp) (gprb :gb) (fpr :fp)
+                                                             (dpr :dp) (fvr :fv) (xfr :xf) (xdr :xd))))
+                                         `(position (reg-name ,operand)
+                                                    (getf *super-h-layout* ,file-sym))))))
                             (list (destructuring-bind (type &rest qualities) type
-                                    (declare (ignore qualities))
                                     (case type
                                       (width `(determine-width ,operand))
                                       (imm (list 'imm-value operand))
                                       (mas `(encode-location ,operand))
-                                      (reg-fixed `(reg-name ,operand)))))))))))
+                                      (reg-by-name `(reg-name ,operand))
+                                      (label-offset (destructuring-bind (api-fnsym length offset) qualities
+                                                      (list api-fnsym :label length offset operand))))))))))))
 
 (defmacro determine (specs &optional bindings &body body)
   "This placeholder macro is not meant to be evaluated but to inform indentation algorithms; (determine) forms will be converted to determine-in-context forms as (specops) forms are expanded."

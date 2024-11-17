@@ -152,26 +152,64 @@
         `(if (/= ,base (logand ,variant-mask ,test-value))
              nil (let ,pairs ,@body))))))
 
+;; (defmacro mqbase (name opcsym mnesym args string &body body)
+;;   ;; this is a currying macro for masque, allowing the creation
+;;   ;; of a specialized masque with static contents for some fields
+;;   (destructuring-bind (static-specs clauses &optional disassembler) body
+;;     (let ((dsarg (gensym)) (flargs (gensym))
+;;           (static-form (loop :for ss :in static-specs
+;;                              :collect (if (not (eq :static (first ss)))
+;;                                           (list 'quote ss)
+;;                                           `(list :static ,@(loop :for spec :in (rest ss)
+;;                                                                  :collect `(list ',(first spec)
+;;                                                                                  ,(second spec))))))))
+;;       `(defmacro ,name (,opcsym ,mnesym)
+;;          (list (list 'lambda ',(cons 'program-api args) ;; TODO - gensym for args
+;;                      (list 'flet '((of-program (&rest ,flargs) (apply program-api ,flargs)))
+;;                            '(declare (ignorable (function of-program)))
+;;                            (append (list 'masque ,string)
+;;                                    ;; generate a template incorporating the :static values
+;;                                    ;; into a (masque) expansion within the defined macro
+;;                                    (list (list ,@static-form))
+;;                                    ',clauses)))
+;;                ,@(if (not disassembler)
+;;                      nil `((list 'lambda (list ',dsarg 'program-api)
+;;                                  ;; '(print (list :ee program-api ,dsarg))
+;;                                  (list 'flet '((of-program (&rest ,flargs) (apply program-api ,flargs)))
+;;                                        '(declare (ignorable (function of-program)))
+;;                                        (list 'unmasque ,string ',dsarg (list ,@static-form)
+;;                                              ',(mapcar #'first clauses) ;; ',disassembler
+;;                                              (list ,@(loop :for item :in disassembler
+;;                                                            :collect (if (and (symbolp item)
+;;                                                                              (eql item mnesym))
+;;                                                                         `(intern (string ,item) "KEYWORD")
+;;                                                                         `(quote ,item))))))))))))))
+
 (defmacro mqbase (name opcsym mnesym args string &body body)
-  ;; this is a currying macro for masque, allowing the creation
-  ;; of a specialized masque with static contents for some fields
-  (destructuring-bind (static-specs clauses &optional disassembler) body
+  "This is a currying macro for dual functions based on masque and unmasque, allowing the creation of specialized functions to compose and decompose binary values in a consistent way across many permutations. It was originally created to compose IBM System Z functions, with its design facilitated by System Z's consistent instruction formats."
+  (destructuring-bind (params clauses &optional disassembler) body
     (let ((dsarg (gensym)) (flargs (gensym))
-          (static-form (loop :for ss :in static-specs
+          (static-form (loop :for ss :in params
                              :collect (if (not (eq :static (first ss)))
                                           (list 'quote ss)
                                           `(list :static ,@(loop :for spec :in (rest ss)
                                                                  :collect `(list ',(first spec)
-                                                                                 ,(second spec))))))))
+                                                                                 ,(second spec)))))))
+          (determine-format (if (not (assoc :determine-by params))
+                                #'list (destructuring-bind (macro-sym schemes bindings)
+                                           (rest (assoc :determine-by params))
+                                         (lambda (body)
+                                           `((list ',macro-sym ,mnesym ',schemes ',bindings ,body)))))))
       `(defmacro ,name (,opcsym ,mnesym)
          (list (list 'lambda ',(cons 'program-api args) ;; TODO - gensym for args
-                     (list 'flet '((of-program (&rest ,flargs) (apply program-api ,flargs)))
-                           '(declare (ignorable (function of-program)))
-                           (append (list 'masque ,string)
-                                   ;; generate a template incorporating the :static values
-                                   ;; into a (masque) expansion within the defined macro
-                                   (list (list ,@static-form))
-                                   ',clauses)))
+                     ,(append `(list 'flet '((of-program (&rest ,flargs) (apply program-api ,flargs)))
+                                     '(declare (ignorable (function of-program))))
+                              (funcall determine-format
+                                       `(append (list 'masque ,string)
+                                                ;; generate a template incorporating the :static values
+                                                ;; into a (masque) expansion within the defined macro
+                                                (list (list ,@static-form))
+                                                ',clauses))))
                ,@(if (not disassembler)
                      nil `((list 'lambda (list ',dsarg 'program-api)
                                  ;; '(print (list :ee program-api ,dsarg))
@@ -737,7 +775,7 @@
                          (:assembler-type (asm-type assembler))
                          (:exmode (or (rest (assoc :exmode params))
                                       (first (asm-exmodes assembler))))
-                         (:label (destructuring-bind (offset-bits field-length symbol) args
+                         (:label (destructuring-bind (field-length offset-bits symbol) args
                                    (typecase symbol
                                      (integer symbol)
                                      (symbol  (let ((spec (list symbol offset-bits field-length
