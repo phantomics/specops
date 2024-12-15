@@ -218,9 +218,12 @@
   (typecase type
     (symbol (case type
               (nil `(null ,operand))
-              (width `(member (wspec-name ,operand) '(:b :w :l)))
-              (width-prefix `(member (wspec-name ,operand) '(:b :w :l)))
-              (width-bit `(member (wspec-name ,operand) '(:w :l)))
+              (width `(and (wspec-name ,operand)
+                           (member (wspec-name ,operand) '(:b :w :l))))
+              (width-prefix `(and (wspec-name ,operand)
+                                  (member (wspec-name ,operand) '(:b :w :l))))
+              (width-bit `(and (wspec-name ,operand)
+                               (member (wspec-name ,operand) '(:w :l))))
               (gpr `(gpr-p ,operand))
               (adr `(adr-p ,operand))
               (label `(or (gpr-p ,operand) (symbolp ,operand)))

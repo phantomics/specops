@@ -198,7 +198,7 @@
           (determine-format (if (not (assoc :determine-by params))
                                 #'list (destructuring-bind (macro-sym schemes bindings)
                                            (rest (assoc :determine-by params))
-                                         (lambda (body)
+                                         #'(lambda (body)
                                            `((list ',macro-sym ,mnesym ',schemes ',bindings ,body)))))))
       `(defmacro ,name (,opcsym ,mnesym)
          (list (list 'lambda ',(cons 'program-api args) ;; TODO - gensym for args
@@ -542,7 +542,7 @@
       ;; (print (list :gg content key action params operands))
       (list action asm-sym key
             (if is-constant content
-                `(lambda ,(cons api-access-sym operands)
+                `#'(lambda ,(cons api-access-sym operands)
                    (flet ((,api-access (&rest ,args) (apply ,api-access-sym ,args))
                           ,@(if (assoc :type-matcher params)
                                 ;; generate type-matching function for use within instruction assembler
@@ -644,7 +644,7 @@
                                                                i)))
                                            (clause-processor
                                             assembler 'of-lexicon comp-sym operands
-                                            (append (list (cons :wrap-body
+                                            (append (list (cons :wrap-body ;; TODO: IL PROBLEM HERE
                                                                 (lambda (body)
                                                                   `((let ((,co-symbol ,index)) ,@body)))))
                                                   params)
@@ -960,9 +960,13 @@
 
 (defmethod interpret-element or ((assembler assembler-masking) ipattern reader)
   (let ((match))
-    (loop :until match :for unmasker :being :the :hash-values :of (asm-msk-battery assembler)
-          :do (let ((attempt (funcall unmasker ipattern reader)))
-                (when attempt (setf match attempt))))
+    (maphash (lambda (key unmasker)
+               (unless match (let ((attempt (funcall unmasker ipattern reader)))
+                               (when attempt (setf match attempt)))))
+             (asm-msk-battery assembler))
+    ;; (loop :until match :for unmasker :being :the :hash-values :of (asm-msk-battery assembler)
+    ;;       :do (let ((attempt (funcall unmasker ipattern reader)))
+    ;;             (when attempt (setf match attempt))))
    match))
 
 (defmacro match-types (&rest pairs)
@@ -977,7 +981,7 @@
 (defmacro define-extension (symbol assembler output-sym input-bindings &body body)
   (let ((input (gensym)) (params (gensym)))
     `(defun ,symbol (,input &optional ,params)
-       (funcall (lambda ,(cons output-sym input-bindings) ,@body)
+       (funcall #'(lambda ,(cons output-sym input-bindings) ,@body)
                 (cons (compose ,assembler ,params ,input) ,input)))))
 
 ;; (defmethod clause-processor ((assembler assembler) mnemonic operands body params)

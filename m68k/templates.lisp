@@ -29,7 +29,7 @@
 
 (defmacro readop-68k (symbol args &body body)
   (let ((symbol (macroexpand symbol))
-        (function `(lambda ,args (declare (ignorable ,@args)) ,@body)))
+        (function `#'(lambda ,args (declare (ignorable ,@args)) ,@body)))
     (if (numberp symbol)
         `(of-decoder *assembler-prototype-m68k* ,symbol ,function)
         `(of-battery *assembler-prototype-m68k* ,(intern (string symbol) "KEYWORD") ,function))))
