@@ -87,21 +87,37 @@
 
 (defun quantify-mask-string (string params)
   (let ((segments) (symbols) (base 0) (bits 0))
-    (loop :for c :across string :for ix :from 0 :when (not (char= c #\.)) ;; period is used as a spacer
-          :do (if (position c "01" :test #'char=)
-                  (progn (when (and symbols (not (null (first symbols))))
-                           (push nil symbols)
-                           (push bits segments))
-                         (when (char= c #\1) (incf base))) ;; set constant 1 bits
-                  (when (or (not symbols) (not (eq (intern (string-upcase c) "KEYWORD") (first symbols))))
-                    (push (intern (string-upcase c) "KEYWORD") symbols)
-                    ;; (print (list :bit bits c))
-                    (push bits segments)))
-              ;; shift the number to the left unless this is the last digit
-              (unless (= ix (1- (length string))) (setf base (ash base 1)))
-              (incf bits))
+    (if (char= #\# (aref string 0)) ;; initial # means the string is hexadecimal
+        (loop :for c :across string :for ix :from 0 :when (not (or (zerop ix)
+                                                                   (char= c #\.)))
+              :do (let ((index (position c "0123456789ABCDEF" :test #'char=)))
+                    ;; symbol-denoting characters must be lowercase when entering hexadecimal strings
+                    (if index
+                        (progn (when (and symbols (not (null (first symbols))))
+                                 (push nil symbols)
+                                 (push bits segments))
+                               (incf base index))
+                        (when (or (not symbols) (not (eq (intern (string-upcase c) "KEYWORD")
+                                                         (first symbols))))
+                          (push (intern (string-upcase c) "KEYWORD") symbols)
+                          (push bits segments)))
+                    (unless (= ix (1- (length string))) (setf base (ash base 4)))
+                    (incf bits 4)))
+        (loop :for c :across string :for ix :from 0 :when (not (char= c #\.)) ;; period is used as a spacer
+              :do (if (position c "01" :test #'char=)
+                      (progn (when (and symbols (not (null (first symbols))))
+                               (push nil symbols)
+                               (push bits segments))
+                             (when (char= c #\1) (incf base))) ;; set constant 1 bits
+                      (when (or (not symbols) (not (eq (intern (string-upcase c) "KEYWORD")
+                                                       (first symbols))))
+                        (push (intern (string-upcase c) "KEYWORD") symbols)
+                        (push bits segments)))
+                  ;; shift the number to the left unless this is the last digit
+                  (unless (= ix (1- (length string))) (setf base (ash base 1)))
+                  (incf bits)))
     (let ((segments (cons 0 (loop :for s :in segments :collect (abs (- s bits))))))
-      ;; (print (list :seg segments))
+      ;; (print (list :seg segments symbols bits))
       (values (loop :for pair :in (rest (assoc :static params)) ;; values
                     :do (destructuring-bind (sym value) pair
                           (let* ((insym (intern (string-upcase sym) "KEYWORD"))

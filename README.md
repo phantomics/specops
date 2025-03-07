@@ -96,7 +96,7 @@ Note that by default, the SpecOps X86 assembler generates programs to be run in 
 
 ### Assembly in Context
 
-The above syntax for X86 assembly differs notably from that used by standard assemblers, where the width of an operation is determined by the names used to reference the registers. In the above example a width directive is passed to the instruction, similar to way that M68K operations are formatted. If desired, a more traditional X86 could be implemented fairly easily, mapping register references like `:eax` to width specifications in operation calls.
+The above syntax for X86 assembly differs notably from that used by standard assemblers, where the width of an operation is determined by the names used to reference the registers. In the above example a width directive is passed to the instruction, similar to way that M68K operations are formatted. If desired, a more traditional X86 syntax could be implemented fairly easily, mapping register references like `:eax` to width specifications in operation calls.
 
 The width specification is used by default because it corresponds more closely to how X86 instructions are encoded and because it's easier to write macros to generate instructions with explicit width specs. There is another reason best illustrated by the following example:
 
@@ -446,7 +446,7 @@ The above code reflects part of the `INC` increment instruction implementation f
 
 Another notable quality of the Z80 architecture is that it has two alternate instruction tables that mirror the structure of the base table, but with some register checks that differ. These alternate tables have opcodes that start with the prefixes `#xDD` and `#xFD`. Any instruction in the base table that addresses the `HL` register has an alternate form in the `#xDD` table that addresses the `IX` register and another in the `#xFD` table that addresses the `IY` register.
 
-Therefore the `(:inc :hl)` instruction has two "shadow forms" that take `:ix` and `:iy` and have their opcodes incremented by `#xDD00` and #xFD00` respectively. Other registers are shadowed in this way as well. The most unique of these shadow cases is that of operations taking as an operand the memory address found in the `HL` register. Instructions acting on the `HL` address are is replaced in the two alternate tables by operations on the `IX` and `IY` registers *plus a displacement*.
+Therefore the `(:inc :hl)` instruction has two "shadow forms" that take `:ix` and `:iy` and have their opcodes incremented by `#xDD00` and `#xFD00` respectively. Other registers are shadowed in this way as well. The most unique of these shadow cases is that of operations taking as an operand the memory address found in the `HL` register. Instructions acting on the `HL` address are is replaced in the two alternate tables by operations on the `IX` and `IY` registers *plus a displacement*.
 
 For this reason, the shadow implementations of `INC` for `:@hl` (which indicates a memory location contained in the register HL) add to the incremented, shifted opcode a final byte that indicates the displacement from the address in `IX` or `IY` at which to access memory. Thus to encode `(:inc (@ :ix 5))`, for incrementing the byte at the address in `IX` plus a displacement of 5, a three-byte instruction is composed by adding `#xDD0000`, `#x3400` and `#x05`.
 
