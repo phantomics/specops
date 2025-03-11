@@ -28,6 +28,24 @@
                   (loop :for i :across item :do (funcall collector i))
                   (error "Attempted to serialize incompatible value - must be an integer, a vector or a pair indicating integer value and encoding width.")))))))
 
+;; (defun make-array-writer (array &key num-width)
+;;   (lambda (offset &rest numbers)
+;;     (let ((width) (mask) (count 0) (eltype (array-element-type array)))
+;;       (if (and (listp eltype) (eql 'unsigned-byte (first eltype))
+;;                (member (second eltype) '(8 16 32 64)))
+;;           (setf width (second eltype)
+;;                 mask  (1- (ash 1 width)))
+;;           (error "Invalid collection array; only unsigned arrays of 8, 16, 32 or 64-bit integers may be used."))
+;;       (loop :for number :in numbers
+;;             :do (let ((num-width (or num-width (find-width number width)))
+;;                       (base count))
+;;                   (loop :for n :below num-width
+;;                         :do (setf (row-major-aref array (+ offset base (- num-width 1 n)))
+;;                                   (logand mask number))
+;;                             (setf number (ash number (- width)))
+;;                             (incf count))))
+;;       count)))
+
 ;; (defun serialize (item unit collector)
 ;;   (let ((mask (1- (ash 1 unit)))) ;; TODO: find a way to create the mask just once?
 ;;     (flet ((decompose (number starting-width)
@@ -133,22 +151,49 @@
 (defmacro masque (string &rest assignments)
   (let* ((base-sym (gensym))
          (params (if (listp (caar assignments)) (first assignments) nil))
-         (assignments (if (not params) assignments (rest assignments))))
+         (assignments (if (not params) assignments (rest assignments)))
+         (processor (rest (assoc :with-processor params))))
     (multiple-value-bind (base segments symbols) (quantify-mask-string string params)
-      ;; (print (list :ss segments symbols clauses params))
+      ;; (print (list :ss segments symbols params))
       ;; (format t "~v,'0B~%" 16 (ash (1- (ash 1 length)) (nth index segments)))
 
-      (let ((steps (loop :for assignment :in assignments
-                         :collect (destructuring-bind (key value) assignment
-                                    (let ((index (position (intern (string-upcase key) "KEYWORD")
-                                                           symbols)))
-                                      (when (not index)
-                                        (error "Symbol ~a not found in mask ~a." key string))
-                                      (let ((length (- (nth (1+ index) segments) (nth index segments))))
-                                        `(incf ,base-sym (ash (logand ,value ,(1- (ash 1 length)))
-                                                              ,(nth index segments)))))))))
-        (if (not steps)
-            base `(let ((,base-sym ,base)) ,@steps ,base-sym))))))
+      (if processor
+          (let* ((rev-sym (reverse symbols)) (rev-seg (reverse segments))
+                 (big-endian (eq :big (rest (assoc :endian params))))
+                 (width (rest (assoc :width params))) (mask (1- (ash 1 width))))
+            (cons 'progn
+                  (loop :for assignment :in assignments :for sym :in rev-sym
+                        :for seg :in rev-seg :for n :from 0
+                        :append (destructuring-bind (key value) assignment
+                                  (let ((index (position (intern (string-upcase key) "KEYWORD")
+                                                         symbols))
+                                        (seg-length (if (= n (1- (length assignments)))
+                                                        (nth n rev-seg)
+                                                        (- (nth n rev-seg) (nth (1+ n) rev-seg)))))
+                                    (when (not index)
+                                      (error "Symbol ~a not found in mask ~a." key string))
+                                    (let ((divs (/ seg-length width)))
+                                      ;; (print (list :ee divs length))
+                                      (if (= 1 divs)
+                                          `((funcall ,processor ,value))
+                                          (loop :for d :below divs
+                                                :collect `(funcall ,processor
+                                                                   (logand (ash ,value
+                                                                                ,(- (* 8 (if big-endian
+                                                                                             d (- divs 1 d)))))
+                                                                           ,mask))))))))))
+
+          (let ((steps (loop :for assignment :in assignments
+                             :collect (destructuring-bind (key value) assignment
+                                        (let ((index (position (intern (string-upcase key) "KEYWORD")
+                                                               symbols)))
+                                          (when (not index)
+                                            (error "Symbol ~a not found in mask ~a." key string))
+                                          (let ((length (- (nth (1+ index) segments) (nth index segments))))
+                                            `(incf ,base-sym (ash (logand ,value ,(1- (ash 1 length)))
+                                                                  ,(nth index segments)))))))))
+            (if (not steps)
+                base `(let ((,base-sym ,base)) ,@steps ,base-sym)))))))
 
 (defmacro unmasque (string test-value params-or-keys &body body)
   (let* ((params (if (listp (first params-or-keys)) params-or-keys nil))
@@ -167,6 +212,69 @@
         ;;              (format nil "~v,'0B" 16 base)))
         `(if (/= ,base (logand ,variant-mask ,test-value))
              nil (let ,pairs ,@body))))))
+
+;; (defmacro bounded-iterate (var bound)
+;;   `(progn (incf var)
+;;           (when (= bound var) (setf var 0))))
+
+;; (defmacro make-masquer (string &rest assignments)
+;;   (let* ((params (if (listp (caar assignments)) (first assignments) nil))
+;;          (assignments (if (not params) assignments (rest assignments)))
+;;          (width (rest (assoc :width params)))
+;;          (mask  (1- (ash 1 width))))
+;;     `(lambda (array offset)
+;;        (let ((bound (array-total-size array)))
+;;          ,(multiple-value-bind (base segments symbols) (quantify-mask-string string nil)
+;;             (print (list :ss base segments symbols))
+;;             ;; (format t "~v,'0B~%" 16 (ash (1- (ash 1 length)) (nth index segments)))
+
+;;             (let* ((base-sym 'a)
+;;                    (rev-sym (reverse symbols))
+;;                    (rev-seg (reverse segments))
+;;                    (assign -1)
+;;                    (steps (loop :for assignment :in assignments :for sym :in rev-sym
+;;                                 :for seg :in rev-seg :for n :from 0
+;;                                 :append (destructuring-bind (key value) assignment
+;;                                           (let ((index (position (intern (string-upcase key) "KEYWORD")
+;;                                                                  symbols))
+;;                                                 (seg-length (if (= n (1- (length assignments)))
+;;                                                                 (nth n rev-seg)
+;;                                                                 (- (nth n rev-seg) (nth (1+ n) rev-seg)))))
+;;                                             (when (not index)
+;;                                               (error "Symbol ~a not found in mask ~a." key string))
+;;                                             (let ((length (- (nth (1+ index) segments)
+;;                                                              (nth index segments)))
+;;                                                   (divs (/ seg-length width)))
+;;                                               (print (list :ee divs length))
+;;                                               (if (= 1 divs)
+;;                                                   `((setf (aref array offset) ,value)
+;;                                                     (bounded-iterate offset bound))
+;;                                                   (loop :for d :below divs
+;;                                                         :append `((setf (aref array offset)
+;;                                                                         (logand (ash ,value ,(- (* 8 d)))
+;;                                                                                 ,mask))
+;;                                                                   (bounded-iterate offset bound))))))))))
+;;               (cond ((not steps) base)
+;;                     (t (cons 'progn steps))
+;;                     (t `(let ((,base-sym ,base)) ,@steps ,base-sym)))))))))
+
+;; (defun make-array-writer (array &key num-width)
+;;   (lambda (offset &rest numbers)
+;;     (let ((width) (mask) (count 0) (eltype (array-element-type array)))
+;;       (if (and (listp eltype) (eql 'unsigned-byte (first eltype))
+;;                (member (second eltype) '(8 16 32 64)))
+;;           (setf width (second eltype)
+;;                 mask  (1- (ash 1 width)))
+;;           (error "Invalid collection array; only unsigned arrays of 8, 16, 32 or 64-bit integers may be used."))
+;;       (loop :for number :in numbers
+;;             :do (let ((num-width (or num-width (find-width number width)))
+;;                       (base count))
+;;                   (loop :for n :below num-width
+;;                         :do (setf (row-major-aref array (+ offset base (- num-width 1 n)))
+;;                                   (logand mask number))
+;;                             (setf number (ash number (- width)))
+;;                             (incf count))))
+;;       count)))
 
 ;; (defmacro mqbase (name opcsym mnesym args string &body body)
 ;;   ;; this is a currying macro for masque, allowing the creation
@@ -938,12 +1046,13 @@
       (loop :while (< point (1- (length array)))
             :do (let* ((match) (this-interval)
                        (base 0) (sub-count 0)
-                       (reader (lambda (in)
-                                 (lambda (count)
-                                   (let ((this-count sub-count))
-                                     (incf sub-count count)
-                                     (read-words (+ point this-count in) count)))))
+                       ;; (reader (lambda (in)
+                       ;;           (lambda (count)
+                       ;;             (let ((this-count sub-count))
+                       ;;               (incf sub-count count)
+                       ;;               (read-words (+ point this-count in) count)))))
                        (access (lambda (in)
+                                 (declare (ignore in))
                                  (lambda (mode &rest args)
                                    (case mode
                                      (:read (let ((count (first args))
@@ -977,6 +1086,7 @@
 (defmethod interpret-element or ((assembler assembler-masking) ipattern reader)
   (let ((match))
     (maphash (lambda (key unmasker)
+               (declare (ignore key))
                (unless match (let ((attempt (funcall unmasker ipattern reader)))
                                (when attempt (setf match attempt)))))
              (asm-msk-battery assembler))

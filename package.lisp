@@ -2,7 +2,7 @@
 
 (defpackage #:specops
   (:use #:cl)
-  (:export #:width-spec #:wspec-name #:wspec-bits
+  (:export #:make-array-writer #:width-spec #:wspec-name #:wspec-bits
            #:register #:reg-name #:reg-index #:reg-type #:of-register-type-index
            #:immediate #:imm-value #:make-immediate ;; #:imm
            #:memory-access-scheme
