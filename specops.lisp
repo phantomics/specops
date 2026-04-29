@@ -103,38 +103,81 @@
       (setq r (logior (ash r 1) (logand b 1))
             b (ash b -1)))))
 
+;; (join (masque "h:aaaabbbb.cccccccc.ddeeeeee.ffffffff"))
+
+;; (logior (ash hi 64) lo)
+
+(defmacro defcodetable (symbol options &rest rows)
+  (let ((assignments)
+        (blank-symbol (caar rows))
+        (table (gensym)) (xtable (gensym)) (char (gensym))
+        (store (rest (assoc :store options))))
+    (dolist (row (rest rows))
+      (let ((base (first row)))
+        (loop :for ix :from 1 :for item :in (rest row) :for increment :in (cdar rows)
+              :do (typecase item
+                    (symbol)
+                    (character
+                     (push (+ base increment) assignments)
+                     (push (case store
+                             (:htable  `(gethash (char-code ,item) ,table))
+                             (:vector `(aref ,table (char-code ,item))))
+                           assignments))))))
+    `(let ((,table ,(case store
+                      (:vector `(make-array 256 :initial-element #x00 :element-type '(unsigned-byte 8)))
+                      (:htable `(make-hash-table))))
+           (,xtable (make-array 256 :element-type 'character)))
+       (setf ,@assignments)
+       ,(case store
+          (:vector `(loop :for x :across ,table :for ix :from 0 :do (setf (aref ,xtable x) (code-char ix))))
+          (:htable `(loop :for x :being :the :hash-keys :of ,table :for ix :from 0
+                          :do (when t ; (gethash x ,table)
+                                ;; (print (list :aa x))
+                                (setf (aref ,xtable (gethash x ,table)) (code-char x))))))
+       (setf (symbol-function ',symbol)
+             (lambda (,char)
+               (typecase ,char
+                 (character ,(case store
+                               (:vector `(aref ,table (char-code ,char)))
+                               (:htable `(gethash (char-code ,char) ,table))))
+                 (integer (aref ,xtable ,char))))))))
+
 (defun quantify-mask-string (string params)
-  (let ((segments) (symbols) (base 0) (bits 0))
-    (if (char= #\# (aref string 0)) ;; initial # means the string is hexadecimal
-        (loop :for c :across string :for ix :from 0 :when (not (or (zerop ix)
-                                                                   (char= c #\.)))
-              :do (let ((index (position c "0123456789ABCDEF" :test #'char=)))
-                    ;; symbol-denoting characters must be lowercase when entering hexadecimal strings
-                    (if index
-                        (progn (when (and symbols (not (null (first symbols))))
-                                 (push nil symbols)
-                                 (push bits segments))
-                               (incf base index))
-                        (when (or (not symbols) (not (eq (intern (string-upcase c) "KEYWORD")
+  (let ((segments) (symbols) (factor) (base 0) (bits 0) (width 1) (sx 0) (enumask "01"))
+    (when (and (< 1 (length string)) (char= #\: (aref string 1)))
+      (incf sx 2) ;; skip reading the type prefix
+      ;; bodh for binary, octal, decimal, hexadecimal;
+      ;; b is the default case so it's unhandled here
+      (case (position (char-upcase (aref string 0)) "BODH" :test #'char=)
+        (1 (setf width   3
+                 enumask "01234567"))
+        (2 (setf factor  10 ;; decimal uses the factor multiplication mode
+                 enumask "0123456789"))
+        ;; for hexadecimal, uppercase A-F register as digits while lowercase represent symbols
+        (3 (setf width   4
+                 enumask "0123456789ABCDEF"))))
+    (loop :repeat (- (length string) sx)
+          :do (let ((char (aref string sx)))
+                (if (char= #\. char)
+                  (incf sx) ;; period is an ignored spacing character
+                  (let ((index (position char enumask :test #'char=)))
+                    (if index (progn (when (and symbols (not (null (first symbols))))
+                                       (push nil symbols)
+                                       (push bits segments))
+                                     (incf base index))
+                        (when (or (not symbols) (not (eq (intern (string-upcase char) "KEYWORD")
                                                          (first symbols))))
-                          (push (intern (string-upcase c) "KEYWORD") symbols)
+                          (push (intern (string-upcase char) "KEYWORD") symbols)
                           (push bits segments)))
-                    (unless (= ix (1- (length string))) (setf base (ash base 4)))
-                    (incf bits 4)))
-        (loop :for c :across string :for ix :from 0 :when (not (char= c #\.)) ;; period is used as a spacer
-              :do (if (position c "01" :test #'char=)
-                      (progn (when (and symbols (not (null (first symbols))))
-                               (push nil symbols)
-                               (push bits segments))
-                             (when (char= c #\1) (incf base))) ;; set constant 1 bits
-                      (when (or (not symbols) (not (eq (intern (string-upcase c) "KEYWORD")
-                                                       (first symbols))))
-                        (push (intern (string-upcase c) "KEYWORD") symbols)
-                        (push bits segments)))
-                  ;; shift the number to the left unless this is the last digit
-                  (unless (= ix (1- (length string))) (setf base (ash base 1)))
-                  (incf bits)))
-    (let ((segments (cons 0 (loop :for s :in segments :collect (abs (- s bits))))))
+                    (unless (= sx (1- (length string)))
+                      (setf base (if factor (* base factor)
+                                     (ash base width))))
+                    ;; (print (list :bt bits ))
+                    (incf bits width)
+                    (incf sx)))))
+    ;; (print (list :ss segments))
+    (let ((segments (if factor (cons 1 (reverse (loop :for s :in segments :collect (expt factor (1- s)))))
+                        (cons 0 (loop :for s :in segments :collect (abs (- s bits)))))))
       ;; (print (list :seg segments symbols bits))
       (values (loop :for pair :in (rest (assoc :static params)) ;; values
                     :do (destructuring-bind (sym value) pair
@@ -148,6 +191,51 @@
               ;; (cons 0 (loop :for s :in segments :collect (abs (- s bits))))
               segments symbols bits))))
 
+;; (defun quantify-mask-string2 (string params)
+;;   (let ((segments) (symbols) (base 0) (bits 0))
+;;     (if (char= #\# (aref string 0)) ;; initial # means the string is hexadecimal
+;;         (loop :for c :across string :for ix :from 0 :when (not (or (zerop ix)
+;;                                                                    (char= c #\.)))
+;;               :do (let ((index (position c "0123456789ABCDEF" :test #'char=)))
+;;                     ;; symbol-denoting characters must be lowercase when entering hexadecimal strings
+;;                     (if index
+;;                         (progn (when (and symbols (not (null (first symbols))))
+;;                                  (push nil symbols)
+;;                                  (push bits segments))
+;;                                (incf base index))
+;;                         (when (or (not symbols) (not (eq (intern (string-upcase c) "KEYWORD")
+;;                                                          (first symbols))))
+;;                           (push (intern (string-upcase c) "KEYWORD") symbols)
+;;                           (push bits segments)))
+;;                     (unless (= ix (1- (length string))) (setf base (ash base 4)))
+;;                     (incf bits 4)))
+;;         (loop :for c :across string :for ix :from 0 :when (not (char= c #\.)) ;; period is used as a spacer
+;;               :do (if (position c "01" :test #'char=)
+;;                       (progn (when (and symbols (not (null (first symbols))))
+;;                                (push nil symbols)
+;;                                (push bits segments))
+;;                              (when (char= c #\1) (incf base))) ;; set constant 1 bits
+;;                       (when (or (not symbols) (not (eq (intern (string-upcase c) "KEYWORD")
+;;                                                        (first symbols))))
+;;                         (push (intern (string-upcase c) "KEYWORD") symbols)
+;;                         (push bits segments)))
+;;                   ;; shift the number to the left unless this is the last digit
+;;                   (unless (= ix (1- (length string))) (setf base (ash base 1)))
+;;                   (incf bits)))
+;;     (let ((segments (cons 0 (loop :for s :in segments :collect (abs (- s bits))))))
+;;       ;; (print (list :seg segments symbols bits))
+;;       (values (loop :for pair :in (rest (assoc :static params)) ;; values
+;;                     :do (destructuring-bind (sym value) pair
+;;                           (let* ((insym (intern (string-upcase sym) "KEYWORD"))
+;;                                  (index (loop :for s :in symbols :for ix :from 0
+;;                                               :when (eq s insym) :return ix)))
+;;                             ;; (when reverse-match (push insym static-segments))
+;;                             (if index (incf base (ash value (nth index segments)))
+;;                                 (error "Invalid key for static base value increment."))))
+;;                     :finally (return base))
+;;               ;; (cons 0 (loop :for s :in segments :collect (abs (- s bits))))
+;;               segments symbols bits))))
+
 (defmacro masque (string &rest assignments)
   (let* ((base-sym (gensym))
          (params (if (listp (caar assignments)) (first assignments) nil))
@@ -157,6 +245,7 @@
       ;; (print (list :ss segments symbols params))
       ;; (format t "~v,'0B~%" 16 (ash (1- (ash 1 length)) (nth index segments)))
 
+      (print segments)
       (if processor
           (let* ((rev-sym (reverse symbols)) (rev-seg (reverse segments))
                  (big-endian (eq :big (rest (assoc :endian params))))
@@ -182,16 +271,20 @@
                                                                                 ,(- (* 8 (if big-endian
                                                                                              d (- divs 1 d)))))
                                                                            ,mask))))))))))
-
-          (let ((steps (loop :for assignment :in assignments
-                             :collect (destructuring-bind (key value) assignment
-                                        (let ((index (position (intern (string-upcase key) "KEYWORD")
-                                                               symbols)))
-                                          (when (not index)
-                                            (error "Symbol ~a not found in mask ~a." key string))
-                                          (let ((length (- (nth (1+ index) segments) (nth index segments))))
-                                            `(incf ,base-sym (ash (logand ,value ,(1- (ash 1 length)))
-                                                                  ,(nth index segments)))))))))
+          (let* ((irregular (= 1 (first segments)))
+                 (steps (loop :for assignment :in assignments
+                              :collect (destructuring-bind (key value) assignment
+                                         (let ((index (position (intern (string-upcase key) "KEYWORD")
+                                                                symbols)))
+                                           (when (not index)
+                                             (error "Symbol ~a not found in mask ~a." key string))
+                                           (let ((length (- (nth (1+ index) segments) (nth index segments))))
+                                             (if irregular `(incf ,base-sym (* ,value ,(nth index segments)))
+                                                 `(setf ,base-sym
+                                                        (logior ,base-sym
+                                                                (ash (logand ,value ,(1- (ash 1 length)))
+                                                                     ,(nth index segments)))))
+                                             ))))))
             (if (not steps)
                 base `(let ((,base-sym ,base)) ,@steps ,base-sym)))))))
 
@@ -212,6 +305,16 @@
         ;;              (format nil "~v,'0B" 16 base)))
         `(if (/= ,base (logand ,variant-mask ,test-value))
              nil (let ,pairs ,@body))))))
+
+#|
+
+(marshal (stream )
+  (masque "h:00AF0B00")
+  (abcode "HELLO"))
+
+|#
+
+;; (defmacro marshal params &rest items)
 
 ;; (defmacro bounded-iterate (var bound)
 ;;   `(progn (incf var)
@@ -1374,293 +1477,4 @@
 ;;                        (length (- (nth (1+ index) segments) (nth index segments))))
 ;;                   (ash (logand value (ones-field length))
 ;;                        (nth index segments))))))))
-
-;; (defmacro bitmanifest (string &rest clauses)
-;;   (let ((base (gensym)) (bits (gensym)) (mapper (gensym)) (input (gensym)))
-;;     `(multiple-value-bind (,base ,bits ,mapper) (bitmapper ,string)
-;;        ;; ,@(loop for c :in clauses :collect `(format t "~v,'0B~%" 24 (funcall ,mapper ,@c)))
-;;        (funcall (if (>= 8 ,bits) #'identity (lambda (,input) (vectorize (ceiling ,bits 8) ,input)))
-;;                 (reduce #'+ (list ,base ,@(loop for c :in clauses :collect `(funcall ,mapper ,@(rest c)))))))))
-
-;; (defmacro defop (symbol operands lexicon &rest specs)
-;;   (let* ((provisions (rest (assoc :provisions specs)))
-;;          (ins-part (rest (assoc :instructions specs)))
-;;          (ins-meta (rest (assoc :with ins-part)))
-;;          (opcon-process (symbol-function (rest (assoc :opcons ins-meta))))
-;;          (ins-main))
-    
-;;     (let ((ins-list ins-part))
-;;       (loop :while (and ins-list (not ins-main))
-;;             :do (if (keywordp (caar ins-list))
-;;                     (setf ins-list (rest ins-list))
-;;                     (setf ins-main ins-list))))
-    
-;;     `(setf (gethash ,(intern (string symbol) "KEYWORD") ,lexicon)
-;;            (lambda ,operands
-;;              (symbol-macrolet ,provisions
-;;                (cond ,@(loop :for in :in ins-main
-;;                              :collect (destructuring-bind (manifest conditions) in
-;;                                         (list (cons 'and (funcall opcon-process operands conditions
-;;                                                                   (rest (assoc :priority ins-meta))))
-;;                                               (cons 'join manifest))))
-;;                      (t "Invalid operation.")))))))
-
-;; (defmacro specify-assembler (name macro-symbol &body params)
-;;   (let* ((subpar (gensym)) (ops (gensym)) (template (gensym)) (s (gensym)) (associated)
-;;          (joined (loop :for p :in params
-;;                        :collect (progn (push (first p) associated)
-;;                                        `(append ',p (rest (assoc ,(first p) ,template)))))))
-;;     ;; (print (list :a associated))
-;;     `(progn (proclaim '(special ,name))
-;;             (setf (macro-function ',name)
-;;                   (lambda (,subpar &rest ,ops)
-;;                     (let ((,template (rest ,subpar)))
-;;                       (append (list ',macro-symbol
-;;                                     (cons :with (append (list ,@joined)
-;;                                                         (loop :for ,s :in ,template
-;;                                                               :when (not (member (first ,s) ',associated
-;;                                                                                  :test #'eq))
-;;                                                                 :collect ,s))))
-;;                               ,ops)))))))
-
-;; (let ((series-names) (derived-domains))
-;;   (dotimes (n (/ (length (getf *x86-storage* :gpr)) 8))
-;;     (push (reg-series (nth (1+ (* 8 n)) (getf *x86-storage* :gpr))) series-names))
-;;   (setf series-names (reverse series-names))
-  
-;;   (defmethod of-storage ((assembler assembler-x86) &rest params)
-;;     (unless derived-domains (derive-domains))
-;;     (destructuring-bind (type &key series width index) params
-;;       (let ((series-index (if (not series)
-;;                               0 (1+ (* 8 (position series series-names)))))
-;;             (type-list (getf *x86-storage* type))
-;;             (width-index (case type (:gpr (position width '(8 16 32 64)))
-;;                                (:vcr (position width '(128 256 512)))
-;;                                (t 0)))
-;;             (storage-index (if index (1+ (* 2 index))
-;;                                (+ series-index width-index))))
-;;         (if )
-;;         (nth type-list (if index (1+ (* 2 index))
-;;                            (+ series-index width-index))))))
-
-;;   (defmethod locate ((assembler assembler-x86) params)
-;;     (loop :for p :in params
-;;           :collect (destructuring-bind (type &rest options) p
-;;                      (cond type (:gpr ))))))
-
-;; (defmethod compose ((assembler assembler-x86) params &rest expressions)
-;;   (loop :for e :in expressions :collect 1 2 3))
-
-;; (format t "~v,'0X~%" 40 (asm-op-add (getf *x86-registers* :al) (getf *x86-registers* :cl)))
-
-#|
-
-(defmacro define-op (symbol args &body body)
-  `(defun ,(intern (format nil "ASM-OP-~a" (string symbol)))
-       ,(loop :for arg :in args :collect (if (listp arg) (first arg) arg))
-     ,@(loop :for arg :in args :when (listp arg)
-             :collect (destructuring-bind (sym &rest types) arg
-                        `(unless (or ,@(loop :for arg-clause :in (rest arg)
-                                             :collect `(and (typep ,sym ',(case (first arg-clause)
-                                                                            (:gpr 'x86-gpregister)
-                                                                            (:vrg 'x86-vcregister)
-                                                                            (:mem 'x86-mem-access)
-                                                                            (:imm `(unsigned-byte
-                                                                                    ,(reduce
-                                                                                      #'max
-                                                                                      (rest arg-clause))))))
-                                                            ,@(if (member (first arg-clause)
-                                                                          '(:mem :imm) :test #'eq)
-                                                                  nil `((member (,(case (first arg-clause)
-                                                                                    (:gpr 'reg-width)
-                                                                                    (:vrg 'reg-width))
-                                                                                 ,sym)
-                                                                                '(,@(rest arg-clause))
-                                                                                :test #'=))))))
-                           (error "Invalid operand."))))
-     ,@body))
-  
-(define-op mov
-    ((op0 (:gpr 8 16 32 64) (:mem 8 16 32 64) (:imm 8 16 32 64))
-     (op1 (:gpr 8 16 32 64) (:mem 8 16 32 64) (:imm 8 16 32 64)))
-  (let ((minimm (if (not (numberp op1))
-                    nil (loop :for i :in '((unsigned-byte 8)  (unsigned-byte 16)
-                                           (unsigned-byte 32) (unsigned-byte 64))
-                              :when (typep op1 i) :return (second i))))
-        (rex-required (or (and (typep op0 'x86-register)
-                               (or (= 64 (reg-width op0))
-                                   (<  7 (reg-index op0))))
-                          (and (typep op1 'x86-register)
-                               (or (= 64 (reg-width op1))
-                                   (<  7 (reg-index op1)))))))
-    (print (list :mn minimm))
-    (join (if (not rex-required) nil (determine-pfrex t op0 op1)
-              ;; (prefix-rex t (and (typep op0 'register) (< 7 (reg-index op0)))
-              ;;             nil (and (typep op1 'register) (< 7 (reg-index op1))))
-              )
-          (if (numberp op1)
-              (if (and (typep op0 'x86-register)
-                       (> 8 (reg-index op0)))
-                  (join (+ #xB0 ;; opcode
-                           (if (= 8 (reg-width op0)) 0 8)
-                           (logand #b111 (reg-index op0)))
-                        op1)
-                  (if (typep op0 'x86-mem-access)
-                      (join (+ #xC6 ;; opcode
-                               (if (= 8 (reg-width op0)) 0 1))
-                            (field-modrm :mod 0 :reg 0 :rm (if (typep op0 'x86-register)
-                                                               (reg-index op0)
-                                                               0))
-                            op1)))
-              (if (typep op1 'x86-mem-access)
-                  (join (+ #x88 (if (= 8 (reg-width op0)) 0 1))
-                        (determine-modrm op1 op0)
-                        (determine-sib op0))
-                  (join (+ #x8A (if (= 8 (reg-width op1)) 0 1))
-                        (determine-modrm op0 op1)
-                        (determine-sib op1)))
-              ))))
-
-(define-op add
-    ((op1 (:gpr 8 16 32 64) (:mem 8 16 32 64) (:imm 8 16 32))
-     (op2 (:gpr 8 16 32 64) (:mem 8 16 32 64) (:imm 8 16 32)))
-  (let ((minimm (if (not (numberp op2))
-                    nil (loop :for i :in '((unsigned-byte 8)  (unsigned-byte 16)
-                                           (unsigned-byte 32) (unsigned-byte 64))
-                              :when (typep op2 i) :return (second i)))))
-    (print (list :mn minimm))
-    (join (if (not (or (and (typep op1 'register)
-                            (or (= 64 (reg-width op1))
-                                (< 7 (reg-index op1))))
-                       (and (typep op2 'register)
-                            (= 64 (reg-width op2))
-                            (< 7 (reg-index op2)))))
-              nil (prefix-rex t (and (typep op1 'register) (< 7 (reg-index op1)))
-                              nil (and (typep op2 'register) (< 7 (reg-index op2)))))
-          (if (numberp op2)
-              (join (if (eq :a (reg-series op1)) ;; 4 is opcode for A-series registers
-                        (+ #x04 (if (= 8 (reg-width op1)) 0 1))
-                        ;; #x80-series opcodes are for adding an immediate value to a register
-                        (join (+ #x80 (if (/= 8 minimm)
-                                          1 (if (= minimm (reg-width op1)) 0 3)))
-                              (determine-modrm nil op1)
-                              (determine-sib op1)))
-                    op2)
-              (if (typep op2 'x86-mem-access)
-                  (join (+ #x02 (if (= 8 (reg-width op1)) 0 1))
-                        (determine-modrm op1 op2))
-                  (join (+ #x00 (if (= 8 (reg-width op2)) 0 1))
-                        (determine-modrm op2 op1)))
-              ))))
-  
-(define-op sub
-    ((op1 (:gpr 8 16 32 64) (:mem 8 16 32 64) (:imm 8 16 32))
-     (op2 (:gpr 8 16 32 64) (:mem 8 16 32 64) (:imm 8 16 32)))
-  (let ((minimm (if (not (numberp op2))
-                    nil (loop :for i :in '((unsigned-byte 8)  (unsigned-byte 16)
-                                           (unsigned-byte 32) (unsigned-byte 64))
-                              :when (typep op2 (list 'unsigned-byte i)) :return (second i)))))
-    (join (if (not (or (and (typep op1 'register)
-                            (or (= 64 (reg-width op1))
-                                (< 7 (reg-index op1))))
-                       (and (typep op2 'register)
-                            (= 64 (reg-width op2))
-                            (< 7 (reg-index op2)))))
-              nil (prefix-rex :wide t :rex (and (typep op1 'register) < 7 (reg-index op1))
-                              :iex nil
-                              :rbex (and (typep op2 'register) < 7 (reg-index op2))))
-          (if (numberp op2)
-              (join (if (eq :a (reg-series op1)) ;; 4 is opcode for A-series registers
-                        (+ #x2C (if (= 8 (reg-width op1)) 0 1))
-                        ;; #x80-series opcodes are for adding an immediate value to a register
-                        (join (+ #x80 (if (/= 8 minimm)
-                                          1 (if (= minimm (reg-width op1))
-                                                0 3)))
-                              (determine-modrm nil op1)
-                              (determine-sib op1)))
-                    op2)
-              (if (typep op2 'x86-mem-access)
-                  (join (+ #x2A (if (= 8 (reg-width op1) 0 1)))
-                        (determine-modrm op1 op2))
-                  (join (+ #x28 (if (= 8 (reg-width op2) 0 1)))
-                        (determine-modrm op2 op1)))))))
-
-(define-op pshufb
-    ((op1 (:vrg 64 128 256))
-     (op2 (:vrg 64 128 256) (:mem 64 128 256))
-     &optional
-     (order (:vrg 64 128 256) (:mem 64 128 256)))
-  (let ((mac (if (typep op2 'x86-mem-access)
-                 op2 (if (typep order 'x86-mem-access)
-                         order nil))))
-    (print (list :mm mac op1 op2))
-    (join (if (typep op2 'x86-mem-access)
-              (if (or order (not (= 128 (reg-width op1))))
-                  (error "Invalid.")
-                  (field #x66 #x0F #x38))
-              (determine-pfvex op1 order op2 :long t :prefix #x66 :map #x0F38))
-
-          #x00 ;; opcode
-          (determine-modrm op1 op2)
-          (determine-sib mac)
-          )))
-
-;; (format t "~v,'0B~%" 40 (asm-op-pshufb (getf *x86-registers* :ymm0) (getf *x86-registers* :ymm1) (getf *x86-registers* :ymm2)))
-
-(define-op pshufd
-    ((op1 (:vrg 64 128 256))
-     (op2 (:vrg 64 128 256) (:mem))
-     (order (:imm 8)))
-  (let ((mac (if (typep op2 'x86-mem-access) op2 nil)))
-    (print (list :mm mac op1 op2))
-    (join (if (typep op2 'x86-mem-access)
-              (if (= 128 (reg-width op1))
-                  (field #x66 #x0F)
-                  (error "Invalid."))
-              (determine-pfvex op1 order op2 :long t :prefix #x66 :map #x0F))
-          #x70 ;; opcode
-          (determine-modrm op1 op2)
-          (determine-sib mac)
-          order
-          )))
-
-(define-op vpblendd
-    ((op1 (:vrg 64 128 256))
-     (op2 (:vrg 64 128 256) (:mem))
-     (op3 (:vrg 64 128 256) (:mem))
-     (order (:imm 8)))
-  (let ((mac (if (typep op3 'x86-mem-access) op3 nil)))
-    (print (list :mm mac op1 op2))
-    (join (determine-pfvex op1 op3 op2 :long t :prefix #x66 :map #x0F3A :wide 0)
-          #x02 ;; opcode
-          (determine-modrm op1 op3)
-          (determine-sib mac)
-          order
-          )))
-
-|#
-
-;; (join (if (typep op2 'x86-mem-access)
-;;           (if (or order (not (= 128 (reg-width op1))))
-;;               (error "Invalid.")
-;;               (field #x66 #x0F #x70))
-;;           (prefix-vex (t :prefix #x66 :map #x0F :length (reg-width op1)
-;;                          :third-op (reg-index order)
-;;                          :rex :iex :rbex)))
-;;       (prefix-vex long-prefix &key rex iex rbex map wide (length 128) third-op prefix)
-;;       #x70 ;; opcode
-;;       (field-modrm :mode #b11 :reg1 (reg-index op1) :reg2 (reg-index op2))
-;;       (let ((max (if (typep op2 'x86-mem-access)
-;;                      op2 (if (typep order 'x86-mem-access)
-;;                              order nil))))
-;;         (if (not max) nil (field-sib :index (mac-addr max) :base (x86mac-offset max)
-;;                                      :scale (x86mac-scale max))))))
-
-;; (define-op pshufd
-;;     ((op1 (:vrg 64 128 256) (:mem 64 128 256))
-;;      (op2 (:vrg 64 128 256) (:mem 64 128 256))
-;;      (order (:imm 8)))
-;;   (join (sum (field 0 0 0 0)
-;;              (prefix-vex :type 3 :length (if (= 256 (reg-width op1)) 256 0))
-;;              (operand-modrm))))
 

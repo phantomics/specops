@@ -133,16 +133,16 @@
 
 ;; Mapping from relocation type keywords to numeric codes
 (defparameter *z-reloc-types*
-  '((:r-390-none      .  0) (:r-390-8         .  1)
-    (:r-390-12        .  2) (:r-390-16        .  3)
-    (:r-390-32        .  4) (:r-390-pc32      .  5)
-    (:r-390-got12     .  6) (:r-390-got32     .  7)
-    (:r-390-plt32     .  8) (:r-390-pc16      . 14)
-    (:r-390-pc16dbl   . 16) (:r-390-plt16dbl  . 17)
-    (:r-390-pc32dbl   . 18) (:r-390-plt32dbl  . 19)
-    (:r-390-gotpcdbl  . 20) (:r-390-64        . 22)
-    (:r-390-pc64      . 23) (:r-390-got64     . 24)
-    (:r-390-plt64     . 25) (:r-390-gotent    . 26))
+  '((:r-390-none     .  0) (:r-390-8        .  1)
+    (:r-390-12       .  2) (:r-390-16       .  3)
+    (:r-390-32       .  4) (:r-390-pc32     .  5)
+    (:r-390-got12    .  6) (:r-390-got32    .  7)
+    (:r-390-plt32    .  8) (:r-390-pc16     . 14)
+    (:r-390-pc16dbl  . 16) (:r-390-plt16dbl . 17)
+    (:r-390-pc32dbl  . 18) (:r-390-plt32dbl . 19)
+    (:r-390-gotpcdbl . 20) (:r-390-64       . 22)
+    (:r-390-pc64     . 23) (:r-390-got64    . 24)
+    (:r-390-plt64    . 25) (:r-390-gotent   . 26))
   "Alist mapping relocation type keywords to s390x ELF R_390_* numeric codes.")
 
 ;; ═══════════════════════════════════════════════════════════════
@@ -237,7 +237,7 @@ Sets GOFF-specific properties for AMODE and linkage type."
 
 (defun z-reloc-code (type-keyword)
   "Look up the numeric ELF relocation code for a System Z relocation type keyword."
-  (or (cdr (assoc type-keyword *z-reloc-types*))
+  (or (rest (assoc type-keyword *z-reloc-types*))
       (error "Unknown s390x relocation type: ~a" type-keyword)))
 
 (defun make-z-reloc-pc32dbl (symbol segment offset &key (addend 0))
