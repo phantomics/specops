@@ -226,9 +226,9 @@
                         (ash (mas-index op1) -3))))
     (if long
         (masque "11000100.RXBmmmmm.WvvvvLpp"
-                (r (if (zerop (logand #b1000 (regix op0)))               1 0))
+                (r (if (zerop (logand #b1000 (regix op0)))                  1 0))
                 ;; bit 1.0 indicates inverse extension of the MODRM.reg field: op0 index upper bit
-                (x (if (or (not sib-index) (zerop sib-index))                1 0))
+                (x (if (or (not sib-index) (zerop sib-index))               1 0))
                 ;; bit 1.1 indicates inverse extension of the SIB.index field: index register upper bit
                 (b (if (or (not sib-index) (zerop (ash (mas-base op1) -3))) 1 0))
                 ;; bit 1.2 indicates inverse extension of MODRM.rm or SIB.base field: base register upper bit
