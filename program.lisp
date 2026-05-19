@@ -14,9 +14,9 @@
 
 (in-package #:specops)
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; Program — top-level container
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defclass program ()
   ((%assembler   :accessor pgm-assembler
@@ -44,9 +44,9 @@ each of which groups segments and symbols.  A program with a single
 unit is the common case for ELF and WASM; GOFF compilation units
 may contain multiple units (section definitions)."))
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; Program-unit — independently-linkable grouping of segments
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defclass program-unit ()
   ((%name        :accessor pun-name
@@ -85,9 +85,9 @@ an ELF object or WASM module.  Multiple units in one program
 represent separately-bindable program objects within a single
 compilation unit."))
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; Segment — contiguous region of code or data
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defclass segment ()
   ((%name       :accessor seg-name
@@ -143,9 +143,9 @@ Maps to a GOFF Element Definition (ED), an ELF section (.text,
 .data, .bss, .rodata, etc.), or a section in a WASM module.
 Contains an ordered sequence of segment-items."))
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; Symbol-entry — named symbol in the program's symbol table
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defclass symbol-entry ()
   ((%name       :accessor sym-name
@@ -193,9 +193,9 @@ GOFF: maps to an LD (label) or PR (part) ESD record, or an ER (external ref).
 ELF: maps to an Elf64_Sym entry.
 WASM: maps to an import or export entry."))
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; Relocation — a fixup to be applied during linking
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defclass relocation ()
   ((%symbol     :accessor rel-symbol
@@ -236,17 +236,17 @@ GOFF: maps to an RLD data item.
 ELF: maps to an Elf64_Rela entry.
 WASM does not use relocations (all references are index-based)."))
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; Segment items — the contents of segments
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defclass segment-item ()
   ()
   (:documentation "Abstract base class for items within a segment."))
 
-;; ─────────────────────────────────────────────────────────────
+;; ===============================================================
 ;; Raw bytes — pre-encoded data injected into the segment
-;; ─────────────────────────────────────────────────────────────
+;; ===============================================================
 
 (defclass raw-bytes-item (segment-item)
   ((%data :accessor rbi-data
@@ -255,9 +255,9 @@ WASM does not use relocations (all references are index-based)."))
           :documentation "A (vector (unsigned-byte 8)) of literal bytes."))
   (:documentation "A run of pre-encoded bytes injected directly into the segment."))
 
-;; ─────────────────────────────────────────────────────────────
+;; ===============================================================
 ;; Instruction — an assembler instruction expression
-;; ─────────────────────────────────────────────────────────────
+;; ===============================================================
 
 (defclass instruction-item (segment-item)
   ((%expression :accessor ii-expression
@@ -269,9 +269,9 @@ Encoded into bytes during assembly via the assembler's lexicon."))
    "A single assembler instruction.  The expression is resolved
 against the assembler's lexicon during the assembly pass."))
 
-;; ─────────────────────────────────────────────────────────────
+;; ===============================================================
 ;; Label definition — marks a named position in a segment
-;; ─────────────────────────────────────────────────────────────
+;; ===============================================================
 
 (defclass label-def-item (segment-item)
   ((%name    :accessor ldi-name
@@ -291,9 +291,9 @@ symbol table.
 GOFF: may become an LD entry under the parent ED.
 ELF: becomes a symbol in .symtab."))
 
-;; ─────────────────────────────────────────────────────────────
+;; ===============================================================
 ;; Label reference — emits a placeholder and generates a relocation
-;; ─────────────────────────────────────────────────────────────
+;; ===============================================================
 
 (defclass label-ref-item (segment-item)
   ((%label    :accessor lri-label
@@ -319,9 +319,9 @@ and generating a relocation entry.  During assembly, a zero-filled
 field of %width bytes is written at the current position, and a
 relocation is created in the owning unit's relocation list."))
 
-;; ─────────────────────────────────────────────────────────────
+;; ===============================================================
 ;; Alignment padding
-;; ─────────────────────────────────────────────────────────────
+;; ===============================================================
 
 (defclass align-item (segment-item)
   ((%boundary  :accessor ali-boundary
@@ -338,9 +338,9 @@ may be substituted during assembly."))
    "Alignment padding.  During assembly, emits zero or more fill bytes
 to bring the current offset to a multiple of the boundary value."))
 
-;; ─────────────────────────────────────────────────────────────
+;; ===============================================================
 ;; Function item — a named, bounded region of instructions
-;; ─────────────────────────────────────────────────────────────
+;; ===============================================================
 
 (defclass function-item (segment-item)
   ((%name       :accessor fi-name
@@ -371,9 +371,9 @@ ELF: generates a STT_FUNC symbol in .symtab.
 WASM: use the wasm-function-item subclass for the full type signature
 and local variable declarations."))
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; Generic functions for the program model
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defgeneric add-segment (unit name segment)
   (:documentation "Add a segment to a program-unit's segment alist."))
@@ -440,9 +440,9 @@ and local variable declarations."))
   (setf (seg-items seg) (nreverse (seg-items seg)))
   seg)
 
-;; ─────────────────────────────────────────────────────────────
+;; ===============================================================
 ;; Convenience constructors
-;; ─────────────────────────────────────────────────────────────
+;; ===============================================================
 
 (defun make-program (assembler &rest properties)
   "Create a program bound to the given assembler prototype."
@@ -466,18 +466,18 @@ and local variable declarations."))
                                 :binding binding :sym-type sym-type
                                 :size size :properties properties))
 
-;; ─────────────────────────────────────────────────────────────
+;; ===============================================================
 ;; Serialization protocol (to be implemented by format modules)
-;; ─────────────────────────────────────────────────────────────
+;; ===============================================================
 
 (defgeneric emit-program (program format stream &key &allow-other-keys)
   (:documentation "Serialize PROGRAM to the specified FORMAT, writing bytes to STREAM.
 FORMAT is a keyword such as :elf, :goff, or :wasm.
 Implementations are provided by format-specific modules."))
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; Data word item — integer data with deferred encoding
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defclass data-word-item (segment-item)
   ((%value :accessor dwi-value
@@ -494,9 +494,9 @@ If NIL, inferred from value magnitude during assembly."))
 assembly time.  The assembler determines endianness; width
 is either explicit or inferred from the value's magnitude."))
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; Program macro — expansion helpers
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;;
 ;; These functions run at macro-expansion time.  They take source
 ;; forms from the program body and return code forms to be spliced
@@ -756,9 +756,9 @@ forms that create the segment and populate it with items."
 
   ) ; end eval-when
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; The program macro
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defmacro program (assembler &body body)
   "Build a program model from a declarative specification.
@@ -844,9 +844,9 @@ encode instructions and resolve labels."
            `((setf (pgm-entry-point ,pgm-var) ',entry-sym)))
        ,pgm-var)))
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; Assembler endianness protocol
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defgeneric asm-endianness (assembler)
   (:documentation "Return the byte order for this assembler: :big or :little.
@@ -898,9 +898,9 @@ units); this converts them to bytes in the assembler's endianness."
            out))
         (t (error "Unsupported element type ~a" etype))))))
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; Data encoding helpers
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defun integer-byte-width (value)
   "Return the minimum number of bytes needed to represent VALUE as unsigned.
@@ -920,9 +920,9 @@ ENDIANNESS is :big or :little."
                     (logand #xFF (ash value (* -8 i)))))
     bytes))
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; build-program — assemble all segments
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defgeneric build-program (program &key &allow-other-keys)
   (:documentation "Assemble all segments in PROGRAM.
@@ -951,9 +951,9 @@ The unit's symbol table and relocation list are populated."))
                    (assemble-bss-segment seg unit)))))
     pgm))
 
-;; ─────────────────────────────────────────────────────────────
+;; ===============================================================
 ;; Code segment assembly
-;; ─────────────────────────────────────────────────────────────
+;; ===============================================================
 
 (defun %make-code-api (assembler pgm codes marked-points tag-points)
   "Create the program-api closure for instruction assembly.
@@ -1146,9 +1146,9 @@ populate symbols and relocations."
             (seg-size seg) len))
     seg))
 
-;; ─────────────────────────────────────────────────────────────
+;; ===============================================================
 ;; Data segment assembly
-;; ─────────────────────────────────────────────────────────────
+;; ===============================================================
 
 (defun assemble-data-segment (assembler seg unit pgm)
   "Assemble a data or rodata segment: encode data values, record labels."
@@ -1212,9 +1212,9 @@ populate symbols and relocations."
             (seg-size seg) len))
     seg))
 
-;; ─────────────────────────────────────────────────────────────
+;; ===============================================================
 ;; BSS segment handling
-;; ─────────────────────────────────────────────────────────────
+;; ===============================================================
 
 (defun assemble-bss-segment (seg unit)
   "Process a BSS segment: no bytes emitted, just accumulate size
