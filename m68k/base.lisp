@@ -2,9 +2,9 @@
 
 (in-package #:specops.m68k)
 
-(defvar *m68k-layout*)
+(defvar *m68k-promodel*)
 
-(setf *m68k-layout*
+(setf *m68k-promodel*
       (list :gp '(:d0 :d1 :d2 :d3 :d4 :d5 :d6 :d7)
             :ad '(:a0 :a1 :a2 :a3 :a4 :a5 :a6 :a7)
             :sp '(:usp :sr :ccr)))
@@ -182,9 +182,9 @@
              :allocation :class
              :initform   (make-hash-table :test #'eq)
              :initarg    :battery)
-   (%domains :accessor   asm-domains
+   (%pmodel  :accessor   asm-pmodel
              :initform   *m68k-layout*
-             :initarg    :domains)
+             :initarg    :pmodel)
    (%breadth :accessor   asm-breadth
              :allocation :class
              :initform   16

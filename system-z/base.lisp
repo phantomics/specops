@@ -168,9 +168,9 @@
              :allocation :class
              :initform   (make-hash-table :test #'eq)
              :initarg    :lexicon)
-   (%domains :accessor   asm-domains
+   (%pmodel  :accessor   asm-pmodel
              :initform   nil
-             :initarg    :domains)
+             :initarg    :pmodel)
    (%breadth :accessor   asm-breadth
              :allocation :class
              :initform   16

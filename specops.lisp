@@ -477,23 +477,81 @@
           :initarg  :addr))
   (:documentation "A class encompassing memory access schemes referencing an absolute address."))
 
+(defclass register-file ()
+  ((%name   :accessor rfile-name
+            :initform nil
+            :initarg  :name)
+   (%base   :accessor rfile-base
+            :initform nil
+            :initarg  :source)
+   (%tags   :accessor rfile-tags
+            :initform nil
+            :initarg  :tags)
+   (%width  :accessor rfile-width
+            :initform nil
+            :initarg  :width)
+   (%widths :accessor rfile-widths
+            :initform nil
+            :initarg  :widths)))
+
+(defclass rfile-reduced (register-file)
+  ((%map  :accessor rf-reduced-map
+          :initform nil
+          :initarg  :map)))
+
+(defclass rfile-displaced (register-file)
+  ((%bit-width  :accessor rf-displaced-bit-width
+                :initform nil
+                :initarg  :bit-width)
+   (%bit-offset :accessor rf-displaced-bit-offset
+                :initform nil
+                :initarg  :bit-offset)))
+
+(defclass rfile-blocked (register-file)
+  ((%map  :accessor rf-reduced-map
+          :initform nil
+          :initarg  :map)))
+
+(defmacro as-register-file (name props &body forms)
+  (destructuring-bind (tags &rest derivations) forms
+    (let ((base (gensym)) (syms))
+      `(let ((,base (make-instance 'register-file ,@(append props (list :tags tags))))
+             ,@(loop :for d :in derivations
+                     :collect (let ((assign (gensym)))
+                                (push assign syms)
+                                (setf (fourth d) (append (list :base base) (fourth d)))
+                                (list assign (macroexpand (append d))))))
+         (list ,base ,@(reverse syms))))))
+
+(defmacro deriving-file (type name props &body forms)
+  `(make-instance ',(case type (:reduced 'rfile-reduced) (:displaced 'rfile-displaced))
+                  :name ,name ,@props))
+
+;; (as-register-file :general-purpose (:width 64 :widths (64 32 16 8))
+;;   (:a :b :c :d)
+;;   (:as-reduced :double-wide (:width 16 :base 0)
+;;                (:ab :cd)))
+
 (defclass assembler ()
   ((%name    :accessor   asm-name
              :initform   nil
              :initarg    :name)
-   (%type    :accessor   asm-type
+   (%extns   :accessor   asm-extns
              :allocation :class
              :initform   nil
-             :initarg    :type)
+             :initarg    :extns)
    (%storage :accessor   asm-storage
              :initform   nil
              :initarg    :storage)
    (%lexicon :accessor   asm-lexicon
              :initform   nil
              :initarg    :lexicon)
-   (%domains :accessor   asm-domains
+   (%pmodel  :accessor   asm-pmodel
              :initform   nil
-             :initarg    :domains)
+             :initarg    :pmodel
+             :documentation "The program model: collected register files.")
+   (%pool    :accessor   asm-pool
+             :documentation "Pool of available registers, to be solved for after initialization.")
    (%reserve :accessor   asm-reserve
              :initform   nil
              :initarg    :reserve)
@@ -518,6 +576,23 @@
              :initarg    :program-api-access))
   (:documentation "A generic assembler class."))
 
+(defmethod initialize-instance :after ((asm assembler) &key)
+  "After-init method for assemblers; builds register pool exclusing blocked registers."
+  (let ((pool (make-hash-table :test #'eq))
+        (blocked))
+    (dolist (file (asm-pmodel asm))
+      (typecase file
+        (rfile-blocked (loop :for tag :in (rfile-tags file) :unless (member tag blocked)
+                             :do (push tag blocked)))))
+    (dolist (file (asm-pmodel asm))
+      (unless (typep file 'rfile-blocked)
+        (loop :for tag :in (rfile-tags file)
+              :for index :from 0
+              :unless (member tag blocked)
+                :do (setf (gethash tag pool)
+                          (cons file index)))))
+    (setf (asm-pool asm) pool)))
+
 (defclass assembler-encoding (assembler)
   ((%decoder :accessor asm-enc-decoder
              :initform nil
@@ -533,11 +608,14 @@
              :initarg  :battery))
   (:documentation "An assembler whose instructions can be disassembled on the basis of comparing and decomposing bitmasks."))
 
-(defgeneric types-of (assembler)
+(defgeneric extns-of (assembler)
   (:documentation "Fetch an assembler's types."))
 
-(defgeneric %derive-domains (assembler &rest params) ;; TODO: Remove this method
-  (:documentation "Determine storage domains for a given assembler."))
+(defgeneric extn-p (assembler extension)
+  (:documentation "Check for an assembler's support of an ISA extension."))
+
+(defgeneric %derive-pmodel (assembler &rest params) ;; TODO: Remove this method
+  (:documentation "Determine programming model for a given assembler."))
 
 (defgeneric of-lexicon (assembler key &optional value)
   (:documentation "Fetch lexical get/setter for given assembler."))
@@ -547,6 +625,9 @@
 
 (defgeneric storage-type-p (assembler type &rest keys)
   (:documentation "Confirm membership of symbol(s) in a given storage type of an assembler."))
+
+(defgeneric of-pmodel (assembler key)
+  (:documentation "Fetch register file from program model by name or key for given assembler."))
 
 (defgeneric specify-ops (assembler asm-symbol op-symbol operands params)
   (:documentation "Specify assembly functions for members of a given assembler's class."))
@@ -603,6 +684,13 @@
                 (when pos (setf return-type type-key return-index pos))))
     (values return-index return-type)))
 
+(defmethod of-pmodel ((assembler assembler) key)
+  (let ((return-type) (return-index))
+    (typecase key
+      (integer (nth key (asm-pmodel assembler)))
+      (symbol (loop :for rfile :on (asm-pmodel assembler)
+                    :when (eq key (rfile-name rfile)) :return rfile)))))
+
 (defmethod storage-type-p ((assembler assembler) type &rest keys)
   (let ((type-domain (getf (asm-storage assembler) type)))
     (loop :for key :in keys :always (position key type-domain))))
@@ -615,33 +703,36 @@
   (if value (setf (gethash key (asm-msk-battery assembler)) value)
       (gethash key (asm-msk-battery assembler))))
 
-(defmethod types-of ((item t))
+(defmethod extns-of ((item t))
   (declare (ignore item))
   nil)
 
-(defmethod types-of ((assembler assembler))
+(defmethod extns-of ((assembler assembler))
   (append (call-next-method)
-          (asm-type assembler)))
+          (asm-extns assembler)))
 
-(defmethod %derive-domains ((assembler assembler) &rest params) ;; TODO: remove
+(defmethod extn-p ((assembler assembler) extension)
+  (member extension (asm-extns assembler)))
+
+(defmethod %derive-pmodel ((assembler assembler) &rest params) ;; TODO: remove
   (let ((derived-ranges))
     (loop :for p :in params
           :do (destructuring-bind (qualifier &rest bindings) p
                 (when (or (eq t qualifier)
-                          (member qualifier (asm-type assembler)))
+                          (member qualifier (asm-extns assembler)))
                   (loop :for b :in bindings
                         :do (setf (getf derived-ranges (first b))
                                   (max (second b) (or (getf derived-ranges (first b))
                                                       0)))))))
     ;; (print (list :der derived-ranges))
-    (setf (asm-domains assembler)
+    (setf (asm-pmodel assembler)
           (loop :for (key length) :on derived-ranges :by #'cddr
                 :collect (cons key (loop :for i :below length
                                          :unless (member i (rest (assoc key (asm-reserve assembler))))
                                            :collect i))))))
 
-(defmacro derive-domains (assembler &rest params) ;; TODO: remove
-  `(%derive-domains ,assembler ,@(loop :for p :in params :collect `(quote ,p))))
+(defmacro derive-pmodel (assembler &rest params) ;; TODO: remove
+  `(%derive-pmodel ,assembler ,@(loop :for p :in params :collect `(quote ,p))))
 
 (defmacro specops (symbol operands assembler &body items)
   (let* ((params (if (not (and (listp (first items)) (listp (caar items))
@@ -867,17 +958,17 @@
                     (abs offset))))))
 
 (defmethod locate ((assembler assembler) items)
-  (let ((reserved) (domains (asm-domains assembler)))
+  (let ((reserved) (pmodel (asm-pmodel assembler)))
     (loop :for item :in items
           :collect (destructuring-bind (symbol type &key bind &allow-other-keys) item
-                     (let* ((type-spec (getf domains type))
+                     (let* ((type-spec (getf pmodel type))
                             (rset (assoc type reserved))
                             (out-item (if bind (typecase type-spec
                                                  (list     (and (position bind type-spec :test #'eq)
                                                                 bind))
                                                  (function (funcall type-spec bind)))
                                           (let ((options (set-difference type-spec (rest rset))))
-                                            ;; (print (list :aa domains type-spec (rest rset)))
+                                            ;; (print (list :aa pmodel type-spec (rest rset)))
                                             (nth (random (length options)) options)))))
                        (unless rset
                          (push (setf rset (list type)) reserved))
@@ -900,7 +991,7 @@
          (two-power (floor (log unit 2)))
          (api-access (lambda (mode &rest args)
                        (case mode
-                         (:assembler-type (asm-type assembler))
+                         (:assembler-type (asm-extns assembler))
                          (:exmode (or (rest (assoc :exmode params))
                                       (first (asm-exmodes assembler))))
                          (:label (destructuring-bind (field-length offset-bits symbol) args
@@ -1199,7 +1290,7 @@
 ;; (defmethod locate ((assembler assembler) location-spec program-props)
 ;;   ;; (print (list :aea location-spec program-props))
 ;;   (destructuring-bind (label bit-offset field-length index) location-spec
-;;     (asm-domains)
+;;     (asm-pmodel)
 ;;     (let ((offset (- (rest (assoc label (getf program-props :marked-points))) index)))
 ;;       (if (not (minusp offset)) ;; two's complement conversion
 ;;           offset (+ (ash 1 (1- field-length))
@@ -1423,13 +1514,13 @@
 ;;                                                                 :collect ,s))))
 ;;                               ,ops)))))))
 
-;; (let ((series-names) (derived-domains))
+;; (let ((series-names) (derived-pmodel))
 ;;   (dotimes (n (/ (length (getf *x86-storage* :gpr)) 8))
 ;;     (push (reg-series (nth (1+ (* 8 n)) (getf *x86-storage* :gpr))) series-names))
 ;;   (setf series-names (reverse series-names))
   
 ;;   (defmethod of-storage ((assembler assembler-x86) &rest params)
-;;     (unless derived-domains (derive-domains))
+;;     (unless derived-pmodel (derive-pmodel))
 ;;     (destructuring-bind (type &key series width index) params
 ;;       (let ((series-index (if (not series)
 ;;                               0 (1+ (* 8 (position series series-names)))))

@@ -23,25 +23,36 @@
 
 (defvar *assembler-prototype-x86*)
 
-(defvar *x86-layout*
+;; (defvar *x86-gprs-base*
+;;   (as-register-file :general-purpose (:width 64 :widths '(64 32 16 8))
+;;     (:a   :c   :d   :b   :sp  :bp  :di  :si)
+;;     (deriving-file :reduced :double-wide (:width 13)
+;;       (:ab :cd))))
+
+;; (as-register-file :vector (:width 64 :widths (64 32 16 8))
+;;   (:a   :c   :d   :b   :sp  :bp  :di  :si)
+;;   (:as-reduced :double-wide (:width 16 :base 0)
+;;                (:ab :cd)))
+
+(defvar *x86-promodel*
   (list :gpr '(:a   :c   :d   :b   :sp  :bp  :di  :si  :r8  :r9  :r10 :r11 :r12 :r13 :r14 :r15)
         :vcr '(:m0  :m1  :m2  :m3  :m4  :m5  :m6  :m7  :m8  :m9  :m10 :m11 :m12 :m13 :m14 :m15
                :m16 :m17 :m18 :m19 :m20 :m21 :m22 :m23 :m24 :m25 :m26 :m27 :m28 :m29 :m30 :m31)
         :gpr-hb '(:ah :ch :dh :bh)))
 
-(defvar *storage-domains-x86*
+(defvar *promodel-x86*
   (list :gpr '(:a   :c   :d   :b   :sp  :bp  :di  :si)))
 
-(defvar *storage-domains-x86-64*
+(defvar *promodel-x86-64*
   (list :gpr '(:a   :c   :d   :b   :sp  :bp  :di  :si  :r8  :r9  :r10 :r11 :r12 :r13 :r14 :r15)
         :gpr-hb '(:ah :ch :dh :bh)))
 
-(defvar *storage-domains-x86-64-avx*
+(defvar *promodel-x86-64-avx*
   (list :gpr '(:a   :c   :d   :b   :sp  :bp  :di  :si  :r8  :r9  :r10 :r11 :r12 :r13 :r14 :r15)
         :vcr '(:m0  :m1  :m2  :m3  :m4  :m5  :m6  :m7  :m8  :m9  :m10 :m11 :m12 :m13 :m14 :m15)
         :gpr-hb '(:ah :ch :dh :bh)))
 
-(defvar *storage-domains-x86-64-avx-512*
+(defvar *promodel-x86-64-avx-512*
   (list :gpr '(:a   :c   :d   :b   :sp  :bp  :di  :si  :r8  :r9  :r10 :r11 :r12 :r13 :r14 :r15)
         :vcr '(:m0  :m1  :m2  :m3  :m4  :m5  :m6  :m7  :m8  :m9  :m10 :m11 :m12 :m13 :m14 :m15
                :m16 :m17 :m18 :m19 :m20 :m21 :m22 :m23 :m24 :m25 :m26 :m27 :m28 :m29 :m30 :m31)
@@ -285,10 +296,10 @@
              :allocation :class
              :initform   (make-hash-table :test #'eq)
              :initarg    :lexicon)
-   (%domains :accessor   asm-domains
-             :initform   *storage-domains-x86*
+   (%pmodel  :accessor   asm-pmodel
+             :initform   *promodel-x86*
              :allocation :class
-             :initarg    :domains)
+             :initarg    :pmodel)
    (%exmodes :accessor   asm-exmodes
              :allocation :class
              :initform   '(:l64 :p32 :p16 :r16)
@@ -357,252 +368,3 @@
       (if (zerop (ash value (ash width 3)))
           value (logand value (1- (ash 1 width))))))
 
-;; (defmethod initialize-instance :after ((assembler assembler-x86) &key)
-;;   (derive-domains assembler (t (:gpr  8))
-;;                   (:x86-64 (:gpr 16))
-;;                   (:avx    (:vcr  8))
-;;                   (:avx2   (:vcr 16))
-;;                   (:avx512 (:vcr 32))))
-
-;; (defmacro defop (symbol operands lexicon &rest specs)
-;;   (let* ((provisions (rest (assoc :provisions specs)))
-;;          (ins-part (rest (assoc :instructions specs)))
-;;          (ins-meta (rest (assoc :with ins-part)))
-;;          (opcon-process (symbol-function (rest (assoc :opcons ins-meta))))
-;;          (ins-main))
-    
-;;     (let ((ins-list ins-part))
-;;       (loop :while (and ins-list (not ins-main))
-;;             :do (if (keywordp (caar ins-list))
-;;                     (setf ins-list (rest ins-list))
-;;                     (setf ins-main ins-list))))
-    
-;;     `(setf (gethash ,(intern (string symbol) "KEYWORD") ,lexicon)
-;;            (lambda ,operands
-;;              (symbol-macrolet ,provisions
-;;                (cond ,@(loop :for in :in ins-main
-;;                              :collect (destructuring-bind (manifest conditions) in
-;;                                         (list (cons 'and (funcall opcon-process operands conditions
-;;                                                                   (rest (assoc :priority ins-meta))))
-;;                                               (cons 'join manifest))))
-;;                      (t "Invalid operation.")))))))
-
-;; (defun genopcons-x86 (operands form order)
-;;   "Generate operand conditions for x86 architecture."
-;;   (loop :for index :in order
-;;         :append (let ((f (nth index form)) (o (nth index operands)))
-;;                   (if (integerp f)
-;;                       `((and (integerp ,o) (= ,f ,o)))
-;;                       (if (not f)
-;;                           nil (destructuring-bind (type qualifier) f
-;;                                 (symbol-macrolet
-;;                                     ((gpr-case `(and (typep ,o 'x86-gpregister)
-;;                                                      ,(typecase qualifier
-;;                                                         (keyword `(eq ,qualifier (reg-name  ,o)))
-;;                                                         (integer `(=  ,qualifier (reg-width ,o))))))
-;;                                      (vcr-case `(and (typep ,o 'x86-vcregister)
-;;                                                      ,(typecase qualifier
-;;                                                         (keyword `(eq ,qualifier (reg-name  ,o)))
-;;                                                         (integer `(=  ,qualifier (reg-width ,o))))))
-;;                                      (mem-case `(and (typep ,o 'mas-x86)
-;;                                                      ,(typecase qualifier
-;;                                                         (keyword `(eq ,qualifier (reg-name  ,o)))
-;;                                                         (integer `(=  ,qualifier (reg-width ,o)))))))
-;;                                   (case type
-;;                                     (:gpr (list gpr-case))
-;;                                     (:vcr (list vcr-case))
-;;                                     (:mem (list mem-case))
-;;                                     (:gxm `((or ,gpr-case ,mem-case)))
-;;                                     (:vxm `((or ,vcr-case ,mem-case)))
-;;                                     (:imm `((and (typep ,o 'integer)
-;;                                                  (< ,o ,(expt 2 qualifier)))))))))))))
-
-;; (defmethod specify-ops ((assembler assembler-x86) asm-sym op-symbol operands items)
-;;   "A simple scheme for implementing operations - the (specop) content is directly placed within functions in the lexicon hash table."
-;;   (print (list :par asm-sym op-symbol op-symbol operands items))
-;;   (let* ((params (if (not (and (listp (first items)) (listp (caar items))
-;;                                (keywordp (caaar items))))
-;;                      nil (first items)))
-;;          (operations (if (not params) items (rest items)))
-;;          (provisions (rest (assoc :provisions params))))
-;;     ;; (print (list :op operations params))
-    
-;;     `(setf (gethash ,(intern (string op-symbol) "KEYWORD")
-;;                     (asm-lexicon ,asm-sym))
-;;            (lambda ,operands
-;;              (symbol-macrolet ,provisions
-;;                (cond ,@(loop :for op :in operations
-;;                              :collect (destructuring-bind (manifest mconditions) op
-;;                                         (list (cons 'and (qualify-ops assembler operands conditions
-;;                                                                       (rest (assoc :priority params))))
-;;                                               (cons 'join manifest))))
-;;                      (t "Invalid operation.")))))))
-
-;; (defun determine-pfrex (width op0 op1 &optional null-if-zero)
-;;   (let ((flags (+ (if (eq :q width) 8 0) ;; 8-bit indicates 64-bit width
-;;                   (if (not (gpr-p op0))  ;; 4-bit is upper bit of extended GPR 0 index
-;;                       0 (ash (ash (regix op0) -3) 2))
-;;                   (if (not (and (typep op1 'mas-x86) ;; 2-bit is upper bit of extended GPR 1 index
-;;                                 (mas-base op1) (mas-index op1)))
-;;                       0 (ash (ash (regix (mas-index op1)) -3) 1))
-;;                   (if (gpr-p op0)        ;; 1-bit is upper bit of extended GPR 1/MAS 1 indec
-;;                       (ash (regix op0) -3)
-;;                       (if (not (and (typep op0 'mas-x86) (mas-base op1)))
-;;                           0 (ash (regix (mas-base op1)) -3))))))
-;;     (if (and null-if-zero (zerop flags))
-;;         nil (masque "0100.FFFF" (f flags)))))
-
-;; (defun determine-pfrex (wide op0 op1 &key szpx-reg szpx-addr)
-;;   (masque "0100.WRXB"
-;;           (w (if wide 1 (if (or (and (gpr-p op0)
-;;                                      (= 64 (reg-width op0)))
-;;                                 (and (gpr-p op1)
-;;                                      (= 64 (reg-width op1))))
-;;                             1 0)))
-;;           (r (if (not (gpr-p op0))
-;;                  0 (ash (regix op0) -3)))
-;;           (x (if (not (and (typep op1 'mas-x86)
-;;                            (mas-base op1) (mas-index op1)))
-;;                  0 (ash (regix (mas-index op1)) -3)))
-;;           (b (if (gpr-p op0)
-;;                  (ash (regix op0) -3)
-;;                  (if (not (and (typep op0 'mas-x86)
-;;                                (mas-base op1)))
-;;                      0 (ash (regix (mas-base op1)) -3))))))
-
-
-
-;; (defmethod specify-ops ((assembler assembler) op-symbol operands params operations)
-;;   "A simple scheme for implementing operations - the (specop) content is directly placed within functions in the lexicon hash table."
-;;   (cond ((assoc :combine params)
-;;          ;; combinatoric parameters are used to specify mnemonics and opcodes that can be derived
-;;          ;; by combining lists of base components, such as the Xcc conditional instructions seen
-;;          ;; in many ISAs, where many different conditions share a common numeric and mnemonic base
-;;          (destructuring-bind (co-symbol join-by indexer &rest combinators)
-;;              (rest (assoc :combine params))
-;;            (cons 'progn (loop :for co :in combinators :for i :from 0
-;;                               :collect (let ((comp-sym (case join-by
-;;                                                          (:appending (intern (format nil "~a~a" op-symbol co)
-;;                                                                              "KEYWORD"))))
-;;                                              (index (funcall (case indexer (:by-index #'identity))
-;;                                                              i)))
-;;                                          (clause-processor
-;;                                           assembler 'of-lexicon comp-sym operands
-;;                                           (append (list (cons :wrap-body
-;;                                                               (lambda (body)
-;;                                                                 `((let ((,co-symbol ,index)) ,@body)))))
-;;                                                   params)
-;;                                           operations))))))
-;;         ((assoc :tabular params)
-;;          ;; tabular parameters are used to specify many opcodes for ISAs like Z80 and 6502 along
-;;          ;; with more recent one-byte instruction sets like WebAssembly
-;;          (destructuring-bind (mode &rest properties) (rest (assoc :tabular params))
-;;            (declare (ignore properties))
-;;            (case mode (:cross-adding
-;;                        (cons 'progn (process-clause-matrix assembler op-symbol
-;;                                                            operands params operations))))))
-;;         ;; ((and (not operands) (= 1 (length operations)))
-;;         ;;  ;; `(setf (gethash ,(intern (string op-symbol) "KEYWORD")
-;;         ;;  ;;                 (asm-lexicon ,asm-sym))
-;;         ;;  ;;        ,(first operations))
-;;         ;;  `(of-lexicon ,asm-sym ,(intern (string op-symbol) "KEYWORD")
-;;         ;;               ,(first operations)))
-;;         (t (clause-processor assembler 'of-lexicon op-symbol operands params operations))))
-
-;; (let ((gpr-series-names) (vcr-series-names))
-;;   (dotimes (n (/ (length (getf *x86-storage* :gpr)) 8))
-;;     (push (reg-series (nth (1+ (* 8 n)) (getf *x86-storage* :gpr))) gpr-series-names))
-  
-;;   (dotimes (n (/ (length (getf *x86-storage* :vcr)) 6))
-;;     (push (reg-series (nth (1+ (* 6 n)) (getf *x86-storage* :vcr))) vcr-series-names))
-
-;;   (setf gpr-series-names (reverse gpr-series-names)
-;;         vcr-series-names (reverse vcr-series-names))
-
-;;   (defun series-index (type series-id)
-;;     (case type (:gpr (position series-id gpr-series-names))
-;;           (:vcr (position series-id vcr-series-names)))))
-
-;; (defmethod of-storage ((assembler assembler-x86) &rest params)
-;;   (destructuring-bind (type &key series width series-index) params
-;;     ;; (print (list :in width type series-index))
-;;     (let* ((series-index (or series-index (if (not series) 0 (series-index type series))))
-;;            (type-list (getf *x86-storage* type))
-;;            (storage-index (+ 1 (* 4 series-index) (* 2 width))))
-;;       ;; (print (list :ss storage-index width type))
-;;       (if (not (member series-index (assoc type (asm-domains assembler))))
-;;           nil (values (nth storage-index type-list)
-;;                       (+ series-index width))))))
-
-;; (defmethod locate ((assembler assembler-x86) items)
-;;   (let ((domains (copy-tree (asm-domains assembler)))
-;;         (bound (loop :for item :in items :when (member :bind item :test #'eq) :collect item))
-;;         (unbound (loop :for item :in items :unless (member :bind item :test #'eq) :collect item)))
-;;     (print (list :bu bound unbound))
-;;     (append (loop :for item :in bound
-;;                   :collect (destructuring-bind (symbol type &rest params) item
-;;                              ;; (print (list :dom domains))
-;;                              (list symbol (let ((out-index (series-index type (getf params :bind))))
-;;                                             (setf (rest (assoc type domains))
-;;                                                   (remove out-index (rest (assoc type domains))))
-;;                                             out-index))))
-;;             (loop :for item :in unbound
-;;                   :collect (destructuring-bind (symbol type &rest params) item
-;;                              (list symbol (let ((random-index (nth (random (length (rest (assoc type domains))))
-;;                                                                    (rest (assoc type domains)))))
-;;                                             (setf (rest (assoc type domains))
-;;                                                   (remove random-index (rest (assoc type domains))))
-;;                                             random-index)))))))
-
-;; (loop :for item :in items
-;;       :collect (destructuring-bind (symbol type &rest params) item
-;;                  ;; (print (list :dom domains))
-;;                  (list symbol (if (getf params :bind)
-;;                                   (let ((out-index (series-index type (getf params :bind))))
-;;                                     (setf (rest (assoc type domains))
-;;                                           (remove out-index (rest (assoc type domains))))
-;;                                     out-index)
-;;                                   (let ((random-index (nth (random (length (rest (assoc type domains))))
-;;                                                            (rest (assoc type domains)))))
-;;                                     (setf (rest (assoc type domains))
-;;                                           (remove random-index (rest (assoc type domains))))
-;;                                     random-index)))))))
-
-;; (defmethod compose ((assembler assembler-x86) params expression)
-;;   (print (list :ar params))
-;;   (destructuring-bind (op &rest props) expression
-;;     (if (listp op)
-;;         (loop :for item :in expression :collect (compose assembler params item))
-;;         (if (not (keywordp op))
-;;             (compose assembler params (macroexpand op))
-;;             (let (;; (width (if (not (keywordp (first props)))
-;;                   ;;            nil (position (first props) #(:b :w :d :q) :test #'eq)))
-;;                   ;; (props (if (not width) props (rest props)))
-;;                   (bindings (rest (assoc :store params))))
-;;               (print (list :bi bindings params props expression
-;;                            (gethash op (asm-lexicon assembler))))
-;;               (apply (gethash op (asm-lexicon assembler)) props
-;;                      ;; (loop :for p :in props
-;;                      ;;       :collect (typecase p
-;;                      ;;                  ;; (symbol (of-storage assembler :gpr :width width
-;;                      ;;                  ;;                     :series-index (second (assoc p bindings))))
-;;                      ;;                  (t p)))
-;;                      ))))))
-
-#|
-(assemble *assembler-prototype-x86*
- ((:exmode . :l64) (:store (abc :gpr) (def :gpr :bind :a)))
-  (:add :w abc 10)
-  (:add :w def 33))
-|#
-
-;; (specify-assembler asm-x86 assemble
-;;                    (:options :x86-64)
-;;                    (:lexicon *x86-lexicon*))
-
-;; (assemble-x86
-;;  (:with (:options :x86-64 :avx2)
-;;         (:input )
-;;         (:store(abc :gpr) (def :gpr :binding-series :a) (vec :vcr)))
-;;  (:mov abc 10)
-;;  (:mov def 33))

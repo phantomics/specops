@@ -241,9 +241,9 @@
              :allocation :class
              :initform   (make-hash-table :test #'eq)
              :initarg    :battery)
-   (%domains :accessor   asm-domains
+   (%pmodel  :accessor   asm-pmodel
              :initform   nil
-             :initarg    :domains)
+             :initarg    :pmodel)
    (%joiner  :accessor   asm-joiner
              :allocation :class
              :initform   #'joinw
