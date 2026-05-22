@@ -527,10 +527,24 @@
   `(make-instance ',(case type (:reduced 'rfile-reduced) (:displaced 'rfile-displaced))
                   :name ,name ,@props))
 
-;; (as-register-file :general-purpose (:width 64 :widths (64 32 16 8))
-;;   (:a :b :c :d)
-;;   (:as-reduced :double-wide (:width 16 :base 0)
-;;                (:ab :cd)))
+(defclass instruction ()
+  ((%mnem :accessor inst-mnem
+          :initform nil
+          :initarg  :mnem
+          :documentation "Mnemonic for the instruction.")
+   (%oper :accessor inst-oper
+          :initform nil
+          :initarg  :oper
+          :documentation "Operands taken by the instruction.")
+   (%span :accessor inst-span
+          :initform nil
+          :initarg  :span
+          :documentation "Width of data addressed by the instruction.")
+   (%extn :accessor inst-extn
+          :initform nil  
+          :initarg  :extn
+          :documentation "ISA extension(s) within which the instruction is available."))
+  (:documentation "A generic instruction class."))
 
 (defclass assembler ()
   ((%name    :accessor   asm-name
