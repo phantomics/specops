@@ -9,9 +9,9 @@
 
 (in-package #:specops)
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; ELF constants
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defconstant +elfclass64+       2)
 (defconstant +elfdata2lsb+      1)
@@ -43,9 +43,9 @@
 (defconstant +elf64-shdr-size+ 64)
 (defconstant +elf64-sym-size+  24)
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; Binary writing helpers
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defun %write-u8 (stream value)
   (write-byte (logand #xFF value) stream))
@@ -95,9 +95,9 @@ E.g. (unsigned-byte 16) → 2."
           ((equal etype '(unsigned-byte 32)) 4)
           (t 1))))
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; String table builder
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defun %build-string-table (names)
   "Build an ELF string table from a list of strings.
@@ -116,12 +116,11 @@ Returns (values byte-vector name-to-offset-alist)."
         (loop :for b :across part :do (setf (aref table pos) b) (incf pos)))
       (values table (nreverse mapping)))))
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; Structure writers
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
-(defun %write-elf64-ehdr (stream &key endian machine entry phoff shoff
-                                      phnum shnum shstrndx)
+(defun %write-elf64-ehdr (stream &key endian machine entry phoff shoff phnum shnum shstrndx)
   (%write-u8 stream #x7F)
   (loop :for c :across "ELF" :do (%write-u8 stream (char-code c)))
   (%write-u8 stream +elfclass64+)
@@ -175,9 +174,9 @@ Returns (values byte-vector name-to-offset-alist)."
   (%write-u64 stream (or value 0) endian)
   (%write-u64 stream (or size 0) endian))
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; Flag conversion helpers
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defun %sym-binding-to-elf (binding)
   (ecase binding (:local +stb-local+) (:global +stb-global+) (:weak +stb-weak+)))
@@ -196,9 +195,9 @@ Returns (values byte-vector name-to-offset-alist)."
     (when (member :execute flags) (setf f (logior f +shf-execinstr+)))
     f))
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; emit-program :elf — ELF64 static executable emitter
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defmethod emit-program ((pgm program) (format (eql :elf)) stream
                          &key (base-vaddr #x400000) (page-align #x1000))
@@ -232,7 +231,7 @@ Keyword arguments:
          (content-start (+ +elf64-ehdr-size+ (* num-phdrs +elf64-phdr-size+)))
          (file-pos content-start))
 
-    ;; ── Layout RX sections ────────────────────────────────────
+    ;; -- Layout RX sections ------------------------------------
     (dolist (entry rx-sections)
       (let* ((seg (first entry))
              (octets (third entry))
@@ -242,7 +241,7 @@ Keyword arguments:
               file-pos (+ aligned (length octets)))))
 
     (let ((rx-end file-pos))
-      ;; ── Page gap + layout RW sections ────────────────────────
+      ;; -- Page gap + layout RW sections ------------------------
       (when has-rw
         (setf file-pos (%align-offset file-pos page-align)))
       (let ((rw-file-start file-pos))
@@ -255,7 +254,7 @@ Keyword arguments:
                   file-pos (+ aligned (length octets)))))
 
         (let* ((section-layout (append rx-sections rw-sections))
-               ;; ── String tables ──────────────────────────────────
+               ;; -- String tables ----------------------------------
                (section-names (append (mapcar #'second section-layout)
                                       '(".shstrtab" ".strtab" ".symtab")))
                (symbols-list
@@ -289,14 +288,13 @@ Keyword arguments:
                      (entry-vaddr
                        (let* ((esn (pgm-entry-point pgm))
                               (es (when esn (gethash esn (pun-symbols unit)))))
-                         (if es
-                             (let ((el (find (sym-segment es) section-layout :key #'car)))
-                               (if el (+ base-vaddr (fourth el)
-                                         (* (sym-offset es) (%elf-unit-bytes (sym-segment es))))
-                                   base-vaddr))
+                         (if es (let ((el (find (sym-segment es) section-layout :key #'car)))
+                                  (if el (+ base-vaddr (fourth el)
+                                            (* (sym-offset es) (%elf-unit-bytes (sym-segment es))))
+                                      base-vaddr))
                              base-vaddr))))
 
-                ;; ── Write ───────────────────────────────────────
+                ;; -- Write ---------------------------------------
 
                 ;; ELF header
                 (%write-elf64-ehdr stream :endian endian :machine machine
@@ -343,7 +341,7 @@ Keyword arguments:
                 ;; .symtab
                 (%write-elf64-sym stream :endian endian) ; null entry
                 (dolist (sym symbols-list)
-                  (let* ((ub (%elf-unit-bytes (sym-segment sym)))
+                  (let* ((ub   (%elf-unit-bytes (sym-segment sym)))
                          (boff (* (sym-offset sym) ub))
                          (bsz  (* (sym-size sym) ub)))
                     (%write-elf64-sym stream :endian endian
