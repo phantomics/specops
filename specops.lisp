@@ -8,14 +8,21 @@
                                     (incf width))
     width))
 
-(defun serialize (item unit collector)
+(defun serialize (item unit collector &optional (swap-granularity 0))
   "Serialize a series of integers, integer vectors and/or serial integer specifications into a vector of integers of a given width. A serial integer specification takes the form of a pair of a value and the number of elements it is intended to serialize to."
-  (let ((mask (1- (ash 1 unit)))) ;; TODO: find a way to create the mask just once?
+  (when (zerop unit)
+    (error "Unit cannot be zero."))
+  (let ((mask (1- (ash 1 unit))) ;; TODO: find a way to create the mask just once?
+        (increment (* unit (if (zerop swap-granularity) 1 -1)))
+        (shift-factor (if (zerop swap-granularity) -1 0))
+        (vshift (let ((u unit))
+                  (loop :for i :from 1 :do (setf u (ash u -1)) :when (= 1 (logand 1 u)) :return i))))
     (flet ((decompose (number starting-width)
-             (let ((shift (- (* unit (1- starting-width)))))
+             (let ((shift (* shift-factor (ash (1- starting-width) shift))))
+               (print (list :ssh shift starting-width))
                (loop :for i :below starting-width
                      :do (funcall collector (logand mask (ash number shift)))
-                         (incf shift unit)))))
+                         (incf shift increment)))))
       (if (integerp item) ;; values that fit within a byte are just pushed on
           (if (zerop (ash item (- unit)))
               (funcall collector item)
@@ -25,8 +32,204 @@
               (destructuring-bind (width &rest value) item
                 (decompose value width))
               (if (vectorp item)
-                  (loop :for i :across item :do (funcall collector i))
+                  (let* ((type (array-element-type item))
+                         ;; number of units to decompose; not needed if the vector's element width
+                         ;; is the same as the unit width to serialize
+                         (el-width (and (listp type) (eql 'unsigned-byte (first type))
+                                        (second type)))
+                         (dc-width (if (= el-width unit)
+                                       0 (ash el-width (- vshift)))))
+                    (print (list :ty el-width dc-width))
+                    (loop :for i :across item :do (if (zerop dc-width) (funcall collector i)
+                                                      (decompose i dc-width))))
                   (error "Attempted to serialize incompatible value - must be an integer, a vector or a pair indicating integer value and encoding width.")))))))
+
+;; (defun serializer-for (&optional (unit-power 0) (swap-granularity 0))
+;;   "Serialize a series of integers, integer vectors and/or serial integer specifications 
+;; into a vector of integers of a given width. A serial integer specification takes the
+;; form of a pair of a value and the number of elements it is intended to serialize to. This
+;; function can output at multiple unit widths, as determined by the unit-power argument
+;; expressing "
+;;   (let* ((unit (ash 1 (+ 3 unit-power)))
+;;          (mask (1- (ash 1 unit))) ;; TODO: find a way to create the mask just once?
+;;          (increment (* unit (if (zerop swap-granularity) 1 -1)))
+;;          (shift-by (funcall (if (zerop swap-granularity) #'identity #'-)
+;;                             (ash 1 (+ 3 unit-power))))
+;;          (sub-width (if (zerop swap-granularity)
+;;                         0 (ash 1 (1+ (- unit-power swap-granularity)))))
+;;          (sub-shift-by (if (zerop swap-granularity)
+;;                            0 (ash 1 (+ 2 swap-granularity))))
+;;          (sub-shift (- (+ shift-by sub-shift-by)))
+;;          (sub-mask  (1- (ash 1 sub-shift-by)))
+;;          (swap-interval (if (zerop swap-granularity)
+;;                             0 (ash 1 (+ 2 swap-granularity)))))
+
+;;     (print (list :uu unit swap-interval))
+
+;;     ;; if swap is 0, read bytes in order
+;;     ;; if swap is 1, read bytes in opposite order from value
+;;     ;; if swap is 2, read 2-bytes in opposite order from value
+    
+;;     (flet ((swap (value width))
+;;            (decompose (collector value starting-width)
+;;              (print (list :sw starting-width swap-granularity))
+;;              (if (zerop swap-granularity)
+;;                  (let* ((sshift-by (funcall (if (zerop swap-granularity) #'identity #'-)
+;;                                             (ash 1 (+ 3 unit-power (max 0 (1- swap-granularity))))))
+;;                         (shift (if (not (zerop swap-granularity))
+;;                                    0 (- (- (* (abs shift-by) starting-width) shift-by))))
+;;                         (m-mask (1- (ash 1 sub-width)))
+;;                         (iterations (ash starting-width (- (max 0 (1- swap-granularity))))))
+                   
+;;                    (print (list :shift shift shift-by :ss sub-shift-by sshift-by sub-shift
+;;                                 sub-mask))
+;;                    (print (list :sx m-mask starting-width (ash starting-width (- (max 0 (1- swap-granularity))))
+;;                                 :sub (ash 1 (- swap-granularity (1+ unit-power)))))
+
+;;                    (print (list :it iterations sub-width))
+
+;;                    ;; have 2-byte frame
+
+;;                    (loop :for i :below iterations
+;;                          :do (let ((output (logand m-mask (ash value shift))))
+;;                                ;; (format t "DIV: #x~4,'0X~%" output)
+;;                                (funcall collector output))
+;;                              (incf shift sshift-by)))
+                 
+;;                  (let* ((sshift-by (funcall (if (zerop swap-granularity) #'identity #'-)
+;;                                             (ash 1 (+ 3 unit-power (max 0 (1- swap-granularity))))))
+;;                         (shift (if (not (zerop swap-granularity))
+;;                                    0 (- (- (* (abs shift-by) starting-width) shift-by))))
+;;                         (sub-width (ash unit (max 0 (1- swap-granularity))))
+;;                         (m-mask (1- (ash 1 sub-width)))
+;;                         (iterations (ash starting-width (- (max 0 (1- swap-granularity)))))
+;;                         (sub-times (ash 1 (- swap-granularity (1+ unit-power)))))
+
+;;                    (print (list :xx (ash starting-width (+ 3 unit-power))))
+                   
+;;                    (print (list :shift shift shift-by sub-width :ss sub-shift-by sshift-by sub-shift
+;;                                 sub-mask))
+;;                    (print (list :sx m-mask starting-width (ash starting-width (- (max 0 (1- swap-granularity))))
+;;                                 :sub (ash 1 (- swap-granularity (1+ unit-power)))))
+
+;;                    (print (list :it iterations sub-times))
+
+;;                    ;; have 2-byte frame
+
+;;                    (loop :for i :below iterations
+;;                          :do (let ((output (logand m-mask (ash value shift))))
+;;                                ;; (format t "DIV: #x~4,'0X~%" output)
+;;                                (if (> 2 sub-times)
+;;                                    (funcall collector output)
+;;                                    (let ((ss sub-shift))
+;;                                      (print (list :ss ss))
+;;                                      (dotimes (i sub-times)
+;;                                        (funcall collector (logand mask (ash output ss)))
+;;                                        (decf ss shift-by))))
+;;                                (incf shift sshift-by)))
+                   
+;;                    ))))
+
+                   
+;;     ;; (loop :for i :below starting-width
+;;     ;;       :do (if (> 2 sub-width)
+;;     ;;               (funcall collector (logand mask (ash value shift)))
+;;     ;;               (let ((acc 0) (ss 0)
+;;     ;;                     (val (logand mask (ash value shift))))
+;;     ;;                 ;; (format t "VAL: #x~4,'0X~%" val)
+;;     ;;                 (dotimes (n sub-width)
+;;     ;;                   (incf acc (logand sub-mask (ash val ss)))
+;;     ;;                   (unless (= n (1- sub-width))
+;;     ;;                     (setf acc (ash acc sub-shift-by)))
+;;     ;;                   (decf ss sub-shift-by))
+;;     ;;                 (funcall collector acc)))
+;;     ;;           (incf shift shift-by))
+    
+;;       (lambda (item collector)
+;;         (if (integerp item) ;; values that fit within a byte are just pushed on
+;;             (if (zerop (ash item (- unit)))
+;;                 (funcall collector item)
+;;                 (decompose collector item (find-width item unit)))
+;;             (if (and (consp item) (not (listp (rest item))))
+;;                 ;; handle cons cells encoding width and value, like (3 . 5) → #x000005
+;;                 (destructuring-bind (width &rest value) item
+;;                   (decompose collector value width))
+;;                 (if (vectorp item)
+;;                     (let* ((type (array-element-type item))
+;;                            (vshift (let ((u unit))
+;;                                      (loop :for i :from 1 :do (setf u (ash u -1))
+;;                                            :when (= 1 (logand 1 u)) :return i)))
+;;                            ;; number of units to decompose; not needed if the vector's element width
+;;                            ;; is the same as the unit width to serialize
+;;                            (el-width (and (listp type) (eql 'unsigned-byte (first type))
+;;                                           (second type)))
+;;                            (dc-width (if (= el-width unit)
+;;                                          0 (ash el-width (- vshift)))))
+;;                       ;; (/ el-width dc-width (ash 1 (+ 2 swap-granularity)))
+;;                       (print (list :ty vshift el-width dc-width))
+;;                       (LOOP :for i :across item :do (if (zerop dc-width) (funcall collector i)
+;;                                                         (decompose collector i dc-width))))
+;;                     (error "Attempted to serialize incompatible value - must be an integer, a vector or a pair indicating integer value and encoding width."))))))))
+
+;; workflow: for number data, if there is a swap-by, swap it. Then, decompose and assign according to unit-power. Arrays should be on the word boundary.
+
+(defun swap-segments (value width granularity)
+  "Swap segments of a number for cross-endian encoding. This function supports
+swapping at multiple levels of granularity to support systems like the PDP-11,
+where words are entered in little-endian order with big-endian byte order
+within words."
+  (if (zerop granularity)
+      value (let* ((span (ash 1 (+ 2 granularity)))
+                   (mask (1- (ash 1 span)))
+                   (shift 0) (output 0) (count (ash width (- (1- granularity)))))
+              (dotimes (i count)
+                (incf output (logand mask (ash value shift)))
+                (unless (= i (1- count))
+                  (setf output (ash output span)))
+                (decf shift span))
+              output)))
+
+(defun serializer-for (&optional (unit-power 0) (swap-by 0))
+  "Serialize a series of integers, integer vectors and/or serial integer specifications
+into a vector of integers of a given width. A serial integer specification takes the
+form of a pair of a value and the number of elements it is intended to serialize to. This
+function can output at multiple unit widths, as determined by the unit-power argument
+expressing the (power+3) of 2 corresponding to the width at which output will be generated."
+  (let* ((unit (ash 1 (+ 3 unit-power)))
+         (mask (1- (ash 1 unit))))
+    
+    (flet ((decompose (collector value starting-width)
+             (let ((shift (- (- (* unit starting-width) unit))))
+               (loop :repeat starting-width
+                     :do (funcall collector (logand mask (ash value shift)))
+                         (incf shift unit)))))
+   
+      (lambda (item collector)
+        (typecase item
+          (integer (if (zerop (ash item (- unit)))
+                       ;; values that fit within a unit are sent directly
+                       (funcall collector (swap-segments item (ash 1 unit-power) swap-by))
+                       (let ((width (find-width item unit)))
+                         (decompose collector (swap-segments item (ash width unit-power) swap-by)
+                                    width))))
+          (cons (if (listp (rest item))
+                    (error "Incompatible cons entry.")
+                    ;; handle cons cells encoding width and value, like (3 . 5) → #x000005
+                    (destructuring-bind (width &rest value) item
+                      (decompose collector (swap-segments value (ash width unit-power) swap-by)
+                                 width))))
+          (vector (let* ((type (array-element-type item))
+                         (el-width (and (listp type) (eql 'unsigned-byte (first type))
+                                        (second type)))
+                         (dc-width (if (= el-width unit)
+                                       0 (ash el-width (- (+ 3 unit-power))))))
+                    ;; (print (list :ty unit el-width dc-width))
+                    (loop :for i :across item
+                          :do (if (zerop dc-width) (funcall collector i)
+                                  (decompose collector
+                                             (swap-segments i (ash dc-width unit-power) swap-by)
+                                             dc-width)))))
+          (t (error "Attempted to serialize incompatible value - must be an integer, a vector or a pair indicating integer value and encoding width.")))))))
 
 ;; (defun make-array-writer (array &key num-width)
 ;;   (lambda (offset &rest numbers)
@@ -314,7 +517,29 @@
 
 |#
 
-;; (defmacro marshal params &rest items)
+(defun marshal-listspec (spec serializer accumulator)
+  (destructuring-bind (type element &rest options) spec
+    (case type
+      (:v `(funcall ,serializer (make-array ,(length element)
+                                            :element-type '(unsigned-byte ,(getf options :width)))
+                    ,accumulator))
+      (:s `(funcall ,serializer ,element ,accumulator)))))
+
+(defmacro marshal (destination params &rest items)
+  (destructuring-bind (&key unit endian) params
+    (let ((accumulator (gensym "AC")) (enter (gensym "EN")) (item (gensym "IT"))
+          (serializer (gensym "SR"))
+          (swap-by (case endian (:big 0) (:little 1) (:middle 2) (:pdp 2))))
+      `(let ((,accumulator ,destination)
+             (,serializer (serializer-for ,unit ,swap-by))
+             (,enter (typecase ,accumulator
+                       (function ,accumulator)
+                       (vector   (lambda (,item) (vector-push ,item ,accumulator)))
+                       (stream   (lambda (,item) (write-to-stream ,item ,accumulator))))))
+         ,@(loop :for item :in items
+                 :collect (typecase item
+                            (number `(funcall ,serializer ,item ,accumulator))
+                            (list   (marshal-listspec item serializer accumulator))))))))
 
 ;; (defmacro bounded-iterate (var bound)
 ;;   `(progn (incf var)

@@ -7,37 +7,37 @@
 (in-package #:specops.wasm)
 
 ;; Import program model symbols from the core specops package
-(import '(specops::program specops::pgm-assembler specops::pgm-units
-          specops::pgm-entry-point specops::pgm-properties
-          specops::program-unit specops::pun-name specops::pun-program
-          specops::pun-segments specops::pun-symbols specops::pun-relocations
-          specops::pun-properties
-          specops::segment specops::seg-name specops::seg-kind specops::seg-items
-          specops::seg-origin specops::seg-size specops::seg-align
-          specops::seg-bytes specops::seg-flags specops::seg-properties
-          specops::symbol-entry specops::sym-name specops::sym-segment
-          specops::sym-offset specops::sym-binding specops::sym-type
-          specops::sym-size specops::sym-properties
-          specops::relocation specops::rel-symbol specops::rel-segment
-          specops::rel-offset specops::rel-type specops::rel-width specops::rel-addend
-          specops::segment-item specops::raw-bytes-item specops::rbi-data
-          specops::instruction-item specops::ii-expression
-          specops::label-def-item specops::ldi-name specops::ldi-binding
-          specops::label-ref-item specops::lri-label specops::lri-width
-          specops::lri-rel-type specops::lri-addend
-          specops::align-item specops::ali-boundary specops::ali-fill-byte
-          specops::function-item specops::fi-name specops::fi-body specops::fi-properties
-          specops::add-segment specops::add-symbol specops::add-relocation
-          specops::add-item specops::add-unit
-          specops::lookup-segment specops::lookup-symbol specops::finalize-segment
-          specops::make-program specops::make-unit specops::make-segment
-          specops::make-symbol-entry
-          specops::emit-program specops::build-program specops::asm-endianness
-          specops::data-word-item specops::dwi-value specops::dwi-width))
+;; (import '(specops::program specops::pgm-assembler specops::pgm-units
+;;           specops::pgm-entry-point specops::pgm-properties
+;;           specops::program-unit specops::pun-name specops::pun-program
+;;           specops::pun-segments specops::pun-symbols specops::pun-relocations
+;;           specops::pun-properties
+;;           specops::segment specops::seg-name specops::seg-kind specops::seg-items
+;;           specops::seg-origin specops::seg-size specops::seg-align
+;;           specops::seg-bytes specops::seg-flags specops::seg-properties
+;;           specops::symbol-entry specops::sym-name specops::sym-segment
+;;           specops::sym-offset specops::sym-binding specops::sym-type
+;;           specops::sym-size specops::sym-properties
+;;           specops::relocation specops::rel-symbol specops::rel-segment
+;;           specops::rel-offset specops::rel-type specops::rel-width specops::rel-addend
+;;           specops::segment-item specops::raw-bytes-item specops::rbi-data
+;;           specops::instruction-item specops::ii-expression
+;;           specops::label-def-item specops::ldi-name specops::ldi-binding
+;;           specops::label-ref-item specops::lri-label specops::lri-width
+;;           specops::lri-rel-type specops::lri-addend
+;;           specops::align-item specops::ali-boundary specops::ali-fill-byte
+;;           specops::function-item specops::fi-name specops::fi-body specops::fi-properties
+;;           specops::add-segment specops::add-symbol specops::add-relocation
+;;           specops::add-item specops::add-unit
+;;           specops::lookup-segment specops::lookup-symbol specops::finalize-segment
+;;           specops::make-program specops::make-unit specops::make-segment
+;;           specops::make-symbol-entry
+;;           specops::emit-program specops::build-program specops::asm-endianness
+;;           specops::data-word-item specops::dwi-value specops::dwi-width))
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; WASM constants
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 ;; Module header
 (defparameter *wasm-magic*   #(#x00 #x61 #x73 #x6D) "WASM magic number: \\0asm")
@@ -119,13 +119,13 @@
 (defconstant +wasm-functype-tag+   #x60
   "Byte tag introducing a function type in the Type section.")
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; WASM-specific segment items
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
-;; ─────────────────────────────────────────────────────────────
+;; -------------------------------------------------------------
 ;; WASM function — extends function-item with type and locals
-;; ─────────────────────────────────────────────────────────────
+;; -------------------------------------------------------------
 
 (defclass wasm-function-item (function-item)
   ((%type-index :accessor wfi-type-index
@@ -144,9 +144,9 @@ and local variable declarations required by the WASM Code section.
 The body contains instruction-items and wasm-block-items.
 Serialized as: size-prefix, compressed locals, instruction bytes, 0x0B (end)."))
 
-;; ─────────────────────────────────────────────────────────────
+;; -------------------------------------------------------------
 ;; Structured control flow block
-;; ─────────────────────────────────────────────────────────────
+;; -------------------------------------------------------------
 
 (defclass wasm-block-item (segment-item)
   ((%kind      :accessor wbi-kind
@@ -177,9 +177,9 @@ Nests recursively: the body and else-body may contain further
 wasm-block-items.
 Serialized as: opcode, blocktype, body instructions, [0x05 else-body,] 0x0B."))
 
-;; ─────────────────────────────────────────────────────────────
+;; -------------------------------------------------------------
 ;; Type section entry — function signature
-;; ─────────────────────────────────────────────────────────────
+;; -------------------------------------------------------------
 
 (defclass wasm-type-item (segment-item)
   ((%params  :accessor wti-params
@@ -195,9 +195,9 @@ Serialized as: opcode, blocktype, body instructions, [0x05 else-body,] 0x0B."))
 Serialized as: 0x60, LEB128 param-count, param-type-bytes...,
 LEB128 result-count, result-type-bytes...."))
 
-;; ─────────────────────────────────────────────────────────────
+;; -------------------------------------------------------------
 ;; Import declaration
-;; ─────────────────────────────────────────────────────────────
+;; -------------------------------------------------------------
 
 (defclass wasm-import-item (segment-item)
   ((%module-name :accessor wii-module-name
@@ -227,9 +227,9 @@ Each import specifies a two-level namespace (module.field) and a
 typed descriptor.  Imported entities are numbered before locally-
 defined ones in their respective index spaces."))
 
-;; ─────────────────────────────────────────────────────────────
+;; -------------------------------------------------------------
 ;; Export declaration
-;; ─────────────────────────────────────────────────────────────
+;; -------------------------------------------------------------
 
 (defclass wasm-export-item (segment-item)
   ((%export-name :accessor wei-export-name
@@ -248,9 +248,9 @@ defined ones in their respective index spaces."))
    "A WASM export declaration for the Export section.
 Maps an external name to an entity in one of the five index spaces."))
 
-;; ─────────────────────────────────────────────────────────────
+;; -------------------------------------------------------------
 ;; Memory declaration
-;; ─────────────────────────────────────────────────────────────
+;; -------------------------------------------------------------
 
 (defclass wasm-memory-item (segment-item)
   ((%min-pages :accessor wmi-min-pages
@@ -266,9 +266,9 @@ Maps an external name to an entity in one of the five index spaces."))
 Serialized as a limits encoding (flag byte + LEB128 min [+ LEB128 max]).
 Each page is 64KiB."))
 
-;; ─────────────────────────────────────────────────────────────
+;; -------------------------------------------------------------
 ;; Table declaration
-;; ─────────────────────────────────────────────────────────────
+;; -------------------------------------------------------------
 
 (defclass wasm-table-item (segment-item)
   ((%reftype   :accessor wtbi-reftype
@@ -287,9 +287,9 @@ Each page is 64KiB."))
    "A WASM table declaration for the Table section.
 Serialized as: reftype byte, limits encoding."))
 
-;; ─────────────────────────────────────────────────────────────
+;; -------------------------------------------------------------
 ;; Global declaration
-;; ─────────────────────────────────────────────────────────────
+;; -------------------------------------------------------------
 
 (defclass wasm-global-item (segment-item)
   ((%valtype   :accessor wgi-valtype
@@ -310,9 +310,9 @@ e.g. ((:i32.const 42)).  Terminated by 0x0B (end) during serialization."))
 Serialized as: valtype byte, mutability byte (0x00 or 0x01),
 init-expr instruction bytes, 0x0B (end)."))
 
-;; ─────────────────────────────────────────────────────────────
+;; -------------------------------------------------------------
 ;; Data segment
-;; ─────────────────────────────────────────────────────────────
+;; -------------------------------------------------------------
 
 (defclass wasm-data-item (segment-item)
   ((%data         :accessor wdi-data
@@ -340,9 +340,9 @@ Active segments: 0x00, offset-expr, byte-vector (for memory 0),
   or 0x02, memory-index, offset-expr, byte-vector.
 Passive segments: 0x01, byte-vector."))
 
-;; ─────────────────────────────────────────────────────────────
+;; -------------------------------------------------------------
 ;; Element segment
-;; ─────────────────────────────────────────────────────────────
+;; -------------------------------------------------------------
 
 (defclass wasm-element-item (segment-item)
   ((%table-index  :accessor weli-table-index
@@ -365,9 +365,9 @@ Passive segments: 0x01, byte-vector."))
    "A WASM element segment for the Element section.
 Initializes a table region with function references."))
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; LEB128 encoding utilities
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defun encode-leb128-unsigned (value)
   "Encode a non-negative integer as an unsigned LEB128 byte vector."
@@ -397,9 +397,9 @@ Initializes a table region with function references."))
                 (push byte bytes)))
     (coerce (nreverse bytes) '(vector (unsigned-byte 8)))))
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; Valtype encoding helper
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defun wasm-valtype-byte (valtype)
   "Return the single-byte encoding for a WASM valtype keyword."
@@ -416,9 +416,9 @@ Initializes a table region with function references."))
   (or (cdr (assoc kind *wasm-section-ids*))
       (error "Unknown WASM section kind: ~a" kind)))
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; Convenience constructors
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defun make-wasm-program (&key assembler)
   "Create a program configured for WebAssembly output.
@@ -456,9 +456,8 @@ LOCALS is a list of (count . valtype) pairs."
   "Create a wasm-import-item.
 KIND is :func, :table, :memory, :global, or :tag.
 DESCRIPTOR depends on kind (type-index for :func, limits for :memory, etc.)."
-  (make-instance 'wasm-import-item
-                 :module-name module-name :field-name field-name
-                 :import-kind kind :descriptor descriptor))
+  (make-instance 'wasm-import-item :module-name module-name :field-name field-name
+                                   :import-kind kind :descriptor descriptor))
 
 (defun make-wasm-export (name kind index)
   "Create a wasm-export-item.
@@ -487,13 +486,12 @@ DATA is a byte vector.  For active segments, OFFSET-EXPR is required."
 (defun make-wasm-block (kind &key blocktype body else-body)
   "Create a wasm-block-item for structured control flow.
 KIND is :block, :loop, or :if."
-  (make-instance 'wasm-block-item
-                 :kind kind :blocktype blocktype
-                 :body body :else-body else-body))
+  (make-instance 'wasm-block-item :kind kind :blocktype blocktype
+                                  :body body :else-body else-body))
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; wasm-program macro — declarative WASM module builder
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;;
 ;; Syntax:
 ;;   (wasm-program
@@ -665,7 +663,7 @@ Returns a program instance ready for (emit-program pgm :wasm stream)."
     `(let* ((,pgm-var (make-instance 'program))
             (,unit-var (make-unit "module" ,pgm-var)))
 
-       ;; ── Type section ──────────────────────────────────────
+       ;; -- Type section --------------------------------------
        ,@(when type-forms
            (let ((seg-var (gensym "TSEG")))
              `((let ((,seg-var (make-segment "type" :wasm-type)))
@@ -674,7 +672,7 @@ Returns a program instance ready for (emit-program pgm :wasm stream)."
                          :collect `(add-item ,seg-var ,(%wasm-expand-functype tf)))
                  (finalize-segment ,seg-var)))))
 
-       ;; ── Import section ────────────────────────────────────
+       ;; -- Import section ------------------------------------
        ,@(when import-forms
            (let ((seg-var (gensym "ISEG")))
              `((let ((,seg-var (make-segment "import" :wasm-import)))
@@ -691,7 +689,7 @@ Returns a program instance ready for (emit-program pgm :wasm stream)."
                                                                 :descriptor ,descriptor)))))
                  (finalize-segment ,seg-var)))))
 
-       ;; ── Table section ─────────────────────────────────────
+       ;; -- Table section -------------------------------------
        ,@(when table-forms
            (let ((seg-var (gensym "TBSEG")))
              `((let ((,seg-var (make-segment "table" :wasm-table)))
@@ -705,7 +703,7 @@ Returns a program instance ready for (emit-program pgm :wasm stream)."
                                                               :max-size ,max))))
                  (finalize-segment ,seg-var)))))
 
-       ;; ── Memory section ────────────────────────────────────
+       ;; -- Memory section ------------------------------------
        ,@(when memory-forms
            (let ((seg-var (gensym "MSEG")))
              `((let ((,seg-var (make-segment "memory" :wasm-memory)))
@@ -718,7 +716,7 @@ Returns a program instance ready for (emit-program pgm :wasm stream)."
                                                               :max-pages ,max))))
                  (finalize-segment ,seg-var)))))
 
-       ;; ── Global section ────────────────────────────────────
+       ;; -- Global section ------------------------------------
        ,@(when global-forms
            (let ((seg-var (gensym "GSEG")))
              `((let ((,seg-var (make-segment "global" :wasm-global)))
@@ -744,7 +742,7 @@ Returns a program instance ready for (emit-program pgm :wasm stream)."
                                                                     init-val))))))
                  (finalize-segment ,seg-var)))))
 
-       ;; ── Export section ────────────────────────────────────
+       ;; -- Export section ------------------------------------
        ,@(when export-forms
            (let ((seg-var (gensym "ESEG")))
              `((let ((,seg-var (make-segment "export" :wasm-export)))
@@ -758,7 +756,7 @@ Returns a program instance ready for (emit-program pgm :wasm stream)."
                                                               :index ,index))))
                  (finalize-segment ,seg-var)))))
 
-       ;; ── Data section ──────────────────────────────────────
+       ;; -- Data section --------------------------------------
        ,@(when data-forms
            (let ((seg-var (gensym "DSEG")))
              `((let ((,seg-var (make-segment "data" :wasm-data)))
@@ -780,7 +778,7 @@ Returns a program instance ready for (emit-program pgm :wasm stream)."
                                                          :data ,(second args))))))
                  (finalize-segment ,seg-var)))))
 
-       ;; ── Element section ───────────────────────────────────
+       ;; -- Element section -----------------------------------
        ,@(when elem-forms
            (let ((seg-var (gensym "ELSEG")))
              `((let ((,seg-var (make-segment "element" :wasm-element)))
@@ -794,7 +792,7 @@ Returns a program instance ready for (emit-program pgm :wasm stream)."
                                                      :func-indices ',indices))))
                  (finalize-segment ,seg-var)))))
 
-       ;; ── Code section (func declarations) ──────────────────
+       ;; -- Code section (func declarations) ------------------
        ,@(when func-forms
            (let ((seg-var (gensym "CSEG")))
              `((let ((,seg-var (make-segment "code" :wasm-code)))
@@ -814,9 +812,9 @@ Returns a program instance ready for (emit-program pgm :wasm stream)."
 
        ,pgm-var)))
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; IEEE 754 float encoding helpers
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 #+sbcl
 (defun single-float-bits (f)
@@ -842,18 +840,18 @@ Returns a program instance ready for (emit-program pgm :wasm stream)."
   (declare (ignore f))
   (error "double-float-bits not implemented for this CL implementation"))
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; WASM binary emitter
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;;
 ;; Writes a complete .wasm binary module from an assembled program.
 
-;; ── Byte accumulator ─────────────────────────────────────────
+;; -- Byte accumulator -----------------------------------------
 
 (defun %wasm-make-buffer ()
   "Create an adjustable byte buffer."
   (make-array 64 :element-type '(unsigned-byte 8)
-                  :adjustable t :fill-pointer 0))
+                 :adjustable t :fill-pointer 0))
 
 (defun %wasm-emit-byte (buf byte)
   (unless (< (fill-pointer buf) (1- (array-total-size buf)))
@@ -888,14 +886,13 @@ Returns a program instance ready for (emit-program pgm :wasm stream)."
 
 (defun %wasm-emit-limits (buf min-val &optional max-val)
   "Emit a limits encoding."
-  (if max-val
-      (progn (%wasm-emit-byte buf #x01)
-             (%wasm-emit-leb128-u buf min-val)
-             (%wasm-emit-leb128-u buf max-val))
+  (if max-val (progn (%wasm-emit-byte buf #x01)
+                     (%wasm-emit-leb128-u buf min-val)
+                     (%wasm-emit-leb128-u buf max-val))
       (progn (%wasm-emit-byte buf #x00)
              (%wasm-emit-leb128-u buf min-val))))
 
-;; ── Section body encoders ────────────────────────────────────
+;; -- Section body encoders ------------------------------------
 
 (defun %wasm-encode-type-section (items)
   "Encode the Type section body from a list of wasm-type-items."
@@ -1018,7 +1015,7 @@ Returns a program instance ready for (emit-program pgm :wasm stream)."
         (%wasm-emit-leb128-u buf idx)))
     buf))
 
-;; ── Instruction encoding ─────────────────────────────────────
+;; -- Instruction encoding -------------------------------------
 
 (defun %wasm-encode-expr-into (buf expr-items)
   "Encode a list of instruction forms into BUF.
@@ -1137,7 +1134,7 @@ Each item is either an instruction-item or a list like (:i32.const 42)."
       ;; Plain lists (from init-expr etc.)
       (list (%wasm-encode-instruction buf item)))))
 
-;; ── Code section encoder ─────────────────────────────────────
+;; -- Code section encoder -------------------------------------
 
 (defun %wasm-encode-code-section (func-items)
   "Encode the Code section body from a list of wasm-function-items."
@@ -1162,7 +1159,7 @@ Each item is either an instruction-item or a list like (:i32.const 42)."
         (%wasm-emit-bytes buf body-buf)))
     buf))
 
-;; ── Section writer ───────────────────────────────────────────
+;; -- Section writer -------------------------------------------
 
 (defun %wasm-write-section (stream section-id body-buf)
   "Write a WASM section: ID byte + LEB128 size + body bytes."
@@ -1172,7 +1169,7 @@ Each item is either an instruction-item or a list like (:i32.const 42)."
   (loop :for i :below (fill-pointer body-buf)
         :do (write-byte (aref body-buf i) stream)))
 
-;; ── Gather items from segments ───────────────────────────────
+;; -- Gather items from segments -------------------------------
 
 (defun %wasm-gather-items (unit kind item-type)
   "Collect all items of ITEM-TYPE from the segment of KIND in UNIT."
@@ -1182,9 +1179,9 @@ Each item is either an instruction-item or a list like (:i32.const 42)."
       (loop :for item :in (seg-items seg)
             :when (typep item item-type) :collect item))))
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; emit-program :wasm — WASM binary module emitter
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defmethod emit-program ((pgm program) (format (eql :wasm)) stream &key)
   "Write a WebAssembly binary module to STREAM.

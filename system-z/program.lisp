@@ -7,38 +7,38 @@
 (in-package #:specops.system-z)
 
 ;; Import program model symbols from the core specops package
-(import '(specops::program specops::pgm-assembler specops::pgm-units
-          specops::pgm-entry-point specops::pgm-properties
-          specops::program-unit specops::pun-name specops::pun-program
-          specops::pun-segments specops::pun-symbols specops::pun-relocations
-          specops::pun-properties
-          specops::segment specops::seg-name specops::seg-kind specops::seg-items
-          specops::seg-origin specops::seg-size specops::seg-align
-          specops::seg-bytes specops::seg-flags specops::seg-properties
-          specops::symbol-entry specops::sym-name specops::sym-segment
-          specops::sym-offset specops::sym-binding specops::sym-type
-          specops::sym-size specops::sym-properties
-          specops::relocation specops::rel-symbol specops::rel-segment
-          specops::rel-offset specops::rel-type specops::rel-width specops::rel-addend
-          specops::segment-item specops::raw-bytes-item specops::rbi-data
-          specops::instruction-item specops::ii-expression
-          specops::label-def-item specops::ldi-name specops::ldi-binding
-          specops::label-ref-item specops::lri-label specops::lri-width
-          specops::lri-rel-type specops::lri-addend
-          specops::align-item specops::ali-boundary specops::ali-fill-byte
-          specops::function-item specops::fi-name specops::fi-body specops::fi-properties
-          specops::add-segment specops::add-symbol specops::add-relocation
-          specops::add-item specops::add-unit
-          specops::lookup-segment specops::lookup-symbol specops::finalize-segment
-          specops::make-program specops::make-unit specops::make-segment
-          specops::make-symbol-entry
-          specops::emit-program specops::build-program
-          specops::asm-endianness specops::asm-elf-machine
-          specops::data-word-item specops::dwi-value specops::dwi-width))
+;; (import '(specops::program specops::pgm-assembler specops::pgm-units
+;;           specops::pgm-entry-point specops::pgm-properties
+;;           specops::program-unit specops::pun-name specops::pun-program
+;;           specops::pun-segments specops::pun-symbols specops::pun-relocations
+;;           specops::pun-properties
+;;           specops::segment specops::seg-name specops::seg-kind specops::seg-items
+;;           specops::seg-origin specops::seg-size specops::seg-align
+;;           specops::seg-bytes specops::seg-flags specops::seg-properties
+;;           specops::symbol-entry specops::sym-name specops::sym-segment
+;;           specops::sym-offset specops::sym-binding specops::sym-type
+;;           specops::sym-size specops::sym-properties
+;;           specops::relocation specops::rel-symbol specops::rel-segment
+;;           specops::rel-offset specops::rel-type specops::rel-width specops::rel-addend
+;;           specops::segment-item specops::raw-bytes-item specops::rbi-data
+;;           specops::instruction-item specops::ii-expression
+;;           specops::label-def-item specops::ldi-name specops::ldi-binding
+;;           specops::label-ref-item specops::lri-label specops::lri-width
+;;           specops::lri-rel-type specops::lri-addend
+;;           specops::align-item specops::ali-boundary specops::ali-fill-byte
+;;           specops::function-item specops::fi-name specops::fi-body specops::fi-properties
+;;           specops::add-segment specops::add-symbol specops::add-relocation
+;;           specops::add-item specops::add-unit
+;;           specops::lookup-segment specops::lookup-symbol specops::finalize-segment
+;;           specops::make-program specops::make-unit specops::make-segment
+;;           specops::make-symbol-entry
+;;           specops::emit-program specops::build-program
+;;           specops::asm-endianness specops::asm-elf-machine
+;;           specops::data-word-item specops::dwi-value specops::dwi-width))
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; GOFF behavioral attribute constants
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 ;; AMODE (addressing mode) values — byte 0 of behavioral attributes
 (defconstant +goff-amode-unspecified+ 0)
@@ -145,9 +145,9 @@
     (:r-390-plt64    . 25) (:r-390-gotent   . 26))
   "Alist mapping relocation type keywords to s390x ELF R_390_* numeric codes.")
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; Standard GOFF class names
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defparameter *goff-class-code64*  "C_CODE64"
   "Standard GOFF class name for 64-bit executable code.")
@@ -156,9 +156,9 @@
 (defparameter *goff-class-wsa64*   "C_WSA64"
   "Standard GOFF class name for 64-bit writable static area.")
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; Standard segment constructors for System Z
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defun make-z-code-segment (&key (name *goff-class-code64*) (align 8))
   "Create a standard System Z code segment.
@@ -190,9 +190,9 @@ Defaults to the C_DATA64 GOFF class name with doubleword alignment."
                                   :goff-rmode +goff-rmode-64+
                                   :goff-exec  +goff-exec-data+)))
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; Convenience: build a typical System Z program skeleton
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defun make-z-program (unit-name &key (assembler *assembler-prototype-z*)
                                       (amode 64) (rmode 64))
@@ -213,9 +213,9 @@ Returns (values program unit code-segment data-segment)."
     (add-segment unit "C_WSA64"  data)
     (values pgm unit code data)))
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; System Z function item helpers
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defun make-z-function (name &key (amode 64) (linkage :os) (binding :global))
   "Create a function-item configured for System Z conventions.
@@ -231,9 +231,9 @@ Sets GOFF-specific properties for AMODE and linkage type."
                                                    (:xplink +goff-linkage-xplink+))
                                    :binding binding)))
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; Relocation type helpers
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defun z-reloc-code (type-keyword)
   "Look up the numeric ELF relocation code for a System Z relocation type keyword."
@@ -261,9 +261,9 @@ Used for absolute data references in 64-bit code."
                               :offset offset :rel-type :r-390-32
                               :width 4 :addend addend))
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; Endianness for System Z
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defmethod asm-endianness ((assembler assembler-z))
   "System Z is big-endian."
