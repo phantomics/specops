@@ -504,7 +504,7 @@ is either explicit or inferred from the value's magnitude."))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 
-  ;; ── Symbol name comparison ────────────────────────────────
+  ;; -- Symbol name comparison --------------------------------
   ;;
   ;; The program macro is used from architecture packages (specops.system-z,
   ;; specops.wasm, etc.) where symbols like FUNCTION, LABEL, CODE are
@@ -515,7 +515,7 @@ is either explicit or inferred from the value's magnitude."))
     "Test whether SYM is a symbol whose name matches NAME-STRING (case-insensitive)."
     (and (symbolp sym) (string-equal (symbol-name sym) name-string)))
 
-  ;; ── Section metadata ──────────────────────────────────────
+  ;; -- Section metadata --------------------------------------
 
   (defun %section-kind (section-sym)
     "Map a section declarator symbol to a segment kind keyword."
@@ -534,7 +534,7 @@ is either explicit or inferred from the value's magnitude."))
       (:rodata '(:read :alloc))
       (:bss    '(:read :write :alloc))))
 
-  ;; ── Width keyword → byte count ────────────────────────────
+  ;; -- Width keyword → byte count ----------------------------
 
   (defun %width-bytes (keyword)
     "Convert a width keyword to a byte count."
@@ -545,7 +545,7 @@ is either explicit or inferred from the value's magnitude."))
       (:dword 8)
       (:qword 16)))
 
-  ;; ── Instruction expansion ─────────────────────────────────
+  ;; -- Instruction expansion ---------------------------------
 
   (defun %expand-instruction (form)
     "Expand (:mnemonic args...) into a make-instance form for instruction-item.
@@ -553,7 +553,7 @@ Operand expressions are spliced so they evaluate at runtime (resolving
 register bindings from :store)."
     `(make-instance 'instruction-item :expression (list ,@form)))
 
-  ;; ── Body items (inside functions) ─────────────────────────
+  ;; -- Body items (inside functions) -------------------------
   ;;
   ;; %expand-body-item returns a list of forms, each of which
   ;; evaluates to a segment-item.  These get collected into a
@@ -595,7 +595,7 @@ Returns a list of forms that each evaluate to a segment-item instance."
 
       (t (error "Unrecognized function body item: ~s" item))))
 
-  ;; ── Code section items ────────────────────────────────────
+  ;; -- Code section items ------------------------------------
   ;;
   ;; %expand-code-item returns a list of forms that add items
   ;; to the segment via add-item.
@@ -653,7 +653,7 @@ Returns a list of forms that each evaluate to a segment-item instance."
 
       (t (error "Unrecognized code section item: ~s" item))))
 
-  ;; ── Data value expansion ──────────────────────────────────
+  ;; -- Data value expansion ----------------------------------
 
   (defun %expand-data-value (value-form)
     "Generate a form that creates a segment-item for a data value.
@@ -689,7 +689,7 @@ Called at macro-expansion time; VALUE-FORM is the source expression."
       ;; other runtime expression — assume integer value
       (t `(make-instance 'data-word-item :value ,value-form))))
 
-  ;; ── Data section items ────────────────────────────────────
+  ;; -- Data section items ------------------------------------
 
   (defun %expand-data-item (item seg-var)
     "Expand a single data section item into forms that call add-item on SEG-VAR."
@@ -728,7 +728,7 @@ Called at macro-expansion time; VALUE-FORM is the source expression."
 
       (t (error "Unrecognized data section item: ~s" item))))
 
-  ;; ── Section expansion ─────────────────────────────────────
+  ;; -- Section expansion -------------------------------------
 
   (defun %expand-section (form unit-var)
     "Expand a section declaration (code, data, rodata, bss) into

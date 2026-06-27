@@ -6,36 +6,6 @@
 
 (in-package #:specops.system-z)
 
-;; Import program model symbols from the core specops package
-;; (import '(specops::program specops::pgm-assembler specops::pgm-units
-;;           specops::pgm-entry-point specops::pgm-properties
-;;           specops::program-unit specops::pun-name specops::pun-program
-;;           specops::pun-segments specops::pun-symbols specops::pun-relocations
-;;           specops::pun-properties
-;;           specops::segment specops::seg-name specops::seg-kind specops::seg-items
-;;           specops::seg-origin specops::seg-size specops::seg-align
-;;           specops::seg-bytes specops::seg-flags specops::seg-properties
-;;           specops::symbol-entry specops::sym-name specops::sym-segment
-;;           specops::sym-offset specops::sym-binding specops::sym-type
-;;           specops::sym-size specops::sym-properties
-;;           specops::relocation specops::rel-symbol specops::rel-segment
-;;           specops::rel-offset specops::rel-type specops::rel-width specops::rel-addend
-;;           specops::segment-item specops::raw-bytes-item specops::rbi-data
-;;           specops::instruction-item specops::ii-expression
-;;           specops::label-def-item specops::ldi-name specops::ldi-binding
-;;           specops::label-ref-item specops::lri-label specops::lri-width
-;;           specops::lri-rel-type specops::lri-addend
-;;           specops::align-item specops::ali-boundary specops::ali-fill-byte
-;;           specops::function-item specops::fi-name specops::fi-body specops::fi-properties
-;;           specops::add-segment specops::add-symbol specops::add-relocation
-;;           specops::add-item specops::add-unit
-;;           specops::lookup-segment specops::lookup-symbol specops::finalize-segment
-;;           specops::make-program specops::make-unit specops::make-segment
-;;           specops::make-symbol-entry
-;;           specops::emit-program specops::build-program
-;;           specops::asm-endianness specops::asm-elf-machine
-;;           specops::data-word-item specops::dwi-value specops::dwi-width))
-
 ;; ===============================================================
 ;; GOFF behavioral attribute constants
 ;; ===============================================================

@@ -67,6 +67,9 @@
    #:unmasque
    #:mqbase
 
+   ;; -- Marshal macros
+   #:marshal
+   
    ;; -- Main utility functions and macros
    #:extns-of
    #:derive-promodel

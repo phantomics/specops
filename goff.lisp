@@ -12,9 +12,9 @@
 
 (in-package #:specops)
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; GOFF record constants
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defconstant +goff-record-length+ 80
   "Fixed length of a GOFF physical record.")
@@ -48,9 +48,9 @@
 (defconstant +goff-ns-normal+ 1)
 (defconstant +goff-ns-parts+  3)
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; ASCII → EBCDIC conversion (CP-037)
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defparameter *ascii-to-ebcdic*
   (let ((table (make-array 128 :element-type '(unsigned-byte 8) :initial-element #x40)))
@@ -120,9 +120,9 @@
                #x40)))  ; unmapped → space
        string))
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; GOFF record buffer — builds 80-byte records with continuations
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defun %goff-make-record ()
   "Create a fresh 80-byte zero-filled record buffer."
@@ -163,9 +163,9 @@ Returns the number of bytes that didn't fit (for continuation)."
                     (aref name-bytes i)))
     (- (length name-bytes) to-copy)))
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; Record writers
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defun %goff-write-hdr (stream &key (arch-level 1))
   "Write a GOFF HDR record."
@@ -315,7 +315,7 @@ if data exceeds the available space per record."
     (%goff-set-u32 rec 22 offset)
     (%goff-write-record stream rec)))
 
-(defun %goff-write-end (stream &key (entry-esdid nil) (entry-offset 0)
+(defun %goff-write-end-old (stream &key (entry-esdid nil) (entry-offset 0)
                                     (amode 0) (record-count 0))
   "Write a GOFF END record."
   (let ((rec (%goff-make-record)))
@@ -332,11 +332,48 @@ if data exceeds the available space per record."
       (%goff-set-u32 rec 12 entry-esdid))
     ;; Bytes 20-23: Offset
     (%goff-set-u32 rec 20 entry-offset)
+
+    (print (list :rr rec))
     (%goff-write-record stream rec)))
 
-;; ═══════════════════════════════════════════════════════════════
+(defmanifest goff-end (:unit 8 :endian :big :length 80)
+  (masque "h:pptt00" (p +goff-ptv-prefix+)
+          (t :t-tag :u8 :default 0))
+  (:entry-flag   :u8)  ;; Byte 3: bits 6-7 = entry point flag
+  (:amode        :u8)  ;; Byte 4: AMODE of entry point
+  (pad 0 3)            ;; Bytes 5-7: zero
+  (:record-count :u32) ;; Bytes 8-11: Record Count
+  (:entry-esdid  :u32) ;; Bytes 12-15: ESDID (if entry by ESDID)
+  (pad 0 4)            ;; Bytes 16-19: zero
+  (:entry-offset :u32) ;; Bytes 20-23: Offset
+  (pad 0 :to 80))      ;; Bytes 24-79: Complete the record with zero-padding
+
+(defun %goff-write-end (stream &key (entry-esdid nil) (entry-offset 0)
+                                    (amode 0) (record-count 0))
+  "Write a GOFF END record."
+  (marshal2 goff-end stream
+    :t-tag (logior +goff-rt-end+ +goff-cont-none+)
+    :entry-flag (if entry-esdid 1 0) :amode amode :record-count record-count
+    :entry-esdid entry-esdid :entry-offset entry-offset))
+
+;; (defun %goff-write-end (stream &key (entry-esdid nil) (entry-offset 0)
+;;                                     (amode 0) (record-count 0))
+;;   "Write a GOFF END record."
+;;   (marshal stream (:unit 8 :endian :big :index index)
+;;     (masque "h:pptt00"
+;;             (p +goff-ptv-prefix+) (t (logior +goff-rt-end+ +goff-cont-none+)))
+;;     (if entry-esdid 1 0) ;; Byte 3: bits 6-7 = entry point flag
+;;     amode                ;; Byte 4: AMODE of entry point
+;;     (3)                  ;; Bytes 5-7: zero
+;;     (4 . record-count)   ;; Bytes 8-11: Record Count
+;;     (4 . entry-esdid)    ;; Bytes 12-15: ESDID (if entry by ESDID)
+;;     (4)                  ;; Bytes 16-19: zero
+;;     (4 . entry-offset)   ;; Bytes 20-23: Offset
+;;     (:pad 0 :to 80)))    ;; Bytes 24-79: Complete the record with zero-padding
+
+;; ===============================================================
 ;; Alignment to GOFF alignment code
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defun %goff-alignment-code (byte-alignment)
   "Convert a byte alignment value to a GOFF alignment code.
@@ -345,9 +382,9 @@ if data exceeds the available space per record."
   (if (<= byte-alignment 1) 0
       (min 12 (floor (log byte-alignment 2)))))
 
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 ;; emit-program :goff — GOFF object file emitter
-;; ═══════════════════════════════════════════════════════════════
+;; ===============================================================
 
 (defmethod emit-program ((pgm program) (format (eql :goff)) stream &key)
   "Write a GOFF object file to STREAM.
@@ -379,7 +416,7 @@ Names are converted to EBCDIC CP-037."
     (flet ((alloc-esdid ()
              (prog1 next-esdid (incf next-esdid))))
 
-      ;; ── Pass 1: Build ESD entries ──────────────────────────
+      ;; -- Pass 1: Build ESD entries --------------------------
 
       (dolist (unit (pgm-units pgm))
         ;; SD (Section Definition) for the unit
@@ -478,7 +515,7 @@ Names are converted to EBCDIC CP-037."
             txt-entries (nreverse txt-entries)
             rld-entries (nreverse rld-entries))
 
-      ;; ── Pass 2: Write records ──────────────────────────────
+      ;; -- Pass 2: Write records ------------------------------
 
       ;; HDR
       (%goff-write-hdr stream)

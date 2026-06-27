@@ -7,7 +7,8 @@
   :version "0.0.1"
   :serial t
   :components ((:file "package")
-               (:file "specops")))
+               (:file "specops")
+               (:file "program")))
 
 (asdf:defsystem #:specops/format.ebcdic
   :description "A set of EBCDIC-Unicode conversion tables."

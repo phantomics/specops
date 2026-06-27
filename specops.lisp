@@ -3,25 +3,23 @@
 (in-package #:specops)
 
 (defun find-width (number unit)
-  (let ((width 0) (shift (- unit)))
-    (loop :until (zerop number) :do (setf number (ash number shift))
-                                    (incf width))
-    width))
+  "Return the number of UNIT-bit units needed to represent NUMBER. Non-negative
+values are sized by magnitude; negative values are sized for their two's-complement
+representation, including the sign bit. Zero has width 0."
+  (if (zerop number)
+      0 (ceiling (if (minusp number)
+                     (1+ (integer-length number))
+                     (integer-length number))
+                 unit)))
 
-(defun serialize (item unit collector &optional (swap-granularity 0))
+(defun serialize (item unit collector)
   "Serialize a series of integers, integer vectors and/or serial integer specifications into a vector of integers of a given width. A serial integer specification takes the form of a pair of a value and the number of elements it is intended to serialize to."
-  (when (zerop unit)
-    (error "Unit cannot be zero."))
-  (let ((mask (1- (ash 1 unit))) ;; TODO: find a way to create the mask just once?
-        (increment (* unit (if (zerop swap-granularity) 1 -1)))
-        (shift-factor (if (zerop swap-granularity) -1 0))
-        (vshift (let ((u unit))
-                  (loop :for i :from 1 :do (setf u (ash u -1)) :when (= 1 (logand 1 u)) :return i))))
+  (let ((mask (1- (ash 1 unit)))) ;; TODO: find a way to create the mask just once?
     (flet ((decompose (number starting-width)
-             (let ((shift (* shift-factor (ash (1- starting-width) vshift))))
+             (let ((shift (- (* unit (1- starting-width)))))
                (loop :for i :below starting-width
                      :do (funcall collector (logand mask (ash number shift)))
-                         (incf shift increment)))))
+                         (incf shift unit)))))
       (if (integerp item) ;; values that fit within a byte are just pushed on
           (if (zerop (ash item (- unit)))
               (funcall collector item)
@@ -31,16 +29,42 @@
               (destructuring-bind (width &rest value) item
                 (decompose value width))
               (if (vectorp item)
-                  (let* ((type (array-element-type item))
-                         ;; number of units to decompose; not needed if the vector's element width
-                         ;; is the same as the unit width to serialize
-                         (el-width (and (listp type) (eql 'unsigned-byte (first type))
-                                        (second type)))
-                         (dc-width (if (= el-width unit)
-                                       0 (ash el-width (- vshift)))))
-                    (loop :for i :across item :do (if (zerop dc-width) (funcall collector i)
-                                                      (decompose i dc-width))))
+                  (loop :for i :across item :do (funcall collector i))
                   (error "Attempted to serialize incompatible value - must be an integer, a vector or a pair indicating integer value and encoding width.")))))))
+
+;; (defun serialize (item unit collector &optional (swap-granularity 0))
+;;   "Serialize a series of integers, integer vectors and/or serial integer specifications into a vector of integers of a given width. A serial integer specification takes the form of a pair of a value and the number of elements it is intended to serialize to."
+;;   (when (zerop unit)
+;;     (error "Unit cannot be zero."))
+;;   (let ((mask (1- (ash 1 unit))) ;; TODO: find a way to create the mask just once?
+;;         (increment (* unit (if (zerop swap-granularity) 1 -1)))
+;;         (shift-factor (if (zerop swap-granularity) -1 0))
+;;         (vshift (let ((u unit))
+;;                   (loop :for i :from 1 :do (setf u (ash u -1)) :when (= 1 (logand 1 u)) :return i))))
+;;     (flet ((decompose (number starting-width)
+;;              (let ((shift (* shift-factor (ash (1- starting-width) vshift))))
+;;                (loop :for i :below starting-width
+;;                      :do (funcall collector (logand mask (ash number shift)))
+;;                          (incf shift increment)))))
+;;       (if (integerp item) ;; values that fit within a byte are just pushed on
+;;           (if (zerop (ash item (- unit)))
+;;               (funcall collector item)
+;;               (decompose item (find-width item unit)))
+;;           (if (and (consp item) (not (listp (rest item))))
+;;               ;; handle cons cells encoding width and value, like (3 . 5) → #x000005
+;;               (destructuring-bind (width &rest value) item
+;;                 (decompose value width))
+;;               (if (vectorp item)
+;;                   (let* ((type (array-element-type item))
+;;                          ;; number of units to decompose; not needed if the vector's element width
+;;                          ;; is the same as the unit width to serialize
+;;                          (el-width (and (listp type) (eql 'unsigned-byte (first type))
+;;                                         (second type)))
+;;                          (dc-width (if (= el-width unit)
+;;                                        0 (ash el-width (- vshift)))))
+;;                     (loop :for i :across item :do (if (zerop dc-width) (funcall collector i)
+;;                                                       (decompose i dc-width))))
+;;                   (error "Attempted to serialize incompatible value - must be an integer, a vector or a pair indicating integer value and encoding width.")))))))
 
 (defun swap-segments (value width granularity)
   "Swap segments of a number for cross-endian encoding. This function supports
@@ -66,7 +90,7 @@ function can output at multiple unit widths, as determined by the unit-power arg
 expressing the (power+3) of 2 corresponding to the width at which output will be generated."
   (let* ((unit (ash 1 (+ 3 unit-power)))
          (mask (1- (ash 1 unit))))
-    
+
     (flet ((decompose (collector value starting-width)
              (let ((shift (- (- (* unit starting-width) unit))))
                (loop :repeat starting-width
@@ -81,12 +105,16 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                        (let ((width (find-width item unit)))
                          (decompose collector (swap-segments item (ash width unit-power) swap-by)
                                     width))))
-          (cons (if (listp (rest item))
-                    (error "Incompatible cons entry.")
-                    ;; handle cons cells encoding width and value, like (3 . 5) → #x000005
-                    (destructuring-bind (width &rest value) item
-                      (decompose collector (swap-segments value (ash width unit-power) swap-by)
-                                 width))))
+          (cons (if (null (rest item)) ;; nil cdr values cause zero-padding
+                    (loop :repeat (first item) :do (funcall collector 0))
+                    (if (listp (rest item))
+                        (error "Incompatible cons entry.")
+                        ;; handle cons cells encoding width and value, like (3 . 5) → #x000005
+                        (destructuring-bind (width &rest value) item
+                          (when (> (find-width value unit) width)
+                            (error "Value ~a does not fit within ~a unit(s) of ~a bits." value width unit))
+                          (decompose collector (swap-segments value (ash width unit-power) swap-by)
+                                     width)))))
           (vector (let* ((type (array-element-type item))
                          (el-width (and (listp type) (eql 'unsigned-byte (first type))
                                         (second type)))
@@ -313,7 +341,7 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
       ;; (print (list :ss segments symbols params))
       ;; (format t "~v,'0B~%" 16 (ash (1- (ash 1 length)) (nth index segments)))
 
-      (print segments)
+      ;; (print segments)
       (if processor
           (let* ((rev-sym (reverse symbols)) (rev-seg (reverse segments))
                  (big-endian (eq :big (rest (assoc :endian params))))
@@ -382,20 +410,24 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
 
 |#
 
-(defun marshal-listspec (spec serializer accumulator)
+(defun marshal-listspec (spec params serializer accumulator)
   (destructuring-bind (type element &rest options) spec
     (case type
-      (:v `(funcall ,serializer ,(if (listp element)
+      (:vec `(funcall ,serializer ,(if (listp element)
                                      `(make-array ,(length element)
                                                   :element-type '(unsigned-byte ,(getf options :width)))
                                      element)
                     ,accumulator))
-      (:s `(funcall ,serializer ,element ,accumulator)))))
+      (:str `(funcall ,serializer ,element ,accumulator))
+      (:pad (destructuring-bind (&key to for) options
+              `(loop :repeat ,(if to `(- ,to ,(getf params :index))
+                                  (if for for))
+                     :do (funcall ,accumulator ,element)))))))
 
-(defmacro marshal (destination params &rest items)
-  (destructuring-bind (&key unit endian vspec voffset) params
+(defmacro marshal (destination params &body items)
+  (destructuring-bind (&key unit endian index vextend-by count-from) params
     (let ((accumulator (gensym "AC")) (enter (gensym "EN")) (item (gensym "IT"))
-          (serializer (gensym "SR")) (input-index (gensym "IX"))
+          (serializer (gensym "SR"))
           (unit-spec (typecase unit
                        (integer (if (< unit 4)
                                     ;; the unit may be an exponent of 2 + 3
@@ -406,25 +438,405 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
           (swap-by (case endian (:big 0) (:little 1) (:middle 2) (:pdp 2))))
       `(let* ((,accumulator ,destination)
               (,serializer (serializer-for ,unit-spec ,swap-by))
-              ,@(and (eq vspec :static) `((,input-index ,(or 0 voffset))))
+              ,@(and index `((,index ,(or count-from 0))))
               (,enter (typecase ,accumulator
                         (function ,accumulator)
                         (vector   (lambda (,item)
-                                    ,(if (eq vspec :static)
-                                         `(progn (setf (aref ,accumulator ,input-index) ,item)
-                                                 (if (< ,input-index (1- (length ,accumulator)))
-                                                     (incf ,input-index)
-                                                     (setf ,input-index 0)))
-                                         `(vector-push ,item ,accumulator))))
-                        (stream   (lambda (,item) (write-byte ,item ,accumulator))))))
+                                    ,@(if vextend-by
+                                          `((when (< (fill-pointer ,accumulator)
+                                                     (1- (length ,accumulator)))
+                                              (adjust-array ,accumulator
+                                                            (+ ,vextend-by (length ,accumulator))
+                                                            :element-type (element-type ,accumulator)))
+                                            (vector-push ,item ,accumulator))
+                                          `((setf (aref ,accumulator ,index) ,item)
+                                            ;; (format t "OUT: ~4,'0X ~A~%" ,item ,index)
+                                            (if (< ,index (1- (length ,accumulator)))
+                                                (incf ,index)
+                                                (setf ,index 0))))))
+                        (stream   (lambda (,item)
+                                    ,@(and index `((incf ,index)))
+                                    (write-byte ,item ,accumulator))))))
          ,@(loop :for item :in items
                  :collect (typecase item
                             (number `(funcall ,serializer ,item ,enter))
-                            (list   (marshal-listspec item serializer enter))))))))
+                            (symbol `(funcall ,serializer ,item ,enter))
+                            (list   (typecase (first item)
+                                      (symbol (or (marshal-listspec item params serializer enter)
+                                                  `(funcall ,serializer ,item ,enter)))
+                                      (number (let ((runtime `(cons ,(first item) ,(rest item))))
+                                                `(funcall ,serializer ,runtime ,enter)))
+                                      (t      `(funcall ,serializer ,item ,enter))))))))))
 
-;; (defmacro bounded-iterate (var bound)
-;;   `(progn (incf var)
-;;           (when (= bound var) (setf var 0))))
+(defmacro defmanifest-old (name params &body fields)
+  (destructuring-bind (&key unit endian index vextend-by count-from length) params
+    (let ((accumulator (gensym "AC")) (enter (gensym "EN"))
+          (item (gensym "IT")) (serializer (gensym "SR"))
+          (pairs (gensym "PR")) (keys (gensym "KY"))
+          (marshal-sym   (intern (format nil "⍁MARSHAL-COMPOSER-~a" name)
+                                 (package-name (symbol-package name))))
+          (unmarshal-sym (intern (format nil "⍁UNMARSHAL-COMPOSER-~a" name)
+                                 (package-name (symbol-package name))))
+          (unit-spec (typecase unit
+                       (integer (if (< unit 4)
+                                    ;; the unit may be an exponent of 2 + 3
+                                    unit (multiple-value-bind (root remainder) (floor (log unit 2))
+                                           (if (zerop remainder) (- root 3)
+                                               (error "Invalid unit.")))))
+                       (symbol (case unit (:byte 0) (:word 1) (:doubleword 2) (:quadword 3)))))
+          (swap-by (case endian (:big 0) (:little 1) (:middle 2) (:pdp 2))))
+      (proclaim (list 'special marshal-sym unmarshal-sym))
+      `(let ((,serializer (serializer-for ,unit-spec ,swap-by))
+             (,enter (typecase ,accumulator
+                       (function ,accumulator)
+                       (vector   (lambda (,item)
+                                   ,@(if vextend-by
+                                         `((when (< (fill-pointer ,accumulator)
+                                                    (1- (length ,accumulator)))
+                                             (adjust-array ,accumulator
+                                                           (+ ,vextend-by (length ,accumulator))
+                                                           :element-type (element-type ,accumulator)))
+                                           (vector-push ,item ,accumulator))
+                                         `((setf (aref ,accumulator ,index) ,item)
+                                           ;; (format t "OUT: ~4,'0X ~A~%" ,item ,index)
+                                           (if (< ,index (1- (length ,accumulator)))
+                                               (incf ,index)
+                                               (setf ,index 0))))))
+                       (stream   (lambda (,item)
+                                   ,@(and index `((incf ,index)))
+                                   (write-byte ,item ,accumulator))))))
+         (setf (symbol-function ',(intern (format nil "⍁MARSHAL-COMPOSER-~a" name)
+                                          (package-name (symbol-package name))))
+               (lambda (,accumulator ,pairs)
+                 (let ((,enter (typecase ,accumulator
+                                  (function ,accumulator)
+                                  (vector   (lambda (,item)
+                                              ,@(if vextend-by
+                                                    `((when (< (fill-pointer ,accumulator)
+                                                               (1- (length ,accumulator)))
+                                                        (adjust-array ,accumulator
+                                                                      (+ ,vextend-by (length ,accumulator))
+                                                                      :element-type (element-type ,accumulator)))
+                                                      (vector-push ,item ,accumulator))
+                                                    `((setf (aref ,accumulator ,index) ,item)
+                                                      ;; (format t "OUT: ~4,'0X ~A~%" ,item ,index)
+                                                      (if (< ,index (1- (length ,accumulator)))
+                                                          (incf ,index)
+                                                          (setf ,index 0))))))
+                                  (stream   (lambda (,item)
+                                              ,@(and index `((incf ,index)))
+                                              (write-byte ,item ,accumulator))))))
+                   ,@(loop :for f :in fields
+                           :collect (destructuring-bind (symbol predicate &rest fprops) f
+                                      (if (string= "_" (symbol-name symbol))
+                                          (if (and (listp predicate)
+                                                   (eq :pad (first predicate)))
+                                              (destructuring-bind (pad-with count) (rest predicate)
+                                                `(loop :repeat ,count
+                                                       :do (funcall ,serializer ,pad-with ,enter)))
+                                              (if (not predicate)
+                                                  `(funcall ,serializer 0 ,enter)
+                                                  (error "Something went wrong.")))
+                                          (if (atom predicate)
+                                              `(funcall ,serializer (getf ,pairs ,symbol) ,enter)))))))
+               (symbol-function ',(intern (format nil "⍁UNMARSHAL-COMPOSER-~a" name)
+                                          (package-name (symbol-package name))))
+               (lambda (,accumulator ,keys)
+                 (let ((,enter (typecase ,accumulator
+                                  (function ,accumulator)
+                                  (vector   (lambda (,item)
+                                              ,@(if vextend-by
+                                                    `((when (< (fill-pointer ,accumulator)
+                                                               (1- (length ,accumulator)))
+                                                        (adjust-array ,accumulator
+                                                                      (+ ,vextend-by (length ,accumulator))
+                                                                      :element-type (element-type ,accumulator)))
+                                                      (vector-push ,item ,accumulator))
+                                                    `((setf (aref ,accumulator ,index) ,item)
+                                                      ;; (format t "OUT: ~4,'0X ~A~%" ,item ,index)
+                                                      (if (< ,index (1- (length ,accumulator)))
+                                                          (incf ,index)
+                                                          (setf ,index 0))))))
+                                  (stream   (lambda (,item)
+                                              ,@(and index `((incf ,index)))
+                                              (write-byte ,item ,accumulator))))))
+                    ,@(let ((index 0))
+                        (loop :for f :in fields
+                              :collect (destructuring-bind (symbol predicate &rest fprops) f
+                                         (if (string= "_" (symbol-name symbol))
+                                             (if (and (listp predicate)
+                                                      (eq :pad (first predicate)))
+                                                 (destructuring-bind (pad-with count) (rest predicate)
+                                                   (incf index count))
+                                                 (if (not predicate)
+                                                     (incf index)
+                                                     (error "Something went wrong.")))
+                                             (if (atom predicate)
+                                                 ;; `(funcall ,serializer (getf ,keys ,symbol) ,enter)
+                                                 (let ((breadth (case predicate
+                                                                  (:u8 1) (:u16 2) (:u32 4) (:u64 8)
+                                                                  (:s8 1) (:s16 2) (:s32 4) (:s64 8))))
+                                                   (incf index breadth)
+                                                   `(deserialize ,accumulator ,index ,breadth))))))))))))))
+
+;; (defmacro marshal2 (name destination &rest pairs)
+;;   (let ((fn-sym (find-symbol (format nil "⍁MARSHAL-COMPOSE-~a" name)
+;;                              (package-name (symbol-package name)))))
+;;     (if (fboundp fn-sym)
+;;         (apply (symbol-function fn-sym) destination pairs)
+;;         (error "Manifest not found."))))
+
+;; (defmacro unmarshal2 (name destination &rest keys)
+;;   (let ((fn-sym (find-symbol (format nil "⍁UNMARSHAL-COMPOSE-~a" name)
+;;                              (package-name (symbol-package name)))))
+;;     (if (fboundp fn-sym)
+;;         (apply (symbol-function fn-sym) destination keys)
+;;         (error "Manifest not found."))))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defvar *manifests* (make-hash-table :test 'eq)))
+
+;; (defmacro defmanifest (name params &body fields)
+;;   (destructuring-bind (&key unit endian index vextend-by count-from length) params
+;;     (let ((unit-spec (typecase unit
+;;                        (integer (if (< unit 4)
+;;                                     ;; the unit may be an exponent of 2 + 3
+;;                                     unit (multiple-value-bind (root remainder) (floor (log unit 2))
+;;                                            (if (zerop remainder) (- root 3)
+;;                                                (error "Invalid unit.")))))
+;;                        (symbol (case unit (:byte 0) (:word 1) (:doubleword 2) (:quadword 3)))))
+;;           (swap-by (case endian (:big 0) (:little 1) (:middle 2) (:pdp 2)))
+;;           (field-specs)
+;;           (index 0))
+      
+;;       (dolist (f fields)
+;;         (destructuring-bind (symbol predicate &rest fprops) f
+;;           (let* ((psym (and (symbolp predicate) predicate))
+;;                  (pad (and (listp predicate)
+;;                            (eq :pad (first predicate))
+;;                            (rest predicate)))
+;;                  (width (if (not psym)
+;;                             (if pad (second pad) 1)
+;;                             (case psym (:u8 1) (:s8 1)
+;;                                   (:u16 2) (:s16 2)
+;;                                   (:u32 4) (:s32 4)
+;;                                   (:u64 8) (:s64 8))))
+;;                  (this-swap-by (case (getf fprops :endian)
+;;                                  (:big 0) (:little 1) (:middle 2) (:pdp 2))))
+;;             (incf index width)
+;;             (push (list 'list
+;;                         :name (and (not (string= "_" (symbol-name symbol)))
+;;                                    symbol)
+;;                         :width (ash width (- unit-spec))
+;;                         :kind :scalar
+;;                         :signed (and psym (member psym '(:s8 :s16 :s32 :s64)
+;;                                                   :test #'eq))
+;;                         :swap-by (or this-swap-by swap-by)
+;;                         :default (if pad (first pad) 0)
+;;                         :compute nil)
+;;                   field-specs))))
+      
+;;       `(setf (gethash ',name *manifests*)
+;;              ,(append (list 'list)
+;;                       (reverse field-specs)
+;;                       (and length (list (list 'list :name nil :default 0
+;;                                                     :width (- length index)))))))))
+
+
+#|
+(defmanifest goff-end ()
+  (masque "h:pptt00" (p +goff-ptv-prefix+) (t :end-or-continue :u8 :default 0))
+  (:entry :u8 :default 0)
+  (pad 0 4)
+  (:amode :u8 :default 0)
+  (vector :u8 #xBC #xC0)
+  (pad 0 :to 80)
+  )
+
+(defmanifest something (:unit 8 :endian :big :length 80) ... (str "HELLO" :width 1 :encode-by #'txcodec-ebcdic) ...)
+
+|#
+
+(defun txcodec-ebcdic (a) (print a))
+
+(defmacro defmanifest (name params &body fields)
+  (destructuring-bind (&key unit endian index vextend-by count-from length pad) params
+    (let* ((unit-spec (typecase unit
+                        (integer (if (< unit 4)
+                                     ;; the unit may be an exponent of 2 + 3
+                                     unit (multiple-value-bind (root remainder) (floor (log unit 2))
+                                            (if (zerop remainder) (- root 3)
+                                                (error "Invalid unit.")))))
+                        (symbol (case unit (:byte 0) (:word 1) (:doubleword 2) (:quadword 3)))))
+           (swap-by (case endian (:big 0) (:little 1) (:middle 2) (:pdp 2)))
+           (field-specs (list (list 'list :type :config :unit-spec unit-spec
+                                    :pad pad :length length)))
+           (index 0))
+
+      (flet ((process-field (field-spec &optional unincrementing)
+               (destructuring-bind (symbol predicate &rest fprops) field-spec
+                 (let ((width) (signed)
+                       (this-swap-by (case (getf fprops :endian)
+                                       (:big 0) (:little 1) (:middle 2) (:pdp 2))))
+
+                   (typecase predicate
+                     (null (setf width 1))
+                     (keyword (if (zerop unit-spec)
+                                  (case predicate
+                                    (:u8  (setf width 1 signed nil))
+                                    (:s8  (setf width 1 signed t))
+                                    (:u16 (setf width 2 signed nil))
+                                    (:s16 (setf width 2 signed t))
+                                    (:u32 (setf width 4 signed nil))
+                                    (:s32 (setf width 4 signed t))
+                                    (:u64 (setf width 8 signed nil))
+                                    (:s64 (setf width 8 signed t)))
+                                  (error "Type symbols are only valid for 8-bit output.")))
+                     (list (destructuring-bind (signed count &optional subtype) predicate
+                             (setf width count)
+                             (when (eq :s signed) (setf signed t)))))
+                   
+                   (unless unincrementing (incf index (ash width (- unit-spec))))
+                   (list 'list
+                         :name (and (not (string= "_" (symbol-name symbol)))
+                                    symbol)
+                         :signed signed :width (ash width (- unit-spec))
+                         :swap-by (or this-swap-by swap-by)
+                         :default (getf fprops :default))))))
+        
+        (dolist (f fields)
+          (typecase (first f)
+            (keyword (push (process-field f) field-specs))
+            (symbol (case (first f)
+                      (pad (destructuring-bind (with for-or-spec &optional spec-arg) (rest f)
+                             (let ((count (if (integerp for-or-spec)
+                                              for-or-spec (case for-or-spec
+                                                            (:to (- spec-arg index))))))
+                               (incf index count)
+                               (push (list 'list :type :pad :with with :count count
+                                                 :upto (and (eq :to for-or-spec) spec-arg)
+                                                 :swap-by swap-by) ;; might need it for nonzero padding
+                                     field-specs))))
+                      (str (destructuring-bind (actual &key encode-by width) (rest f)
+                             (let ((count (* (length actual) (or width 1))))
+                               (push (list 'list :type :string :actual actual :swap-by swap-by
+                                                 :encode-by (list 'quote encode-by))
+                                     field-specs)
+                               (incf index count))))
+                      (masque (destructuring-bind (spec-string &rest bindings) (rest f)
+                                (let ((bindings-out))
+                                  (dolist (b bindings)
+                                    (push (if (keywordp (second b))
+                                              (let ((field-out (process-field (rest b) t)))
+                                                (setf (getf (rest field-out) :bind-to)
+                                                      (list 'quote (first b)))
+                                                field-out)
+                                              (list 'list :binding (list 'quote b)))
+                                          bindings-out))
+                                  
+                                  (let* ((masque-width (nth-value 3 (quantify-mask-string
+                                                                     spec-string nil)))
+                                         (unit-width (+ (ash masque-width (- (+ 3 unit-spec)))
+                                                        (if (zerop (logand masque-width
+                                                                           (1- (ash 1 (+ 3 unit-spec)))))
+                                                            0 1))))
+                                    ;; increment the index from the actual masque field width;
+                                    ;; in the case of an unaligned masque field the output gets padded,
+                                    ;; but this would be a mistake, in pracice masques should
+                                    ;; always line up with the output unit
+                                    (incf index unit-width)
+                                    (push (list 'list :type :masque :width unit-width
+                                                      :actual spec-string :swap-by swap-by
+                                                      :bindings (cons 'list (reverse bindings-out)))
+                                          field-specs)))))))
+            (t (error "Invalid clause; may not start with ~a." (first f)))))
+
+        (when (< index length)
+          (push (list 'list :type :pad :with (or pad 0)
+                            :swap-by swap-by :count (- length index))
+                field-specs))
+        
+        `(eval-when (:compile-toplevel :load-toplevel :execute)
+           (setf (gethash ',name *manifests*)
+                 ,(cons 'list (reverse field-specs))))))))
+
+(defmacro marshal2 (name destination &body pairs)
+  (let* ((spec (gethash name *manifests*))
+         (params (first spec))
+         (swap-specs)
+         (access (gensym "AC")) (enter (gensym "EN")) (index (gensym "IN"))
+         (length (gensym "LN")) (serializers (gensym "SR")))
+
+    (dolist (item (rest spec))
+      (destructuring-bind (&key swap-by type &allow-other-keys) item
+        ;; build list of swap specs for endian conversion
+        (when swap-by
+          (push swap-by swap-specs))
+        ;; strings always use the 0-mode swap because they use no endian conversion;
+        ;; endian handling is done within the string codec if necessary
+        ;; since there are many string formats with different endian properties
+        (when (eq type :string) (push 0 swap-specs))))
+
+    (setf swap-specs (remove-duplicates swap-specs))
+    
+    (labels ((assign-serializer (s)
+               `(setf (aref ,serializers ,s)
+                      (serializer-for ,(getf params :unit-spec) ,s)))
+             (masque-binder (b)
+               (if (eq :binding (first b))
+                   (second b)
+                   (destructuring-bind (&key bind-to &allow-other-keys) b
+                     (list (getf b :bind-to) (or (getf pairs (getf b :name)) 0)))))
+             (generate (item)
+               (destructuring-bind (&key name type width kind signed (swap-by 0)
+                                      upto default actual bindings with count encode-by)
+                   item
+                 
+                 ;; types: ; :scalar | :pad | :masque | :bytes | :sized | :leb | :name | :slot
+                 (case type
+                   (:pad `((loop :repeat ,(if (not upto) count `(max 0 (- ,upto ,index)))
+                                 :do (funcall (aref ,serializers ,swap-by)
+                                              ,with ,enter))
+                           ,(if upto `(incf ,index (max 0 (- ,upto ,index)))
+                                `(incf ,index ,count))))
+                   (:string `((funcall (aref ,serializers 0)
+                                       ;; strings always use 0-swap for reasons given above
+                                       (funcall ,(or encode-by '#'identity) ,actual)
+                                       ,enter)
+                              (incf ,index ,width)))
+                   (:masque `((funcall (aref ,serializers ,swap-by)
+                                       (masque ,actual ,@(mapcar #'masque-binder bindings))
+                                       ,enter)
+                              (incf ,index ,width)))
+                   (t `((funcall (aref ,serializers ,swap-by)
+                                 (cons ,width ,(or (getf pairs name)
+                                                   default (error "Field ~a not specified." name)))
+                                 ,enter)
+                        (incf ,index ,width)))))))
+      
+      `(let* ((,access ,destination)
+              (,index 0)
+              ,@(if (getf params :length) `((,length ,(getf params :length))))
+              (,enter (typecase ,access
+                        (function ,access)
+                        (vector (lambda (b) (setf (aref ,access ,index) b) (incf ,index)))
+                        (stream (lambda (b) (incf ,index) (write-byte b ,access)))))
+              (,serializers (make-array ,(1+ (reduce #'max swap-specs)) :initial-element nil)))
+
+         ,@(mapcar #'assign-serializer swap-specs)
+         
+         ,@(if spec (apply #'append (mapcar #'generate (rest spec)))
+               (error "Manifest not found."))))))
+
+;; (masque "h:pptt00"
+;;         (:amode h :default 0 :endian :little))
+
+(defmacro unmarshal2 (name destination &rest keys)
+  (let ((fn-sym (find-symbol (format nil "⍁UNMARSHAL-COMPOSE-~a" name)
+                             (package-name (symbol-package name)))))
+    (if (fboundp fn-sym)
+        (apply (symbol-function fn-sym) destination keys)
+        (error "Manifest not found."))))
 
 ;; (defmacro make-masquer (string &rest assignments)
 ;;   (let* ((params (if (listp (caar assignments)) (first assignments) nil))
@@ -467,23 +879,6 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
 ;;                     (t (cons 'progn steps))
 ;;                     (t `(let ((,base-sym ,base)) ,@steps ,base-sym)))))))))
 
-;; (defun make-array-writer (array &key num-width)
-;;   (lambda (offset &rest numbers)
-;;     (let ((width) (mask) (count 0) (eltype (array-element-type array)))
-;;       (if (and (listp eltype) (eql 'unsigned-byte (first eltype))
-;;                (member (second eltype) '(8 16 32 64)))
-;;           (setf width (second eltype)
-;;                 mask  (1- (ash 1 width)))
-;;           (error "Invalid collection array; only unsigned arrays of 8, 16, 32 or 64-bit integers may be used."))
-;;       (loop :for number :in numbers
-;;             :do (let ((num-width (or num-width (find-width number width)))
-;;                       (base count))
-;;                   (loop :for n :below num-width
-;;                         :do (setf (row-major-aref array (+ offset base (- num-width 1 n)))
-;;                                   (logand mask number))
-;;                             (setf number (ash number (- width)))
-;;                             (incf count))))
-;;       count)))
 
 ;; (defmacro mqbase (name opcsym mnesym args string &body body)
 ;;   ;; this is a currying macro for masque, allowing the creation
