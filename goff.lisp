@@ -315,43 +315,42 @@ if data exceeds the available space per record."
     (%goff-set-u32 rec 22 offset)
     (%goff-write-record stream rec)))
 
-(defun %goff-write-end-old (stream &key (entry-esdid nil) (entry-offset 0)
-                                    (amode 0) (record-count 0))
-  "Write a GOFF END record."
-  (let ((rec (%goff-make-record)))
-    (%goff-set-ptv rec +goff-rt-end+)
-    ;; Byte 3: bits 6-7 = entry point flag
-    ;;   0 = no entry, 1 = by ESDID, 2 = by name
-    (%goff-set-u8 rec 3 (if entry-esdid 1 0))
-    ;; Byte 4: AMODE of entry point
-    (%goff-set-u8 rec 4 amode)
-    ;; Bytes 8-11: Record Count
-    (%goff-set-u32 rec 8 record-count)
-    ;; Bytes 12-15: ESDID (if entry by ESDID)
-    (when entry-esdid
-      (%goff-set-u32 rec 12 entry-esdid))
-    ;; Bytes 20-23: Offset
-    (%goff-set-u32 rec 20 entry-offset)
+;; (defun %goff-write-end-old (stream &key (entry-esdid nil) (entry-offset 0)
+;;                                     (amode 0) (record-count 0))
+;;   "Write a GOFF END record."
+;;   (let ((rec (%goff-make-record)))
+;;     (%goff-set-ptv rec +goff-rt-end+)
+;;     ;; Byte 3: bits 6-7 = entry point flag
+;;     ;;   0 = no entry, 1 = by ESDID, 2 = by name
+;;     (%goff-set-u8 rec 3 (if entry-esdid 1 0))
+;;     ;; Byte 4: AMODE of entry point
+;;     (%goff-set-u8 rec 4 amode)
+;;     ;; Bytes 8-11: Record Count
+;;     (%goff-set-u32 rec 8 record-count)
+;;     ;; Bytes 12-15: ESDID (if entry by ESDID)
+;;     (when entry-esdid
+;;       (%goff-set-u32 rec 12 entry-esdid))
+;;     ;; Bytes 20-23: Offset
+;;     (%goff-set-u32 rec 20 entry-offset)
 
-    (print (list :rr rec))
-    (%goff-write-record stream rec)))
+;;     (print (list :rr rec))
+;;     (%goff-write-record stream rec)))
 
-(defmanifest goff-end (:unit 8 :endian :big :length 80)
+(defmanifest goff-end (:unit 8 :endian :big :length 80 :pad 0)
   (masque "h:pptt00" (p +goff-ptv-prefix+)
           (t :t-tag :u8 :default 0))
-  (:entry-flag   :u8)  ;; Byte 3: bits 6-7 = entry point flag
-  (:amode        :u8)  ;; Byte 4: AMODE of entry point
-  (pad 0 3)            ;; Bytes 5-7: zero
-  (:record-count :u32) ;; Bytes 8-11: Record Count
-  (:entry-esdid  :u32) ;; Bytes 12-15: ESDID (if entry by ESDID)
-  (pad 0 4)            ;; Bytes 16-19: zero
-  (:entry-offset :u32) ;; Bytes 20-23: Offset
-  (pad 0 :to 80))      ;; Bytes 24-79: Complete the record with zero-padding
+  (:entry-flag   :u8)   ;; Byte 3: bits 6-7 = entry point flag
+  (:amode        :u8)   ;; Byte 4: AMODE of entry point
+  (pad 0 3)             ;; Bytes 5-7: zero
+  (:record-count :u32)  ;; Bytes 8-11: Record Count
+  (:entry-esdid  :u32)  ;; Bytes 12-15: ESDID (if entry by ESDID)
+  (pad 0 4)             ;; Bytes 16-19: zero
+  (:entry-offset :u32)) ;; Bytes 20-23: Offset, then pad out with zeroes
 
 (defun %goff-write-end (stream &key (entry-esdid nil) (entry-offset 0)
                                     (amode 0) (record-count 0))
   "Write a GOFF END record."
-  (marshal2 goff-end stream
+  (marshal goff-end stream
     :t-tag (logior +goff-rt-end+ +goff-cont-none+)
     :entry-flag (if entry-esdid 1 0) :amode amode :record-count record-count
     :entry-esdid entry-esdid :entry-offset entry-offset))

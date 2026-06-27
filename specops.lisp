@@ -410,174 +410,174 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
 
 |#
 
-(defun marshal-listspec (spec params serializer accumulator)
-  (destructuring-bind (type element &rest options) spec
-    (case type
-      (:vec `(funcall ,serializer ,(if (listp element)
-                                     `(make-array ,(length element)
-                                                  :element-type '(unsigned-byte ,(getf options :width)))
-                                     element)
-                    ,accumulator))
-      (:str `(funcall ,serializer ,element ,accumulator))
-      (:pad (destructuring-bind (&key to for) options
-              `(loop :repeat ,(if to `(- ,to ,(getf params :index))
-                                  (if for for))
-                     :do (funcall ,accumulator ,element)))))))
+;; (defun marshal-listspec (spec params serializer accumulator)
+;;   (destructuring-bind (type element &rest options) spec
+;;     (case type
+;;       (:vec `(funcall ,serializer ,(if (listp element)
+;;                                      `(make-array ,(length element)
+;;                                                   :element-type '(unsigned-byte ,(getf options :width)))
+;;                                      element)
+;;                     ,accumulator))
+;;       (:str `(funcall ,serializer ,element ,accumulator))
+;;       (:pad (destructuring-bind (&key to for) options
+;;               `(loop :repeat ,(if to `(- ,to ,(getf params :index))
+;;                                   (if for for))
+;;                      :do (funcall ,accumulator ,element)))))))
 
-(defmacro marshal (destination params &body items)
-  (destructuring-bind (&key unit endian index vextend-by count-from) params
-    (let ((accumulator (gensym "AC")) (enter (gensym "EN")) (item (gensym "IT"))
-          (serializer (gensym "SR"))
-          (unit-spec (typecase unit
-                       (integer (if (< unit 4)
-                                    ;; the unit may be an exponent of 2 + 3
-                                    unit (multiple-value-bind (root remainder) (floor (log unit 2))
-                                           (if (zerop remainder) (- root 3)
-                                               (error "Invalid unit.")))))
-                       (symbol (case unit (:byte 0) (:word 1) (:doubleword 2) (:quadword 3)))))
-          (swap-by (case endian (:big 0) (:little 1) (:middle 2) (:pdp 2))))
-      `(let* ((,accumulator ,destination)
-              (,serializer (serializer-for ,unit-spec ,swap-by))
-              ,@(and index `((,index ,(or count-from 0))))
-              (,enter (typecase ,accumulator
-                        (function ,accumulator)
-                        (vector   (lambda (,item)
-                                    ,@(if vextend-by
-                                          `((when (< (fill-pointer ,accumulator)
-                                                     (1- (length ,accumulator)))
-                                              (adjust-array ,accumulator
-                                                            (+ ,vextend-by (length ,accumulator))
-                                                            :element-type (element-type ,accumulator)))
-                                            (vector-push ,item ,accumulator))
-                                          `((setf (aref ,accumulator ,index) ,item)
-                                            ;; (format t "OUT: ~4,'0X ~A~%" ,item ,index)
-                                            (if (< ,index (1- (length ,accumulator)))
-                                                (incf ,index)
-                                                (setf ,index 0))))))
-                        (stream   (lambda (,item)
-                                    ,@(and index `((incf ,index)))
-                                    (write-byte ,item ,accumulator))))))
-         ,@(loop :for item :in items
-                 :collect (typecase item
-                            (number `(funcall ,serializer ,item ,enter))
-                            (symbol `(funcall ,serializer ,item ,enter))
-                            (list   (typecase (first item)
-                                      (symbol (or (marshal-listspec item params serializer enter)
-                                                  `(funcall ,serializer ,item ,enter)))
-                                      (number (let ((runtime `(cons ,(first item) ,(rest item))))
-                                                `(funcall ,serializer ,runtime ,enter)))
-                                      (t      `(funcall ,serializer ,item ,enter))))))))))
+;; (defmacro marshal (destination params &body items)
+;;   (destructuring-bind (&key unit endian index vextend-by count-from) params
+;;     (let ((accumulator (gensym "AC")) (enter (gensym "EN")) (item (gensym "IT"))
+;;           (serializer (gensym "SR"))
+;;           (unit-spec (typecase unit
+;;                        (integer (if (< unit 4)
+;;                                     ;; the unit may be an exponent of 2 + 3
+;;                                     unit (multiple-value-bind (root remainder) (floor (log unit 2))
+;;                                            (if (zerop remainder) (- root 3)
+;;                                                (error "Invalid unit.")))))
+;;                        (symbol (case unit (:byte 0) (:word 1) (:doubleword 2) (:quadword 3)))))
+;;           (swap-by (case endian (:big 0) (:little 1) (:middle 2) (:pdp 2))))
+;;       `(let* ((,accumulator ,destination)
+;;               (,serializer (serializer-for ,unit-spec ,swap-by))
+;;               ,@(and index `((,index ,(or count-from 0))))
+;;               (,enter (typecase ,accumulator
+;;                         (function ,accumulator)
+;;                         (vector   (lambda (,item)
+;;                                     ,@(if vextend-by
+;;                                           `((when (< (fill-pointer ,accumulator)
+;;                                                      (1- (length ,accumulator)))
+;;                                               (adjust-array ,accumulator
+;;                                                             (+ ,vextend-by (length ,accumulator))
+;;                                                             :element-type (element-type ,accumulator)))
+;;                                             (vector-push ,item ,accumulator))
+;;                                           `((setf (aref ,accumulator ,index) ,item)
+;;                                             ;; (format t "OUT: ~4,'0X ~A~%" ,item ,index)
+;;                                             (if (< ,index (1- (length ,accumulator)))
+;;                                                 (incf ,index)
+;;                                                 (setf ,index 0))))))
+;;                         (stream   (lambda (,item)
+;;                                     ,@(and index `((incf ,index)))
+;;                                     (write-byte ,item ,accumulator))))))
+;;          ,@(loop :for item :in items
+;;                  :collect (typecase item
+;;                             (number `(funcall ,serializer ,item ,enter))
+;;                             (symbol `(funcall ,serializer ,item ,enter))
+;;                             (list   (typecase (first item)
+;;                                       (symbol (or (marshal-listspec item params serializer enter)
+;;                                                   `(funcall ,serializer ,item ,enter)))
+;;                                       (number (let ((runtime `(cons ,(first item) ,(rest item))))
+;;                                                 `(funcall ,serializer ,runtime ,enter)))
+;;                                       (t      `(funcall ,serializer ,item ,enter))))))))))
 
-(defmacro defmanifest-old (name params &body fields)
-  (destructuring-bind (&key unit endian index vextend-by count-from length) params
-    (let ((accumulator (gensym "AC")) (enter (gensym "EN"))
-          (item (gensym "IT")) (serializer (gensym "SR"))
-          (pairs (gensym "PR")) (keys (gensym "KY"))
-          (marshal-sym   (intern (format nil "⍁MARSHAL-COMPOSER-~a" name)
-                                 (package-name (symbol-package name))))
-          (unmarshal-sym (intern (format nil "⍁UNMARSHAL-COMPOSER-~a" name)
-                                 (package-name (symbol-package name))))
-          (unit-spec (typecase unit
-                       (integer (if (< unit 4)
-                                    ;; the unit may be an exponent of 2 + 3
-                                    unit (multiple-value-bind (root remainder) (floor (log unit 2))
-                                           (if (zerop remainder) (- root 3)
-                                               (error "Invalid unit.")))))
-                       (symbol (case unit (:byte 0) (:word 1) (:doubleword 2) (:quadword 3)))))
-          (swap-by (case endian (:big 0) (:little 1) (:middle 2) (:pdp 2))))
-      (proclaim (list 'special marshal-sym unmarshal-sym))
-      `(let ((,serializer (serializer-for ,unit-spec ,swap-by))
-             (,enter (typecase ,accumulator
-                       (function ,accumulator)
-                       (vector   (lambda (,item)
-                                   ,@(if vextend-by
-                                         `((when (< (fill-pointer ,accumulator)
-                                                    (1- (length ,accumulator)))
-                                             (adjust-array ,accumulator
-                                                           (+ ,vextend-by (length ,accumulator))
-                                                           :element-type (element-type ,accumulator)))
-                                           (vector-push ,item ,accumulator))
-                                         `((setf (aref ,accumulator ,index) ,item)
-                                           ;; (format t "OUT: ~4,'0X ~A~%" ,item ,index)
-                                           (if (< ,index (1- (length ,accumulator)))
-                                               (incf ,index)
-                                               (setf ,index 0))))))
-                       (stream   (lambda (,item)
-                                   ,@(and index `((incf ,index)))
-                                   (write-byte ,item ,accumulator))))))
-         (setf (symbol-function ',(intern (format nil "⍁MARSHAL-COMPOSER-~a" name)
-                                          (package-name (symbol-package name))))
-               (lambda (,accumulator ,pairs)
-                 (let ((,enter (typecase ,accumulator
-                                  (function ,accumulator)
-                                  (vector   (lambda (,item)
-                                              ,@(if vextend-by
-                                                    `((when (< (fill-pointer ,accumulator)
-                                                               (1- (length ,accumulator)))
-                                                        (adjust-array ,accumulator
-                                                                      (+ ,vextend-by (length ,accumulator))
-                                                                      :element-type (element-type ,accumulator)))
-                                                      (vector-push ,item ,accumulator))
-                                                    `((setf (aref ,accumulator ,index) ,item)
-                                                      ;; (format t "OUT: ~4,'0X ~A~%" ,item ,index)
-                                                      (if (< ,index (1- (length ,accumulator)))
-                                                          (incf ,index)
-                                                          (setf ,index 0))))))
-                                  (stream   (lambda (,item)
-                                              ,@(and index `((incf ,index)))
-                                              (write-byte ,item ,accumulator))))))
-                   ,@(loop :for f :in fields
-                           :collect (destructuring-bind (symbol predicate &rest fprops) f
-                                      (if (string= "_" (symbol-name symbol))
-                                          (if (and (listp predicate)
-                                                   (eq :pad (first predicate)))
-                                              (destructuring-bind (pad-with count) (rest predicate)
-                                                `(loop :repeat ,count
-                                                       :do (funcall ,serializer ,pad-with ,enter)))
-                                              (if (not predicate)
-                                                  `(funcall ,serializer 0 ,enter)
-                                                  (error "Something went wrong.")))
-                                          (if (atom predicate)
-                                              `(funcall ,serializer (getf ,pairs ,symbol) ,enter)))))))
-               (symbol-function ',(intern (format nil "⍁UNMARSHAL-COMPOSER-~a" name)
-                                          (package-name (symbol-package name))))
-               (lambda (,accumulator ,keys)
-                 (let ((,enter (typecase ,accumulator
-                                  (function ,accumulator)
-                                  (vector   (lambda (,item)
-                                              ,@(if vextend-by
-                                                    `((when (< (fill-pointer ,accumulator)
-                                                               (1- (length ,accumulator)))
-                                                        (adjust-array ,accumulator
-                                                                      (+ ,vextend-by (length ,accumulator))
-                                                                      :element-type (element-type ,accumulator)))
-                                                      (vector-push ,item ,accumulator))
-                                                    `((setf (aref ,accumulator ,index) ,item)
-                                                      ;; (format t "OUT: ~4,'0X ~A~%" ,item ,index)
-                                                      (if (< ,index (1- (length ,accumulator)))
-                                                          (incf ,index)
-                                                          (setf ,index 0))))))
-                                  (stream   (lambda (,item)
-                                              ,@(and index `((incf ,index)))
-                                              (write-byte ,item ,accumulator))))))
-                    ,@(let ((index 0))
-                        (loop :for f :in fields
-                              :collect (destructuring-bind (symbol predicate &rest fprops) f
-                                         (if (string= "_" (symbol-name symbol))
-                                             (if (and (listp predicate)
-                                                      (eq :pad (first predicate)))
-                                                 (destructuring-bind (pad-with count) (rest predicate)
-                                                   (incf index count))
-                                                 (if (not predicate)
-                                                     (incf index)
-                                                     (error "Something went wrong.")))
-                                             (if (atom predicate)
-                                                 ;; `(funcall ,serializer (getf ,keys ,symbol) ,enter)
-                                                 (let ((breadth (case predicate
-                                                                  (:u8 1) (:u16 2) (:u32 4) (:u64 8)
-                                                                  (:s8 1) (:s16 2) (:s32 4) (:s64 8))))
-                                                   (incf index breadth)
-                                                   `(deserialize ,accumulator ,index ,breadth))))))))))))))
+;; (defmacro defmanifest-old (name params &body fields)
+;;   (destructuring-bind (&key unit endian index vextend-by count-from length) params
+;;     (let ((accumulator (gensym "AC")) (enter (gensym "EN"))
+;;           (item (gensym "IT")) (serializer (gensym "SR"))
+;;           (pairs (gensym "PR")) (keys (gensym "KY"))
+;;           (marshal-sym   (intern (format nil "⍁MARSHAL-COMPOSER-~a" name)
+;;                                  (package-name (symbol-package name))))
+;;           (unmarshal-sym (intern (format nil "⍁UNMARSHAL-COMPOSER-~a" name)
+;;                                  (package-name (symbol-package name))))
+;;           (unit-spec (typecase unit
+;;                        (integer (if (< unit 4)
+;;                                     ;; the unit may be an exponent of 2 + 3
+;;                                     unit (multiple-value-bind (root remainder) (floor (log unit 2))
+;;                                            (if (zerop remainder) (- root 3)
+;;                                                (error "Invalid unit.")))))
+;;                        (symbol (case unit (:byte 0) (:word 1) (:doubleword 2) (:quadword 3)))))
+;;           (swap-by (case endian (:big 0) (:little 1) (:middle 2) (:pdp 2))))
+;;       (proclaim (list 'special marshal-sym unmarshal-sym))
+;;       `(let ((,serializer (serializer-for ,unit-spec ,swap-by))
+;;              (,enter (typecase ,accumulator
+;;                        (function ,accumulator)
+;;                        (vector   (lambda (,item)
+;;                                    ,@(if vextend-by
+;;                                          `((when (< (fill-pointer ,accumulator)
+;;                                                     (1- (length ,accumulator)))
+;;                                              (adjust-array ,accumulator
+;;                                                            (+ ,vextend-by (length ,accumulator))
+;;                                                            :element-type (element-type ,accumulator)))
+;;                                            (vector-push ,item ,accumulator))
+;;                                          `((setf (aref ,accumulator ,index) ,item)
+;;                                            ;; (format t "OUT: ~4,'0X ~A~%" ,item ,index)
+;;                                            (if (< ,index (1- (length ,accumulator)))
+;;                                                (incf ,index)
+;;                                                (setf ,index 0))))))
+;;                        (stream   (lambda (,item)
+;;                                    ,@(and index `((incf ,index)))
+;;                                    (write-byte ,item ,accumulator))))))
+;;          (setf (symbol-function ',(intern (format nil "⍁MARSHAL-COMPOSER-~a" name)
+;;                                           (package-name (symbol-package name))))
+;;                (lambda (,accumulator ,pairs)
+;;                  (let ((,enter (typecase ,accumulator
+;;                                   (function ,accumulator)
+;;                                   (vector   (lambda (,item)
+;;                                               ,@(if vextend-by
+;;                                                     `((when (< (fill-pointer ,accumulator)
+;;                                                                (1- (length ,accumulator)))
+;;                                                         (adjust-array ,accumulator
+;;                                                                       (+ ,vextend-by (length ,accumulator))
+;;                                                                       :element-type (element-type ,accumulator)))
+;;                                                       (vector-push ,item ,accumulator))
+;;                                                     `((setf (aref ,accumulator ,index) ,item)
+;;                                                       ;; (format t "OUT: ~4,'0X ~A~%" ,item ,index)
+;;                                                       (if (< ,index (1- (length ,accumulator)))
+;;                                                           (incf ,index)
+;;                                                           (setf ,index 0))))))
+;;                                   (stream   (lambda (,item)
+;;                                               ,@(and index `((incf ,index)))
+;;                                               (write-byte ,item ,accumulator))))))
+;;                    ,@(loop :for f :in fields
+;;                            :collect (destructuring-bind (symbol predicate &rest fprops) f
+;;                                       (if (string= "_" (symbol-name symbol))
+;;                                           (if (and (listp predicate)
+;;                                                    (eq :pad (first predicate)))
+;;                                               (destructuring-bind (pad-with count) (rest predicate)
+;;                                                 `(loop :repeat ,count
+;;                                                        :do (funcall ,serializer ,pad-with ,enter)))
+;;                                               (if (not predicate)
+;;                                                   `(funcall ,serializer 0 ,enter)
+;;                                                   (error "Something went wrong.")))
+;;                                           (if (atom predicate)
+;;                                               `(funcall ,serializer (getf ,pairs ,symbol) ,enter)))))))
+;;                (symbol-function ',(intern (format nil "⍁UNMARSHAL-COMPOSER-~a" name)
+;;                                           (package-name (symbol-package name))))
+;;                (lambda (,accumulator ,keys)
+;;                  (let ((,enter (typecase ,accumulator
+;;                                   (function ,accumulator)
+;;                                   (vector   (lambda (,item)
+;;                                               ,@(if vextend-by
+;;                                                     `((when (< (fill-pointer ,accumulator)
+;;                                                                (1- (length ,accumulator)))
+;;                                                         (adjust-array ,accumulator
+;;                                                                       (+ ,vextend-by (length ,accumulator))
+;;                                                                       :element-type (element-type ,accumulator)))
+;;                                                       (vector-push ,item ,accumulator))
+;;                                                     `((setf (aref ,accumulator ,index) ,item)
+;;                                                       ;; (format t "OUT: ~4,'0X ~A~%" ,item ,index)
+;;                                                       (if (< ,index (1- (length ,accumulator)))
+;;                                                           (incf ,index)
+;;                                                           (setf ,index 0))))))
+;;                                   (stream   (lambda (,item)
+;;                                               ,@(and index `((incf ,index)))
+;;                                               (write-byte ,item ,accumulator))))))
+;;                     ,@(let ((index 0))
+;;                         (loop :for f :in fields
+;;                               :collect (destructuring-bind (symbol predicate &rest fprops) f
+;;                                          (if (string= "_" (symbol-name symbol))
+;;                                              (if (and (listp predicate)
+;;                                                       (eq :pad (first predicate)))
+;;                                                  (destructuring-bind (pad-with count) (rest predicate)
+;;                                                    (incf index count))
+;;                                                  (if (not predicate)
+;;                                                      (incf index)
+;;                                                      (error "Something went wrong.")))
+;;                                              (if (atom predicate)
+;;                                                  ;; `(funcall ,serializer (getf ,keys ,symbol) ,enter)
+;;                                                  (let ((breadth (case predicate
+;;                                                                   (:u8 1) (:u16 2) (:u32 4) (:u64 8)
+;;                                                                   (:s8 1) (:s16 2) (:s32 4) (:s64 8))))
+;;                                                    (incf index breadth)
+;;                                                    `(deserialize ,accumulator ,index ,breadth))))))))))))))
 
 ;; (defmacro marshal2 (name destination &rest pairs)
 ;;   (let ((fn-sym (find-symbol (format nil "⍁MARSHAL-COMPOSE-~a" name)
@@ -592,9 +592,6 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
 ;;     (if (fboundp fn-sym)
 ;;         (apply (symbol-function fn-sym) destination keys)
 ;;         (error "Manifest not found."))))
-
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (defvar *manifests* (make-hash-table :test 'eq)))
 
 ;; (defmacro defmanifest (name params &body fields)
 ;;   (destructuring-bind (&key unit endian index vextend-by count-from length) params
@@ -658,6 +655,9 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
 |#
 
 (defun txcodec-ebcdic (a) (print a))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defvar *manifests* (make-hash-table :test 'eq)))
 
 (defmacro defmanifest (name params &body fields)
   (destructuring-bind (&key unit endian index vextend-by count-from length pad) params
@@ -760,7 +760,7 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
            (setf (gethash ',name *manifests*)
                  ,(cons 'list (reverse field-specs))))))))
 
-(defmacro marshal2 (name destination &body pairs)
+(defmacro marshal (name destination &body pairs)
   (let* ((spec (gethash name *manifests*))
          (params (first spec))
          (swap-specs)
@@ -828,10 +828,7 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
          ,@(if spec (apply #'append (mapcar #'generate (rest spec)))
                (error "Manifest not found."))))))
 
-;; (masque "h:pptt00"
-;;         (:amode h :default 0 :endian :little))
-
-(defmacro unmarshal2 (name destination &rest keys)
+(defmacro unmarshal (name destination &rest keys)
   (let ((fn-sym (find-symbol (format nil "⍁UNMARSHAL-COMPOSE-~a" name)
                              (package-name (symbol-package name)))))
     (if (fboundp fn-sym)
