@@ -355,21 +355,6 @@ if data exceeds the available space per record."
     :entry-flag (if entry-esdid 1 0) :amode amode :record-count record-count
     :entry-esdid entry-esdid :entry-offset entry-offset))
 
-;; (defun %goff-write-end (stream &key (entry-esdid nil) (entry-offset 0)
-;;                                     (amode 0) (record-count 0))
-;;   "Write a GOFF END record."
-;;   (marshal stream (:unit 8 :endian :big :index index)
-;;     (masque "h:pptt00"
-;;             (p +goff-ptv-prefix+) (t (logior +goff-rt-end+ +goff-cont-none+)))
-;;     (if entry-esdid 1 0) ;; Byte 3: bits 6-7 = entry point flag
-;;     amode                ;; Byte 4: AMODE of entry point
-;;     (3)                  ;; Bytes 5-7: zero
-;;     (4 . record-count)   ;; Bytes 8-11: Record Count
-;;     (4 . entry-esdid)    ;; Bytes 12-15: ESDID (if entry by ESDID)
-;;     (4)                  ;; Bytes 16-19: zero
-;;     (4 . entry-offset)   ;; Bytes 20-23: Offset
-;;     (:pad 0 :to 80)))    ;; Bytes 24-79: Complete the record with zero-padding
-
 ;; ===============================================================
 ;; Alignment to GOFF alignment code
 ;; ===============================================================
