@@ -125,8 +125,7 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                           :do (if (zerop dc-width) (funcall collector i)
                                   (decompose collector
                                              (swap-segments i (ash dc-width unit-power) swap-by)
-                                             dc-width)))
-                    (array-total-size item)))
+                                             dc-width)))))
           (t (error "Attempted to serialize incompatible value - must be an integer, a vector or a pair indicating integer value and encoding width.")))))))
 
 ;; (defun make-array-writer (array &key num-width)
@@ -431,12 +430,14 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
 
       (flet ((process-field (field-spec &optional unincrementing)
                (destructuring-bind (symbol predicate &key (endian 0) length enumerate-by
-                                                       count default write-offset &allow-other-keys)
+                                                       count default slot &allow-other-keys)
                    field-spec
-                 (let ((width) (signed)
+                 (let ((width) (signed) (subtype-list)
                        (this-swap-by (case endian
                                        (:big 0) (:little 1) (:middle 2) (:pdp 2)
                                        (t endian))))
+
+                   ;; (when slot (setf (getf (cdar field-specs) :has-slots) t))
 
                    (typecase predicate
                      (null (setf width 1))
@@ -451,15 +452,19 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                     (:u64 (setf width 8 signed nil))
                                     (:s64 (setf width 8 signed t)))
                                   (error "Type symbols are only valid for 8-bit output.")))
-                     (list (destructuring-bind (is-signed count &optional subtype) predicate
-                             (setf width count)
+                     (list (destructuring-bind (is-signed count &rest subtypes) predicate
+                             (setf width        count
+                                   subtype-list subtypes)
+                             (print (list :sty subtypes))
                              (when (eq :s is-signed) (setf signed t)))))
                    
                    (unless unincrementing (incf index (ash width (- unit-spec))))
                    (list 'list
                          :name (and (not (string= "_" (symbol-name symbol))) symbol)
                          :signed signed :length (ash width (- unit-spec))
-                         :enumerate-by enumerate-by :count count :write-offset write-offset
+                         :enumerate-by enumerate-by :count count
+                         :slot (and slot (cons 'list slot))
+                         :subtypes (and subtype-list (cons 'list subtype-list))
                          :swap-by (or this-swap-by swap-by)
                          :default default)))))
         
@@ -530,7 +535,9 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
          (params (first spec))
          (swap-specs) (offset)
          (access (gensym "AC")) (enter (gensym "EN")) (index (gensym "IN"))
+         (tell (gensym "TL")) (write (gensym "WR")) (bindings-sym (gensym "BN"))
          (values (gensym "VL")) (length (gensym "LN")) (serializers (gensym "SR"))
+         (b (gensym "BB")) (i (gensym "II"))
          (olength length))
 
     (print (list :par params))
@@ -563,7 +570,7 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
              (generate (item)
                (destructuring-bind (&key name type kind signed (swap-by 0) upto default offset
                                       count actual bindings with length encode-by
-                                      write-offset enumerate-by)
+                                      slot enumerate-by subtypes)
                    item
                  
                  ;; types: ; :scalar | :pad | :masque | :bytes | :sized | :leb | :name | :slot
@@ -571,9 +578,9 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                    (:pad `((loop :repeat ,(if (not upto) length `(max 0 (- ,upto ,index)))
                                  :do (funcall (aref ,serializers ,swap-by)
                                               ,with ,enter))
-                           ,(if upto `(incf ,index (max 0 (- ,upto ,index)))
-                                `(incf ,index ,length))
-                           (assert (< ,index ,olength) ()
+                           ;; ,(if upto `(incf ,index (max 0 (- ,upto ,index)))
+                           ;;      `(incf ,index ,length))
+                           (assert (<= ,index ,olength) ()
                                    "Out of bounds.")))
                    (:string `((funcall (aref ,serializers 0)
                                        ;; strings always use 0-swap for reasons given above
@@ -583,14 +590,26 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                    (:masque `((funcall (aref ,serializers ,swap-by)
                                        (masque ,actual ,@(mapcar #'masque-binder bindings))
                                        ,enter)
-                              (incf ,index ,length)))
+                              ;; (incf ,index ,length)
+                              ))
                    (:expander
                     (setf (getf (cddr actual) :offset) index)
                     `((setf ,index ,(macroexpand actual))))
                    (t (let ((length-form (if count `(* ,(if (integerp count) count `(getf ,count ,values))
                                                        ,length)
                                              length)))
-                        `(;; ,@(and write-offset `((setf )))
+                        `(,@(and slot (destructuring-bind (type slot-name) slot
+                                        `((push ,(print (list 'list slot-name type name :position index
+                                                                                        :this-width length-form))
+                                                ,bindings-sym))))
+                          (destructuring-bind (&key length-of offset-of position this-width)
+                              (rest (assoc ,name ,bindings-sym))
+                            (when length-of (funcall ,write (aref ,serializers ,swap-by)
+                                                     (cons this-width ,length)
+                                                     position))
+                            (when offset-of (funcall ,write (aref ,serializers ,swap-by)
+                                                     (cons this-width ,index)
+                                                     position)))
                           (funcall (aref ,serializers ,swap-by)
                                    (cons ,length-form
                                          ,(or (enumerate enumerate-by (getf pairs name))
@@ -598,18 +617,39 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                    ,enter)
                           (push ,(getf pairs name) ,values)
                           (push ,name ,values)
-                          (incf ,index ,length))))))))
+                          (print (list :bi ,name ,bindings-sym ,index ,length))
+
+                          ;; (incf ,index ,length)
+                          )))))))
       
       `(let* ((,access ,destination)
               (,index ,(or offset 0))
-              (,values)
+              (,values) (,bindings-sym)
               ,@(if (getf params :length) `((,length ,(getf params :length))))
-              (,enter (typecase ,access
-                        (function ,access)
-                        (vector (lambda (b) (setf (aref ,access ,index) b) (incf ,index)))
-                        (stream (lambda (b) (incf ,index) (write-byte b ,access)))))
+              (,enter) (,tell) (,write)
               (,serializers (make-array ,(1+ (reduce #'max swap-specs)) :initial-element nil)))
 
+         (typecase ,access
+           (function (setf ,enter (lambda (,b) (funcall ,access ,b))
+                           ,tell  (lambda () ,index)))
+           (vector   (setf ,enter (lambda (,b) (setf (aref ,access ,index) ,b) (incf ,index))
+                           ,tell  (lambda () ,index)
+                           ,write (lambda (serializer datum position)
+                                    (print (list :pos position))
+                                    (let ((opos ,index))
+                                      (setf ,index position)
+                                      (funcall serializer datum ,enter)
+                                      (setf ,index opos)))))
+           (stream   (setf ,enter (lambda (,b) (incf ,index) (write-byte ,b ,access))
+                           ,tell  (lambda () (file-position ,access))
+                           ,write (lambda (serializer datum position)
+                                    (let ((opos (file-position ,access)))
+                                      (file-position ,access position)
+                                      (setf ,index position)
+                                      (funcall serializer datum ,enter)
+                                      (file-position ,access opos)
+                                      (setf ,index opos))))))
+         
          ,@(mapcar #'assign-serializer swap-specs)
          
          ,@(if spec (apply #'append (mapcar #'generate (rest spec)))
@@ -618,6 +658,18 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
          ,index
          ;; (print (list :v ,values))
          ))))
+
+;; #(55 12 0 0 0 0 5 0 2 0 0 0 0 0 0 0 0 0 0 5 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+;;   0 0 0 0 0 0 0 0 0 0 20 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+;;   0 0 0 0)
+
+;; #(55 12 0 0 0 0 5 0 2 0 0 0 0 0 0 0 0 0 0 5 4 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+;;   0 0 0 0 0 0 0 0 0 0 20 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+;;   0 0 0 0)
+
+;; #(55 12 0 0 0 0 5 0 2 0 0 0 0 0 0 0 0 0 0 5 0 0 0 4 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+;;   0 0 0 0 0 0 0 0 0 0 20 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+;;   0 0 0 0)
 
 (defmacro unmarshal (name destination &rest keys)
   (let ((fn-sym (find-symbol (format nil "⍁UNMARSHAL-COMPOSE-~a" name)
