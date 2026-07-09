@@ -414,6 +414,34 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
            ,(append (list 'list (cons 'list params))
                     map))))
 
+;; ===============================================================
+;; LEB128 encoding utilities
+;; ===============================================================
+
+(defun encode-leb128-unsigned (value writer)
+  "Encode a non-negative integer as an unsigned LEB128 byte vector."
+  (declare (type (integer 0) value))
+  (if (zerop value)
+      (funcall writer 0)
+      (loop :while (plusp value)
+            :do (let ((byte (logand value #x7F)))
+                  (setf value (ash value -7))
+                  (when (plusp value)
+                    (setf byte (logior byte #x80)))
+                  (funcall writer byte)))))
+
+(defun encode-leb128-signed (value writer)
+  "Encode an integer as a signed LEB128 byte vector."
+  (let ((more t))
+    (loop :while more
+          :do (let ((byte (logand value #x7F)))
+                (setf value (ash value -7))
+                (if (or (and (zerop value) (zerop (logand byte #x40)))
+                        (and (= value -1)  (not (zerop (logand byte #x40)))))
+                    (setf more nil)
+                    (setf byte (logior byte #x80)))
+                (funcall writer byte)))))
+
 (defmacro defmanifest (name params &body fields)
   (destructuring-bind (&key unit endian index vextend-by count-from length pad offset) params
     (let* ((unit-spec (typecase unit
@@ -428,100 +456,118 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                     :pad pad :length length)))
            (index 0))
 
-      (flet ((process-field (field-spec &optional unincrementing)
-               (destructuring-bind (symbol predicate &key (endian 0) length enumerate-by
-                                                       count default slot &allow-other-keys)
-                   field-spec
-                 (let ((width) (signed) (subtype-list)
-                       (this-swap-by (case endian
-                                       (:big 0) (:little 1) (:middle 2) (:pdp 2)
-                                       (t endian))))
+      (labels ((process-field (field-spec &optional unincrementing)
+                 (destructuring-bind (symbol predicate &key (endian 0) length enumerate-by end-by
+                                                         count default slot &allow-other-keys)
+                     field-spec
+                   (let ((width) (signed) (subtype-list) (type-indicator) (type-conditions)
+                         (this-swap-by (case endian
+                                         (:big 0) (:little 1) (:middle 2) (:pdp 2)
+                                         (t endian))))
 
-                   ;; (when slot (setf (getf (cdar field-specs) :has-slots) t))
+                     ;; (when slot (setf (getf (cdar field-specs) :has-slots) t))
 
-                   (typecase predicate
-                     (null (setf width 1))
-                     (keyword (if (zerop unit-spec)
-                                  (case predicate
-                                    (:u8  (setf width 1 signed nil))
-                                    (:s8  (setf width 1 signed t))
-                                    (:u16 (setf width 2 signed nil))
-                                    (:s16 (setf width 2 signed t))
-                                    (:u32 (setf width 4 signed nil))
-                                    (:s32 (setf width 4 signed t))
-                                    (:u64 (setf width 8 signed nil))
-                                    (:s64 (setf width 8 signed t)))
-                                  (error "Type symbols are only valid for 8-bit output.")))
-                     (list (destructuring-bind (is-signed count &rest subtypes) predicate
-                             (setf width        count
-                                   subtype-list subtypes)
-                             (print (list :sty subtypes))
-                             (when (eq :s is-signed) (setf signed t)))))
-                   
-                   (unless unincrementing (incf index (ash width (- unit-spec))))
-                   (list 'list
-                         :name (and (not (string= "_" (symbol-name symbol))) symbol)
-                         :signed signed :length (ash width (- unit-spec))
-                         :enumerate-by enumerate-by :count count
-                         :slot (and slot (cons 'list slot))
-                         :subtypes (and subtype-list (cons 'list subtype-list))
-                         :swap-by (or this-swap-by swap-by)
-                         :default default)))))
+                     (typecase predicate
+                       (null (setf width 1))
+                       (keyword (if (zerop unit-spec)
+                                    (case predicate
+                                      (:u8  (setf width 1 signed nil))
+                                      (:s8  (setf width 1 signed t))
+                                      (:u16 (setf width 2 signed nil))
+                                      (:s16 (setf width 2 signed t))
+                                      (:u32 (setf width 4 signed nil))
+                                      (:s32 (setf width 4 signed t))
+                                      (:u64 (setf width 8 signed nil))
+                                      (:s64 (setf width 8 signed t))
+                                      (:str (setf width 1)))
+                                    (error "Type symbols are only valid for 8-bit output.")))
+                       (list (destructuring-bind (is-signed count &rest subtypes) predicate
+                               (print (list :cc is-signed))
+                               (if (eq :case is-signed)
+                                   (setf type-indicator  count
+                                         type-conditions
+                                         (cons 'list (mapcar (lambda (i) (cons 'list i)) subtypes))
+                                         width           1) ;; how to handle right?
+                                   (setf width        count
+                                         subtype-list subtypes))
+                               ;; (print (list :sty subtypes))
+                               (when (eq :s is-signed) (setf signed t)))))
+
+                     (unless unincrementing (incf index (ash width (- unit-spec))))
+                     (list 'list
+                           :name (and (not (string= "_" (symbol-name symbol))) symbol)
+                           :signed signed :length (ash width (- unit-spec))
+                           :count count :enumerate-by (list 'quote enumerate-by)
+                           :slot (and slot (cons 'list slot))
+                           :type-indicator type-indicator :type-conditions type-conditions
+                           :subtypes (and subtype-list (cons 'list subtype-list))
+                           :end-by end-by :swap-by (or this-swap-by swap-by)
+                           :default default))))
+               (process-entry (f accumulator)
+                 (typecase (first f)
+                   (keyword (push (process-field f) accumulator))
+                   (symbol (case (first f)
+                             (span (let ((sub-items))
+                                     (dolist (item (cddr f))
+                                       (setf sub-items (process-entry item sub-items)))
+                                     (push (list 'list :type :span :name (second f)
+                                                       :items (cons 'list sub-items))
+                                           accumulator)))
+                             (pad (destructuring-bind (with for-or-spec &optional spec-arg) (rest f)
+                                    (let ((count (if (integerp for-or-spec)
+                                                     for-or-spec (case for-or-spec
+                                                                   (:to (- spec-arg index))
+                                                                   ;; the align argument lets you align
+                                                                   ;; output to a given byte granularity
+                                                                   (:align (mod index spec-arg))))))
+                                      (incf index count)
+                                      (push (list 'list :type :pad :with with :length count
+                                                        :upto (and (eq :to for-or-spec) spec-arg)
+                                                        :swap-by swap-by)
+                                            ;; might need it for nonzero padding
+                                            accumulator))))
+                             (str (destructuring-bind (actual &key encode-by length terminated-by) (rest f)
+                                    (let ((count (* (length actual) (or length 1))))
+                                      (push (list 'list :type :string :actual actual :swap-by swap-by
+                                                        :terminated-by terminated-by :length count
+                                                        :encode-by (list 'quote encode-by))
+                                            accumulator)
+                                      (incf index count))))
+                             (masque (destructuring-bind (spec-string &rest bindings) (rest f)
+                                       (let ((bindings-out))
+                                         (dolist (b bindings)
+                                           (push (if (keywordp (second b))
+                                                     (let ((field-out (process-field (rest b) t)))
+                                                       (setf (getf (rest field-out) :bind-to)
+                                                             (list 'quote (first b)))
+                                                       field-out)
+                                                     (list 'list :binding (list 'quote b)))
+                                                 bindings-out))
+                                         
+                                         (let* ((masque-width (nth-value 3 (quantify-mask-string
+                                                                            spec-string nil)))
+                                                (unit-width
+                                                  (+ (ash masque-width (- (+ 3 unit-spec)))
+                                                     (if (zerop (logand masque-width
+                                                                        (1- (ash 1 (+ 3 unit-spec)))))
+                                                         0 1))))
+                                           ;; increment the index from the actual masque field width;
+                                           ;; in the case of an unaligned masque field the output gets
+                                           ;; padded, but this would be a mistake, in pracice masques
+                                           ;; should always line up with the output unit
+                                           (incf index unit-width)
+                                           (push (list 'list :type :masque :length unit-width
+                                                             :actual spec-string :swap-by swap-by
+                                                             :bindings (cons 'list (reverse bindings-out)))
+                                                 accumulator)))))
+                             (marshal (push (list 'list :type :expander :actual f)
+                                            accumulator))))
+                   (t (error "Invalid clause; may not start with ~a." (first f))))
+                 accumulator))
         
-        (dolist (f fields)
-          (typecase (first f)
-            (keyword (push (process-field f) field-specs))
-            (symbol (case (first f)
-                      (pad (destructuring-bind (with for-or-spec &optional spec-arg) (rest f)
-                             (let ((count (if (integerp for-or-spec)
-                                              for-or-spec (case for-or-spec
-                                                            (:to (- spec-arg index))
-                                                            ;; the align argument lets you align
-                                                            ;; output to a given byte granularity
-                                                            (:align (mod index spec-arg))))))
-                               (incf index count)
-                               (push (list 'list :type :pad :with with :length count
-                                                 :upto (and (eq :to for-or-spec) spec-arg)
-                                                 :swap-by swap-by) ;; might need it for nonzero padding
-                                     field-specs))))
-                      (str (destructuring-bind (actual &key encode-by length terminated-by) (rest f)
-                             (let ((count (* (length actual) (or length 1))))
-                               (push (list 'list :type :string :actual actual :swap-by swap-by
-                                                 :terminated-by terminated-by :length count
-                                                 :encode-by (list 'quote encode-by))
-                                     field-specs)
-                               (incf index count))))
-                      (masque (destructuring-bind (spec-string &rest bindings) (rest f)
-                                (let ((bindings-out))
-                                  (dolist (b bindings)
-                                    (push (if (keywordp (second b))
-                                              (let ((field-out (process-field (rest b) t)))
-                                                (setf (getf (rest field-out) :bind-to)
-                                                      (list 'quote (first b)))
-                                                field-out)
-                                              (list 'list :binding (list 'quote b)))
-                                          bindings-out))
-                                  
-                                  (let* ((masque-width (nth-value 3 (quantify-mask-string
-                                                                     spec-string nil)))
-                                         (unit-width (+ (ash masque-width (- (+ 3 unit-spec)))
-                                                        (if (zerop (logand masque-width
-                                                                           (1- (ash 1 (+ 3 unit-spec)))))
-                                                            0 1))))
-                                    ;; increment the index from the actual masque field width;
-                                    ;; in the case of an unaligned masque field the output gets padded,
-                                    ;; but this would be a mistake, in pracice masques should
-                                    ;; always line up with the output unit
-                                    (incf index unit-width)
-                                    (push (list 'list :type :masque :length unit-width
-                                                      :actual spec-string :swap-by swap-by
-                                                      :bindings (cons 'list (reverse bindings-out)))
-                                          field-specs)))))
-                      (marshal (push (list 'list :type :expander :actual f)
-                                     field-specs))))
-            (t (error "Invalid clause; may not start with ~a." (first f)))))
+        (dolist (f fields) (setf field-specs (process-entry f field-specs)))
 
-        (when (< index length)
+        (when (and length (< index length))
           (push (list 'list :type :pad :with (or pad 0) :offset offset
                             :swap-by swap-by :length (- length index))
                 field-specs))
@@ -529,6 +575,14 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
         `(eval-when (:compile-toplevel :load-toplevel :execute)
            (setf (gethash ',name *manifests*)
                  ,(cons 'list (reverse field-specs))))))))
+
+(defun cs-adapt (item)
+  (if (and (vectorp item)
+           (typep item '(unsigned-byte 8)))
+      item (if (vectorp item)
+               (let ((output (make-array (length item) :element-type '(unsigned-byte 8))))
+                 (loop :for i :across item :for ix :from 0 :do (setf (aref output ix) i))
+                 output))))
 
 (defmacro marshal (name destination &body pairs)
   (let* ((spec (gethash name *manifests*))
@@ -566,61 +620,92 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                (if (not table-name)
                    value (let ((table (gethash table-name *enums*)))
                            (typecase value
-                             (keyword (getf table value))))))
+                             (keyword (getf (rest table) value))))))
              (generate (item)
                (destructuring-bind (&key name type kind signed (swap-by 0) upto default offset
-                                      count actual bindings with length encode-by
+                                      count actual bindings with length encode-by end-by
+                                      type-indicator type-conditions
                                       slot enumerate-by subtypes)
                    item
                  
                  ;; types: ; :scalar | :pad | :masque | :bytes | :sized | :leb | :name | :slot
                  (case type
-                   (:pad `((loop :repeat ,(if (not upto) length `(max 0 (- ,upto ,index)))
-                                 :do (funcall (aref ,serializers ,swap-by)
-                                              ,with ,enter))
-                           ;; ,(if upto `(incf ,index (max 0 (- ,upto ,index)))
-                           ;;      `(incf ,index ,length))
+                   (:pad `(:-pad
+                           (loop :repeat ,(if (not upto) length `(max 0 (- ,upto ,index)))
+                                 :do (funcall (aref ,serializers ,swap-by) ,with ,enter))
                            (assert (<= ,index ,olength) ()
                                    "Out of bounds.")))
-                   (:string `((funcall (aref ,serializers 0)
+                   (:string `(,name
+                              (funcall (aref ,serializers 0)
                                        ;; strings always use 0-swap for reasons given above
                                        (funcall ,(or encode-by '#'identity) ,actual)
                                        ,enter)
-                              (incf ,index ,length)))
-                   (:masque `((funcall (aref ,serializers ,swap-by)
+                              ,@(when end-by `((funcall (aref ,serializers 0)
+                                                        (funcall ,(or encode-by '#'identity) ,actual)
+                                                        ,end-by)))))
+                   (:masque `(:-masque
+                              (funcall (aref ,serializers ,swap-by)
                                        (masque ,actual ,@(mapcar #'masque-binder bindings))
-                                       ,enter)
-                              ;; (incf ,index ,length)
-                              ))
-                   (:expander
+                                       ,enter)))
+                   (:-expander
                     (setf (getf (cddr actual) :offset) index)
-                    `((setf ,index ,(macroexpand actual))))
-                   (t (let ((length-form (if count `(* ,(if (integerp count) count `(getf ,count ,values))
-                                                       ,length)
+                    `(,name (setf ,index ,(macroexpand actual))))
+                   (t (let (;; (length-form (if count `(* ,(if (integerp count) count `(getf ,count ,values))
+                            ;;                            ,length)
+                            ;;                  length))
+                            (length-form (if type-indicator `(caddr (assoc (getf ,values ,type-indicator)
+                                                                           ',type-conditions))
                                              length)))
-                        `(,@(and slot (destructuring-bind (type slot-name) slot
-                                        `((push ,(print (list 'list slot-name type name :position index
-                                                                                        :this-width length-form))
+                        (print (list :oo name type-indicator type-conditions))
+                        `(,name
+                          (print (list :nnn ,(getf pairs name) (rest (assoc (getf ,values ,type-indicator)
+                                                                            ',type-conditions))))
+                          ,@(and slot (destructuring-bind (type slot-name &rest params) slot
+                                        `((push ,(print (list 'list slot-name type name
+                                                              :position index :by (getf params :by)
+                                                              :this-width length-form))
                                                 ,bindings-sym))))
-                          (destructuring-bind (&key length-of offset-of position this-width)
+                          (destructuring-bind (&key length-of offset-of checksum-of by position this-width)
                               (rest (assoc ,name ,bindings-sym))
+                            ;; (print (list :oo ,name length-of offset-of checksum-of))
                             (when length-of (funcall ,write (aref ,serializers ,swap-by)
                                                      (cons this-width ,length)
                                                      position))
                             (when offset-of (funcall ,write (aref ,serializers ,swap-by)
                                                      (cons this-width ,index)
-                                                     position)))
-                          (funcall (aref ,serializers ,swap-by)
-                                   (cons ,length-form
-                                         ,(or (enumerate enumerate-by (getf pairs name))
-                                              default (error "Field ~a not specified." name)))
-                                   ,enter)
+                                                     position))
+                            (when checksum-of
+                              (funcall ,write (aref ,serializers ,swap-by)
+                                       (cons this-width (funcall by (cs-adapt ,(getf pairs name))))
+                                       position)))
+
+                          ,(cond
+                             ((member :leb subtypes)
+                              `(funcall (if signed #'encode-leb128-signed #'encode-leb128-unsigned)
+                                        (cons ,length-form
+                                              ,(or (enumerate enumerate-by (getf pairs name))
+                                                   default (error "Field ~a not specified." name)))
+                                        ,enter))
+                             ((member :vec subtypes)
+                              (if (getf pairs name)
+                                  `(loop :for e :across ,(getf pairs name)
+                                         :do (funcall (aref ,serializers ,swap-by)
+                                                      (cons ,length-form e)
+                                                      ,enter))
+                                  (if length-form
+                                      `(loop :for e :below ,length-form
+                                             :do (funcall (aref ,serializers ,swap-by)
+                                                          (cons ,length-form ,default)
+                                                          ,enter))
+                                      (error "No content or default specified for vector data."))))
+                             (t `(funcall (aref ,serializers ,swap-by)
+                                          (cons ,length-form
+                                                ,(or (enumerate enumerate-by (getf pairs name))
+                                                     default (error "Field ~a not specified." name)))
+                                          ,enter)))
                           (push ,(getf pairs name) ,values)
                           (push ,name ,values)
-                          (print (list :bi ,name ,bindings-sym ,index ,length))
-
-                          ;; (incf ,index ,length)
-                          )))))))
+                          (print (list :bi ,name ,bindings-sym ,index ,length)))))))))
       
       `(let* ((,access ,destination)
               (,index ,(or offset 0))
