@@ -72,7 +72,7 @@
      #x54DE5729 #x23D967BF #xB3667A2E #xC4614AB8 #x5D681B02 #x2A6F2B94 
      #xB40BBE37 #xC30C8EA1 #x5A05DF1B #x2D02EF8D)))
 
-(defun update-crc (crc buf)
+(defun update-crc2 (crc buf)
   (declare (type (unsigned-byte 32) crc)
 	   (type (simple-array (unsigned-byte 8)) buf)
 	   (optimize speed))
@@ -82,15 +82,29 @@
       (setf crc (logxor (aref +crc-table+ i) (ash crc -8)))))
   (logxor crc #xffffffff))
 
-(defun crc (buf)
+(defun crc2 (buf)
   (update-crc 0 buf))
+
+(defun update-crc (crc buf start end)
+  (declare (type (unsigned-byte 32) crc)
+	   (type (simple-array (unsigned-byte 8)) buf)
+	   (optimize speed))
+  (let ((index start))
+    (setf crc (logxor crc #xffffffff))
+    (dotimes (n (- end start))
+      (let ((i (logand #xff (logxor crc (aref buf index)))))
+        (setf crc (logxor (aref +crc-table+ i) (ash crc -8)))
+        (incf index)))
+    (logxor crc #xffffffff)))
+
+(defun crc (buf start end)
+  (update-crc 0 buf start end))
 
 ;;; output should be #xCBF43926
 (defun test-crc ()
   (let ((a (make-array 9 :element-type '(unsigned-byte 8)
 		       :initial-contents '(#x31 #x32 #x33 #x34 #x35 #x36 #x37 #x38 #x39))))
-    (crc a)))
-
+    (crc2 a)))
 
 ;;;; Adapted from adler32.lisp - computing adler32 checksums (rfc1950) of a byte array
 ;;;

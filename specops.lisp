@@ -456,7 +456,12 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                     :pad pad :length length)))
            (index 0))
 
-      (labels ((process-field (field-spec &optional unincrementing)
+      (labels ((format-slot-spec (spec)
+                 ;; quote functions mentioned in slot specs for proper marshal macroexpansion
+                 (cons 'list (loop :for item :in spec
+                                   :collect (if (not (and (listp item) (eql 'function (first item))))
+                                                item (list 'quote item)))))
+               (process-field (field-spec &optional unincrementing)
                  (destructuring-bind (symbol predicate &key (endian 0) length enumerate-by end-by
                                                          count default slot &allow-other-keys)
                      field-spec
@@ -498,7 +503,7 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                            :name (and (not (string= "_" (symbol-name symbol))) symbol)
                            :signed signed :length (ash width (- unit-spec))
                            :count count :enumerate-by (list 'quote enumerate-by)
-                           :slot (and slot (cons 'list slot))
+                           :slot (format-slot-spec slot)
                            :type-indicator type-indicator :type-conditions type-conditions
                            :subtypes (and subtype-list (cons 'list subtype-list))
                            :end-by end-by :swap-by (or this-swap-by swap-by)
@@ -509,6 +514,7 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                    (symbol (case (first f)
                              (span (let ((sub-items))
                                      (dolist (item (cddr f))
+                                       ;; cons the name of the closure to the context list
                                        (setf sub-items (process-entry item sub-items)))
                                      (push (list 'list :type :span :name (second f)
                                                        :items (cons 'list sub-items))
@@ -584,6 +590,13 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                  (loop :for i :across item :for ix :from 0 :do (setf (aref output ix) i))
                  output))))
 
+(defun find-in-manifest (spec handler)
+  (let ((output))
+    (loop :for item :in spec :until output
+          :do (setf output (if (eq :span (getf item :type))
+                               (find-in-manifest (getf item :items) handler)
+                               (funcall handler item))))))
+
 (defmacro marshal (name destination &body pairs)
   (let* ((spec (gethash name *manifests*))
          (params (first spec))
@@ -591,7 +604,7 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
          (access (gensym "AC")) (enter (gensym "EN")) (index (gensym "IN"))
          (tell (gensym "TL")) (write (gensym "WR")) (bindings-sym (gensym "BN"))
          (values (gensym "VL")) (length (gensym "LN")) (serializers (gensym "SR"))
-         (b (gensym "BB")) (i (gensym "II"))
+         (map (gensym "MP")) (b (gensym "BB")) (i (gensym "II"))
          (olength length))
 
     (print (list :par params))
@@ -621,13 +634,13 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                    value (let ((table (gethash table-name *enums*)))
                            (typecase value
                              (keyword (getf (rest table) value))))))
-             (generate (item)
+             (generate (item &optional context)
                (destructuring-bind (&key name type kind signed (swap-by 0) upto default offset
                                       count actual bindings with length encode-by end-by
                                       type-indicator type-conditions
-                                      slot enumerate-by subtypes)
+                                      slot enumerate-by subtypes items)
                    item
-                 
+                 (print (list :nn name context))
                  ;; types: ; :scalar | :pad | :masque | :bytes | :sized | :leb | :name | :slot
                  (case type
                    (:pad `(:-pad
@@ -647,13 +660,12 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                               (funcall (aref ,serializers ,swap-by)
                                        (masque ,actual ,@(mapcar #'masque-binder bindings))
                                        ,enter)))
-                   (:-expander
+                   (:expander
                     (setf (getf (cddr actual) :offset) index)
                     `(,name (setf ,index ,(macroexpand actual))))
-                   (t (let (;; (length-form (if count `(* ,(if (integerp count) count `(getf ,count ,values))
-                            ;;                            ,length)
-                            ;;                  length))
-                            (length-form (if type-indicator `(caddr (assoc (getf ,values ,type-indicator)
+                   (:span
+                    (loop :for i :in items :append (generate i (cons name context))))
+                   (t (let ((length-form (if type-indicator `(caddr (assoc (getf ,values ,type-indicator)
                                                                            ',type-conditions))
                                              length)))
                         (print (list :oo name type-indicator type-conditions))
@@ -661,23 +673,44 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                           (print (list :nnn ,(getf pairs name) (rest (assoc (getf ,values ,type-indicator)
                                                                             ',type-conditions))))
                           ,@(and slot (destructuring-bind (type slot-name &rest params) slot
+                                        (print (list :slsl slot))
                                         `((push ,(print (list 'list slot-name type name
                                                               :position index :by (getf params :by)
                                                               :this-width length-form))
                                                 ,bindings-sym))))
-                          (destructuring-bind (&key length-of offset-of checksum-of by position this-width)
-                              (rest (assoc ,name ,bindings-sym))
-                            ;; (print (list :oo ,name length-of offset-of checksum-of))
-                            (when length-of (funcall ,write (aref ,serializers ,swap-by)
-                                                     (cons this-width ,length)
-                                                     position))
-                            (when offset-of (funcall ,write (aref ,serializers ,swap-by)
-                                                     (cons this-width ,index)
-                                                     position))
-                            (when checksum-of
-                              (funcall ,write (aref ,serializers ,swap-by)
-                                       (cons this-width (funcall by (cs-adapt ,(getf pairs name))))
-                                       position)))
+
+                          ,@(and slot (find-in-manifest (rest spec)
+                                                        (lambda (item)
+                                                          (and (getf item :slot)
+                                                               (eq :length-of (first (getf item :slot)))
+                                                               item)))
+                                 `((funcall ,write (aref ,serializers ,swap-by)
+                                            (cons this-width ,length)
+                                            position)))
+
+                          ,@(and slot (find-in-manifest (rest spec)
+                                                        (lambda (item)
+                                                          (and (getf item :slot)
+                                                               (eq :offset-of (first (getf item :slot)))
+                                                               item)))
+                                 `((funcall ,write (aref ,serializers ,swap-by)
+                                            (cons this-width ,index)
+                                            position)))
+                          
+                          (push (list ,name ,index ,index) ,map)
+                          ,@(loop :for closure :in context
+                                  :collect `(unless (assoc ,closure ,map)
+                                              (push (list ,closure ,index ,index) ,map)))
+                          
+                          ;; (destructuring-bind (&key length-of offset-of checksum-of by position this-width)
+                          ;;     (rest (assoc ,name ,bindings-sym))
+                          ;;   (print (list :ii ,name length-of offset-of checksum-of))
+                          ;;   (when length-of (funcall ,write (aref ,serializers ,swap-by)
+                          ;;                            (cons this-width ,length)
+                          ;;                            position))
+                          ;;   (when offset-of (funcall ,write (aref ,serializers ,swap-by)
+                          ;;                            (cons this-width ,index)
+                          ;;                            position)))
 
                           ,(cond
                              ((member :leb subtypes)
@@ -698,11 +731,21 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                                           (cons ,length-form ,default)
                                                           ,enter))
                                       (error "No content or default specified for vector data."))))
+                             ((and slot (eq :checksum-of (first slot)))
+                              `(funcall (aref ,serializers ,swap-by)
+                                        (cons ,length-form
+                                              (destructuring-bind (start end)
+                                                  (rest (assoc ,(second slot) ,map))
+                                                (funcall ,(getf slot :by) ,access start end)))
+                                        ,enter))
                              (t `(funcall (aref ,serializers ,swap-by)
                                           (cons ,length-form
                                                 ,(or (enumerate enumerate-by (getf pairs name))
                                                      default (error "Field ~a not specified." name)))
                                           ,enter)))
+                          (setf (third (assoc ,name ,map)) ,index)
+                          ,@(loop :for closure :in context
+                                  :collect `(setf (third (assoc ,closure ,map)) ,index))
                           (push ,(getf pairs name) ,values)
                           (push ,name ,values)
                           (print (list :bi ,name ,bindings-sym ,index ,length)))))))))
@@ -711,7 +754,7 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
               (,index ,(or offset 0))
               (,values) (,bindings-sym)
               ,@(if (getf params :length) `((,length ,(getf params :length))))
-              (,enter) (,tell) (,write)
+              (,enter) (,tell) (,write) (,map)
               (,serializers (make-array ,(1+ (reduce #'max swap-specs)) :initial-element nil)))
 
          (typecase ,access
@@ -740,6 +783,8 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
          ,@(if spec (apply #'append (mapcar #'generate (rest spec)))
                (error "Manifest not found."))
 
+         (print (list :mmm ,map))
+         
          ,index
          ;; (print (list :v ,values))
          ))))
@@ -762,6 +807,15 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
     (if (fboundp fn-sym)
         (apply (symbol-function fn-sym) destination keys)
         (error "Manifest not found."))))
+
+;; (macroexpand `(defmanifest png-chunk (:unit 8 :endian :big)
+;;   (:length (:u 4) :slot (:length-of :data))
+;;   (span :type+data
+;;     (:type (:u 1 :vec))
+;;     (span :data
+;;       (:data (:u 1 :vec))))
+;;   (:crc (:u 4) :slot (:checksum-of :type+data :by #'png-crc32))))
+
 
 ;; (defmacro make-masquer (string &rest assignments)
 ;;   (let* ((params (if (listp (caar assignments)) (first assignments) nil))
