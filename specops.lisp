@@ -566,8 +566,9 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                                              :actual spec-string :swap-by swap-by
                                                              :bindings (cons 'list (reverse bindings-out)))
                                                  accumulator)))))
-                             (marshal (push (list 'list :type :expander :actual f)
-                                            accumulator))))
+                             (manifest (push (list 'list :type :manifest :name (second f)
+                                                         :actual (list 'quote (cddr f)))
+                                             accumulator))))
                    (t (error "Invalid clause; may not start with ~a." (first f))))
                  accumulator))
         
@@ -595,33 +596,81 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
     (loop :for item :in spec :until output
           :do (setf output (if (eq :span (getf item :type))
                                (find-in-manifest (getf item :items) handler)
-                               (funcall handler item))))))
+                               (funcall handler item))))
+    output))
 
 (defmacro marshal (name destination &body pairs)
   (let* ((spec (gethash name *manifests*))
          (params (first spec))
+         (regions) (slots) (slots-of)
          (swap-specs) (offset)
-         (access (gensym "AC")) (enter (gensym "EN")) (index (gensym "IN"))
-         (tell (gensym "TL")) (write (gensym "WR")) (bindings-sym (gensym "BN"))
-         (values (gensym "VL")) (length (gensym "LN")) (serializers (gensym "SR"))
-         (map (gensym "MP")) (b (gensym "BB")) (i (gensym "II"))
-         (olength length))
+         (access) (enter) (index) (tell) (write) (bindings-sym)
+         (values) (length) (serializers) (map) (b) (i)
+         ;; (access (gensym "AC")) (enter (gensym "EN")) (index (gensym "IN"))
+         ;; (tell (gensym "TL")) (write (gensym "WR")) (bindings-sym (gensym "BN"))
+         ;; (values (gensym "VL")) (length (gensym "LN")) (serializers (gensym "SR"))
+         ;; (map (gensym "MP")) (b (gensym "BB")) (i (gensym "II"))
+         (olength) (sub-lexicon))
+
+    ;; populate the symbol lexicon or import it from an enclosing marshal macro
+    (if (getf pairs :-+sub-lexicon+-)
+        (destructuring-bind (&key ac-sym en-sym in-sym tl-sym wr-sym bn-sym
+                               vl-sym ln-sym sr-sym mp-sym b-sym i-sym)
+            (getf pairs :-+sub-lexicon+-)
+          (setf access ac-sym enter en-sym index in-sym tell tl-sym write wr-sym bindings-sym bn-sym
+                values vl-sym length ln-sym serializers sr-sym map mp-sym b b-sym i i-sym))
+        (setf access (gensym "AC")
+              enter (gensym "EN")
+              index (gensym "IN")
+              tell (gensym "TL")
+              write (gensym "WR")
+              bindings-sym (gensym "BN")
+              values (gensym "VL")
+              length (gensym "LN")
+              serializers (gensym "SR")
+              map (gensym "MP")
+              b (gensym "BB")
+              i (gensym "II")
+              sub-lexicon (list :ac-sym access :en-sym enter :in-sym index :tl-sym tell
+                                :wr-sym write :bn-sym bindings-sym :vl-sym values :ln-sym length
+                                :sr-sym serializers :mp-sym map :b-sym b :i-sym i)))
+
+    (setf olength length)
 
     (print (list :par params))
 
-    (dolist (item (rest spec))
-      (destructuring-bind (&key swap-by type &allow-other-keys) item
-        ;; build list of swap specs for endian conversion
-        (when swap-by (push swap-by swap-specs))
-        (setf offset (getf item :offset))
-        ;; strings always use the 0-mode swap because they use no endian conversion;
-        ;; endian handling is done within the string codec if necessary
-        ;; since there are many string formats with different endian properties
-        (when (eq type :string) (push 0 swap-specs))))
+    ;; (dolist (item (rest spec))
+    ;;   (destructuring-bind (&key name swap-by type slot &allow-other-keys) item
+    ;;     ;; build list of swap specs for endian conversion
+    ;;     (when swap-by (push swap-by swap-specs))
+    ;;     (setf offset (getf item :offset))
+    ;;     ;; strings always use the 0-mode swap because they use no endian conversion;
+    ;;     ;; endian handling is done within the string codec if necessary
+    ;;     ;; since there are many string formats with different endian properties
+    ;;     (when slot
+    ;;       (push item slots)
+    ;;       (push (list name (first slot)) (getf slots-of (second slot))))
+    ;;     (when (eq type :string) (push 0 swap-specs))))
 
-    (setf swap-specs (remove-duplicates swap-specs))
+    ;; (setf swap-specs (remove-duplicates swap-specs))
     
-    (labels ((assign-serializer (s)
+    (labels ((preprocess-spec (spec-items)
+               (dolist (item spec-items)
+                 (destructuring-bind (&key name swap-by type slot items &allow-other-keys) item
+                   ;; build list of swap specs for endian conversion
+                   (when swap-by (push swap-by swap-specs))
+                   (setf offset (getf item :offset))
+                   ;; strings always use the 0-mode swap because they use no endian conversion;
+                   ;; endian handling is done within the string codec if necessary
+                   ;; since there are many string formats with different endian properties
+                   (when slot
+                     (push item slots)
+                     (push (list name (first slot))
+                           (getf slots-of (second slot))))
+                   (case type
+                     (:span (preprocess-spec items)))
+                   (when (eq type :string) (push 0 swap-specs)))))
+             (assign-serializer (s)
                `(setf (aref ,serializers ,s)
                       (serializer-for ,(getf params :unit-spec) ,s)))
              (masque-binder (b)
@@ -640,7 +689,7 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                       type-indicator type-conditions
                                       slot enumerate-by subtypes items)
                    item
-                 (print (list :nn name context))
+                 ;; (print (list :nn name context))
                  ;; types: ; :scalar | :pad | :masque | :bytes | :sized | :leb | :name | :slot
                  (case type
                    (:pad `(:-pad
@@ -660,9 +709,11 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                               (funcall (aref ,serializers ,swap-by)
                                        (masque ,actual ,@(mapcar #'masque-binder bindings))
                                        ,enter)))
-                   (:expander
-                    (setf (getf (cddr actual) :offset) index)
-                    `(,name (setf ,index ,(macroexpand actual))))
+                   (:manifest
+                    (list name (macroexpand (append (list 'marshal (first actual) destination)
+                                                    (list :-+sub-lexicon+- sub-lexicon)
+                                                    (rest actual)
+                                                    (getf pairs name)))))
                    (:span
                     (loop :for i :in items :append (generate i (cons name context))))
                    (t (let ((length-form (if type-indicator `(caddr (assoc (getf ,values ,type-indicator)
@@ -679,23 +730,23 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                                               :this-width length-form))
                                                 ,bindings-sym))))
 
-                          ,@(and slot (find-in-manifest (rest spec)
-                                                        (lambda (item)
-                                                          (and (getf item :slot)
-                                                               (eq :length-of (first (getf item :slot)))
-                                                               item)))
-                                 `((funcall ,write (aref ,serializers ,swap-by)
-                                            (cons this-width ,length)
-                                            position)))
+                          ;; ,@(and slot (find-in-manifest (rest spec)
+                          ;;                               (lambda (item)
+                          ;;                                 (and (getf item :slot)
+                          ;;                                      (eq :length-of (first (getf item :slot)))
+                          ;;                                      item)))
+                          ;;        `((funcall ,write (aref ,serializers ,swap-by)
+                          ;;                   (cons this-width ,length)
+                          ;;                   position)))
 
-                          ,@(and slot (find-in-manifest (rest spec)
-                                                        (lambda (item)
-                                                          (and (getf item :slot)
-                                                               (eq :offset-of (first (getf item :slot)))
-                                                               item)))
-                                 `((funcall ,write (aref ,serializers ,swap-by)
-                                            (cons this-width ,index)
-                                            position)))
+                          ;; ,@(and slot (find-in-manifest (rest spec)
+                          ;;                               (lambda (item)
+                          ;;                                 (and (getf item :slot)
+                          ;;                                      (eq :offset-of (first (getf item :slot)))
+                          ;;                                      item)))
+                          ;;        `((funcall ,write (aref ,serializers ,swap-by)
+                          ;;                   (cons this-width ,index)
+                          ;;                   position)))
                           
                           (push (list ,name ,index ,index) ,map)
                           ,@(loop :for closure :in context
@@ -741,53 +792,124 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                              (t `(funcall (aref ,serializers ,swap-by)
                                           (cons ,length-form
                                                 ,(or (enumerate enumerate-by (getf pairs name))
-                                                     default (error "Field ~a not specified." name)))
+                                                     default
+                                                     (and slot 0)
+                                                     ;; slot values do not need a default since they 
+                                                     ;; will be populated according to other slots' values
+                                                     (error "Field ~a not specified." name)))
                                           ,enter)))
+                          ,@(and (getf slots-of name)
+                                 (loop :for slot-of :in (getf slots-of name)
+                                       :collect (destructuring-bind (slot-name slot-type) slot-of
+                                                  (and (not (eq :checksum-of slot-type))
+                                                       `(funcall ,write (aref ,serializers ,swap-by)
+                                                                 (cons (getf (rest (assoc ,name ,bindings-sym))
+                                                                             :this-width)
+                                                                       ,(case slot-type
+                                                                          (:length-of length)
+                                                                          (:offset-of index)))
+                                                                 (second (assoc ,slot-name ,map)))))))
                           (setf (third (assoc ,name ,map)) ,index)
                           ,@(loop :for closure :in context
                                   :collect `(setf (third (assoc ,closure ,map)) ,index))
                           (push ,(getf pairs name) ,values)
                           (push ,name ,values)
                           (print (list :bi ,name ,bindings-sym ,index ,length)))))))))
+
+      (preprocess-spec (rest spec))
+
+      (loop :for (key _) :on slots-of :by #'cddr
+            :when (loop :for item :in (rest spec)
+                        :never (eq key (getf item :name)))
+              :do (error "Slot reference found with no matching region."))
       
-      `(let* ((,access ,destination)
-              (,index ,(or offset 0))
-              (,values) (,bindings-sym)
-              ,@(if (getf params :length) `((,length ,(getf params :length))))
-              (,enter) (,tell) (,write) (,map)
-              (,serializers (make-array ,(1+ (reduce #'max swap-specs)) :initial-element nil)))
+      (append (if (getf pairs :-+sub-lexicon+-) `(progn)
+                  `(let* ((,access ,destination)
+                          (,index ,(or offset 0))
+                          (,values) (,bindings-sym)
+                          ,@(if (getf params :length) `((,length ,(getf params :length))))
+                          (,enter) (,tell) (,write) (,map)
+                          (,serializers (make-array ,(1+ (reduce #'max swap-specs)) :initial-element nil)))
 
-         (typecase ,access
-           (function (setf ,enter (lambda (,b) (funcall ,access ,b))
-                           ,tell  (lambda () ,index)))
-           (vector   (setf ,enter (lambda (,b) (setf (aref ,access ,index) ,b) (incf ,index))
-                           ,tell  (lambda () ,index)
-                           ,write (lambda (serializer datum position)
-                                    (print (list :pos position))
-                                    (let ((opos ,index))
-                                      (setf ,index position)
-                                      (funcall serializer datum ,enter)
-                                      (setf ,index opos)))))
-           (stream   (setf ,enter (lambda (,b) (incf ,index) (write-byte ,b ,access))
-                           ,tell  (lambda () (file-position ,access))
-                           ,write (lambda (serializer datum position)
-                                    (let ((opos (file-position ,access)))
-                                      (file-position ,access position)
-                                      (setf ,index position)
-                                      (funcall serializer datum ,enter)
-                                      (file-position ,access opos)
-                                      (setf ,index opos))))))
-         
-         ,@(mapcar #'assign-serializer swap-specs)
-         
-         ,@(if spec (apply #'append (mapcar #'generate (rest spec)))
-               (error "Manifest not found."))
+                     (typecase ,access
+                       (function (setf ,enter (lambda (,b) (funcall ,access ,b))
+                                       ,tell  (lambda () ,index)))
+                       (vector   (setf ,enter (lambda (,b) (setf (aref ,access ,index) ,b) (incf ,index))
+                                       ,tell  (lambda () ,index)
+                                       ,write (lambda (serializer datum position)
+                                                (print (list :pos position))
+                                                (let ((opos ,index))
+                                                  (setf ,index position)
+                                                  (funcall serializer datum ,enter)
+                                                  (setf ,index opos)))))
+                       (stream   (setf ,enter (lambda (,b) (incf ,index) (write-byte ,b ,access))
+                                       ,tell  (lambda () (file-position ,access))
+                                       ,write (lambda (serializer datum position)
+                                                (let ((opos (file-position ,access)))
+                                                  (file-position ,access position)
+                                                  (setf ,index position)
+                                                  (funcall serializer datum ,enter)
+                                                  (file-position ,access opos)
+                                                  (setf ,index opos))))))))
+              
+              (mapcar #'assign-serializer swap-specs)
+              
+              (if spec (apply #'append (mapcar #'generate (rest spec)))
+                    (error "Manifest not found."))
 
-         (print (list :mmm ,map))
-         
-         ,index
-         ;; (print (list :v ,values))
-         ))))
+              `((print (list :mmm ,map)))
+              
+              (list index)
+              ;; (print (list :v ,values))
+              ))))
+
+#|
+
+;; --- enums (work today) ---
+(defenum png-color-type nil :grayscale 0 :rgb 2 :palette 3 :grayscale-alpha 4 :rgba 6)
+(defenum png-interlace  nil :none 0 :adam7 1)
+
+;; --- IHDR body, 13 bytes (works today as a standalone marshal) ---
+(defmanifest png-ihdr (:unit 8 :endian :big)
+  (:width       (:u 4) :default 0)
+  (:height      (:u 4) :default 0)
+  (:bit-depth   :u8    :default 8)
+  (:color-type  :u8    :default 0 :enumerate-by png-color-type)
+  (:compression :u8    :default 0)
+  (:filter      :u8    :default 0)
+  (:interlace   :u8    :default 0 :enumerate-by png-interlace))
+
+;; --- generic chunk: opaque data (span + checksum work; :length-of waits on the patch fix) ---
+(defmanifest png-chunk (:unit 8 :endian :big)
+  (:length (:u 4) :slot (:length-of :data))                 ; ⚠ patch-before, not yet functional
+  (span :type+data
+    (:type (:u 1 :vec))                                     ; 4-byte tag, caller-supplied
+    (:data (:u 1 :vec)))                                    ; opaque bytes
+  (:crc (:u 4) :default 0 :slot (:checksum-of :type+data :by #'crc))) ; ✓ works
+
+;; --- IHDR chunk: body via sub-manifest (waits on sub-manifest fixes #1/#2) ---
+(defmanifest png-ihdr-chunk (:unit 8 :endian :big)
+  (:length (:u 4) :slot (:length-of :ihdr))                 ; = 13
+  (span :type+data
+    (:type (:u 1 :vec))                                     ; #(73 72 68 82) "IHDR"
+    (manifest :png-ihdr png-ihdr))                          ; ⚠ needs :name + no-let* inlining
+  (:crc (:u 4) :default 0 :slot (:checksum-of :type+data :by #'crc)))
+
+;; --- whole file (waits on sub-manifest fixes) ---
+(defmanifest png-file (:unit 8 :endian :big)
+  (:signature (:u 1 :vec))                                  ; caller passes the 8 magic bytes
+  (manifest :ihdr png-ihdr-chunk)
+  (manifest :idat png-idat-chunk)                           ; IDAT = opaque zlib blob
+  ;; IEND, empty data
+  (manifest :iend png-iend-chunk))
+
+Intended call once the fixes land:
+(marshal png-ihdr-chunk buf
+  :type #(73 72 68 82)
+  :png-ihdr (:width 1 :height 1 :bit-depth 8 :color-type :rgb))
+
+|#
+
 
 ;; #(55 12 0 0 0 0 5 0 2 0 0 0 0 0 0 0 0 0 0 5 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
 ;;   0 0 0 0 0 0 0 0 0 0 20 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
@@ -807,14 +929,16 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
     (if (fboundp fn-sym)
         (apply (symbol-function fn-sym) destination keys)
         (error "Manifest not found."))))
+#|
 
-;; (macroexpand `(defmanifest png-chunk (:unit 8 :endian :big)
-;;   (:length (:u 4) :slot (:length-of :data))
-;;   (span :type+data
-;;     (:type (:u 1 :vec))
-;;     (span :data
-;;       (:data (:u 1 :vec))))
-;;   (:crc (:u 4) :slot (:checksum-of :type+data :by #'png-crc32))))
+(macroexpand `(defmanifest png-chunk (:unit 8 :endian :big)
+                (:length (:u 4) :slot (:length-of :data))
+                (span :type+data
+                      (:type (:u 1 :vec))
+                      (:data (:u 1 :vec)))
+                (:crc (:u 4) :slot (:checksum-of :type+data :by #'crc))))
+
+|#
 
 
 ;; (defmacro make-masquer (string &rest assignments)
