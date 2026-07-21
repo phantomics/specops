@@ -604,7 +604,7 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
          (params (first spec))
          (regions) (slots) (slots-of)
          (swap-specs) (offset)
-         (access) (enter) (index) (tell) (write) (bindings-sym)
+         (access) (enter) (index) (tell) (write) ; (bindings-sym)
          (values) (length) (serializers) (map) (b) (i)
          ;; (access (gensym "AC")) (enter (gensym "EN")) (index (gensym "IN"))
          ;; (tell (gensym "TL")) (write (gensym "WR")) (bindings-sym (gensym "BN"))
@@ -617,14 +617,14 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
         (destructuring-bind (&key ac-sym en-sym in-sym tl-sym wr-sym bn-sym
                                vl-sym ln-sym sr-sym mp-sym b-sym i-sym)
             (getf pairs :-+sub-lexicon+-)
-          (setf access ac-sym enter en-sym index in-sym tell tl-sym write wr-sym bindings-sym bn-sym
+          (setf access ac-sym enter en-sym index in-sym tell tl-sym write wr-sym ; bindings-sym bn-sym
                 values vl-sym length ln-sym serializers sr-sym map mp-sym b b-sym i i-sym))
         (setf access (gensym "AC")
               enter (gensym "EN")
               index (gensym "IN")
               tell (gensym "TL")
               write (gensym "WR")
-              bindings-sym (gensym "BN")
+              ;; bindings-sym (gensym "BN")
               values (gensym "VL")
               length (gensym "LN")
               serializers (gensym "SR")
@@ -632,12 +632,13 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
               b (gensym "BB")
               i (gensym "II")
               sub-lexicon (list :ac-sym access :en-sym enter :in-sym index :tl-sym tell
-                                :wr-sym write :bn-sym bindings-sym :vl-sym values :ln-sym length
+                                :wr-sym write ;; :bn-sym bindings-sym
+                                :vl-sym values :ln-sym length
                                 :sr-sym serializers :mp-sym map :b-sym b :i-sym i)))
 
     (setf olength length)
 
-    (print (list :par params))
+    ;; (print (list :par params))
 
     ;; (dolist (item (rest spec))
     ;;   (destructuring-bind (&key name swap-by type slot &allow-other-keys) item
@@ -656,20 +657,30 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
     
     (labels ((preprocess-spec (spec-items)
                (dolist (item spec-items)
-                 (destructuring-bind (&key name swap-by type slot items &allow-other-keys) item
+                 (destructuring-bind (&key length name swap-by type slot items &allow-other-keys) item
                    ;; build list of swap specs for endian conversion
                    (when swap-by (push swap-by swap-specs))
                    (setf offset (getf item :offset))
                    ;; strings always use the 0-mode swap because they use no endian conversion;
                    ;; endian handling is done within the string codec if necessary
                    ;; since there are many string formats with different endian properties
+                   (push name regions)
                    (when slot
                      (push item slots)
-                     (push (list name (first slot))
+                     (push (list name (first slot) length swap-by)
                            (getf slots-of (second slot))))
                    (case type
                      (:span (preprocess-spec items)))
                    (when (eq type :string) (push 0 swap-specs)))))
+             (resolve-region (name slot-field slot-type slot-width swap-by)
+               `(funcall ,write (aref ,serializers ,swap-by)
+                        (cons ,slot-width
+                              ;; :length-of → (- end start) ; :offset-of → start
+                              ,(case slot-type
+                                 (:length-of `(- (third (assoc ,name ,map))
+                                                 (second (assoc ,name ,map))))
+                                 (:offset-of `(second (assoc ,name ,map)))))
+                        (second (assoc ',slot-field ,map)))) ; slot's reserved position
              (assign-serializer (s)
                `(setf (aref ,serializers ,s)
                       (serializer-for ,(getf params :unit-spec) ,s)))
@@ -689,6 +700,10 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                       type-indicator type-conditions
                                       slot enumerate-by subtypes items)
                    item
+                 
+                 ;; (when context (setf name (intern (format nil "~a/~a" (first context) name)
+                 ;;                                  "KEYWORD")))
+                 
                  ;; (print (list :nn name context))
                  ;; types: ; :scalar | :pad | :masque | :bytes | :sized | :leb | :name | :slot
                  (case type
@@ -715,20 +730,24 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                                     (rest actual)
                                                     (getf pairs name)))))
                    (:span
-                    (loop :for i :in items :append (generate i (cons name context))))
+                    (append (loop :for i :in items :append (generate i (cons name context)))
+                            (loop :for slot-of :in (getf slots-of name)
+                                  :when (not (eq :checksum-of (second slot-of)))
+                                    :collect (apply #'resolve-region name slot-of))))
                    (t (let ((length-form (if type-indicator `(caddr (assoc (getf ,values ,type-indicator)
                                                                            ',type-conditions))
                                              length)))
-                        (print (list :oo name type-indicator type-conditions))
+                        ;; (print (list :oo name type-indicator type-conditions))
                         `(,name
-                          (print (list :nnn ,(getf pairs name) (rest (assoc (getf ,values ,type-indicator)
-                                                                            ',type-conditions))))
-                          ,@(and slot (destructuring-bind (type slot-name &rest params) slot
-                                        (print (list :slsl slot))
-                                        `((push ,(print (list 'list slot-name type name
-                                                              :position index :by (getf params :by)
-                                                              :this-width length-form))
-                                                ,bindings-sym))))
+                          ;; (print (list :nnn ,(getf pairs name) (rest (assoc (getf ,values ,type-indicator)
+                          ;;                                                   ',type-conditions))))
+
+                          ;; ,@(and slot (destructuring-bind (type slot-name &rest params) slot
+                          ;;               (print (list :slsl slot))
+                          ;;               `((push ,(print (list 'list slot-name type name
+                          ;;                                     :position index :by (getf params :by)
+                          ;;                                     :this-width length-form))
+                          ;;                       ,bindings-sym))))
 
                           ;; ,@(and slot (find-in-manifest (rest spec)
                           ;;                               (lambda (item)
@@ -798,35 +817,40 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                                      ;; will be populated according to other slots' values
                                                      (error "Field ~a not specified." name)))
                                           ,enter)))
+                          ;; ,@(and (getf slots-of name)
+                          ;;        (loop :for slot-of :in (getf slots-of name)
+                          ;;              :collect (destructuring-bind (slot-name slot-type) slot-of
+                          ;;                         (and (not (eq :checksum-of slot-type))
+                          ;;                              `(funcall ,write (aref ,serializers ,swap-by)
+                          ;;                                        (cons (getf (rest (assoc ,name ,bindings-sym))
+                          ;;                                                    :this-width)
+                          ;;                                              ,(case slot-type
+                          ;;                                                 (:length-of length)
+                          ;;                                                 (:offset-of index)))
+                          ;;                                        (second (assoc ,slot-name ,map)))))))
+                          (setf (third (assoc ,name ,map)) ,index)
                           ,@(and (getf slots-of name)
                                  (loop :for slot-of :in (getf slots-of name)
-                                       :collect (destructuring-bind (slot-name slot-type) slot-of
-                                                  (and (not (eq :checksum-of slot-type))
-                                                       `(funcall ,write (aref ,serializers ,swap-by)
-                                                                 (cons (getf (rest (assoc ,name ,bindings-sym))
-                                                                             :this-width)
-                                                                       ,(case slot-type
-                                                                          (:length-of length)
-                                                                          (:offset-of index)))
-                                                                 (second (assoc ,slot-name ,map)))))))
-                          (setf (third (assoc ,name ,map)) ,index)
+                                       :when (not (eq :checksum-of (second slot-of)))
+                                         :collect (apply #'resolve-region name slot-of)))
                           ,@(loop :for closure :in context
                                   :collect `(setf (third (assoc ,closure ,map)) ,index))
                           (push ,(getf pairs name) ,values)
                           (push ,name ,values)
-                          (print (list :bi ,name ,bindings-sym ,index ,length)))))))))
+                          ;; (print (list :bi ,name ,index ,length))
+
+                          )))))))
 
       (preprocess-spec (rest spec))
 
       (loop :for (key _) :on slots-of :by #'cddr
-            :when (loop :for item :in (rest spec)
-                        :never (eq key (getf item :name)))
+            :unless (member key regions)
               :do (error "Slot reference found with no matching region."))
       
       (append (if (getf pairs :-+sub-lexicon+-) `(progn)
                   `(let* ((,access ,destination)
                           (,index ,(or offset 0))
-                          (,values) (,bindings-sym)
+                          (,values) ;; (,bindings-sym)
                           ,@(if (getf params :length) `((,length ,(getf params :length))))
                           (,enter) (,tell) (,write) (,map)
                           (,serializers (make-array ,(1+ (reduce #'max swap-specs)) :initial-element nil)))
@@ -837,7 +861,6 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                        (vector   (setf ,enter (lambda (,b) (setf (aref ,access ,index) ,b) (incf ,index))
                                        ,tell  (lambda () ,index)
                                        ,write (lambda (serializer datum position)
-                                                (print (list :pos position))
                                                 (let ((opos ,index))
                                                   (setf ,index position)
                                                   (funcall serializer datum ,enter)
@@ -857,7 +880,7 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
               (if spec (apply #'append (mapcar #'generate (rest spec)))
                     (error "Manifest not found."))
 
-              `((print (list :mmm ,map)))
+              ;; `((print (list :mmm ,map)))
               
               (list index)
               ;; (print (list :v ,values))
