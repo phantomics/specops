@@ -653,7 +653,7 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
     ;;       (push (list name (first slot)) (getf slots-of (second slot))))
     ;;     (when (eq type :string) (push 0 swap-specs))))
 
-    ;; (setf swap-specs (remove-duplicates swap-specs))
+    (setf swap-specs (remove-duplicates swap-specs))
     
     (labels ((preprocess-spec (spec-items)
                (dolist (item spec-items)
@@ -725,10 +725,21 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                        (masque ,actual ,@(mapcar #'masque-binder bindings))
                                        ,enter)))
                    (:manifest
-                    (list name (macroexpand (append (list 'marshal (first actual) destination)
-                                                    (list :-+sub-lexicon+- sub-lexicon)
-                                                    (rest actual)
-                                                    (getf pairs name)))))
+                    (append
+                     `((push (list ,name ,index ,index) ,map))
+                     (loop :for closure :in context
+                           :collect `(unless (assoc ,closure ,map)
+                                       (push (list ,closure ,index ,index) ,map)))
+                     (list name (macroexpand (append (list 'marshal (first actual) destination)
+                                                     (list :-+sub-lexicon+- sub-lexicon)
+                                                     (rest actual)
+                                                     (getf pairs name))))
+                     `((setf (third (assoc ,name ,map)) ,index))
+                     (loop :for closure :in context
+                           :collect `(setf (third (assoc ,closure ,map)) ,index))
+                     (loop :for slot-of :in (getf slots-of name)
+                           :when (not (eq :checksum-of (second slot-of)))
+                             :collect (apply #'resolve-region name slot-of))))
                    (:span
                     (append (loop :for i :in items :append (generate i (cons name context)))
                             (loop :for slot-of :in (getf slots-of name)
