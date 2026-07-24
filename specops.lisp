@@ -618,7 +618,10 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                vl-sym ln-sym sr-sym mp-sym b-sym i-sym)
             (getf pairs :-+sub-lexicon+-)
           (setf access ac-sym enter en-sym index in-sym tell tl-sym write wr-sym ; bindings-sym bn-sym
-                values vl-sym length ln-sym serializers sr-sym map mp-sym b b-sym i i-sym))
+                values vl-sym length ln-sym serializers sr-sym map mp-sym b b-sym i i-sym
+                ;; propagate the same lexicon to deeper sub-manifests so nested
+                ;; inlining keeps sharing the top-level environment
+                sub-lexicon (getf pairs :-+sub-lexicon+-)))
         (setf access (gensym "AC")
               enter (gensym "EN")
               index (gensym "IN")
@@ -725,11 +728,16 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                      (loop :for slot-of :in (getf slots-of name)
                            :when (not (eq :checksum-of (second slot-of)))
                              :collect (apply #'resolve-region name slot-of))))
-                   (:span
-                    (append (loop :for i :in items :append (generate i (cons name context)))
-                            (loop :for slot-of :in (getf slots-of name)
-                                  :when (not (eq :checksum-of (second slot-of)))
-                                    :collect (apply #'resolve-region name slot-of))))
+                    (:span
+                     ;; push a fresh per-instance region at the span's start so that
+                     ;; repeated span names across sibling sub-manifests don't collide
+                     ;; in the shared map (each instance gets its own start/end)
+                     (append `((push (list ,name ,index ,index) ,map))
+                             (loop :for i :in items :append (generate i (cons name context)))
+                             `((setf (third (assoc ,name ,map)) ,index))
+                             (loop :for slot-of :in (getf slots-of name)
+                                   :when (not (eq :checksum-of (second slot-of)))
+                                     :collect (apply #'resolve-region name slot-of))))
                    (t (let ((length-form (if type-indicator `(caddr (assoc (getf ,values ,type-indicator)
                                                                            ',type-conditions))
                                              length)))
@@ -801,7 +809,7 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                           (,values) ;; (,bindings-sym)
                           ,@(if (getf params :length) `((,length ,(getf params :length))))
                           (,enter) (,tell) (,write) (,map)
-                          (,serializers (make-array ,(1+ (reduce #'max swap-specs)) :initial-element nil)))
+                           (,serializers (make-array ,(1+ (reduce #'max swap-specs :initial-value 0)) :initial-element nil)))
 
                      (typecase ,access
                        (function (setf ,enter (lambda (,b) (funcall ,access ,b))
