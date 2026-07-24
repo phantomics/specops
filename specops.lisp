@@ -604,8 +604,8 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
          (params (first spec))
          (regions) (slots) (slots-of)
          (swap-specs) (offset)
-         (access) (enter) (index) (tell) (write) ; (bindings-sym)
-         (values) (length) (serializers) (map) (b) (i)
+         (access) (enter) (index) (tell) (write) (prefix)
+         (values) (length) (serializers) (map) (b) (i) 
          ;; (access (gensym "AC")) (enter (gensym "EN")) (index (gensym "IN"))
          ;; (tell (gensym "TL")) (write (gensym "WR")) (bindings-sym (gensym "BN"))
          ;; (values (gensym "VL")) (length (gensym "LN")) (serializers (gensym "SR"))
@@ -614,10 +614,10 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
 
     ;; populate the symbol lexicon or import it from an enclosing marshal macro
     (if (getf pairs :-+sub-lexicon+-)
-        (destructuring-bind (&key ac-sym en-sym in-sym tl-sym wr-sym bn-sym
+        (destructuring-bind (&key ac-sym en-sym in-sym tl-sym wr-sym pr-sym
                                vl-sym ln-sym sr-sym mp-sym b-sym i-sym)
             (getf pairs :-+sub-lexicon+-)
-          (setf access ac-sym enter en-sym index in-sym tell tl-sym write wr-sym ; bindings-sym bn-sym
+          (setf access ac-sym enter en-sym index in-sym tell tl-sym write wr-sym prefix pr-sym
                 values vl-sym length ln-sym serializers sr-sym map mp-sym b b-sym i i-sym
                 ;; propagate the same lexicon to deeper sub-manifests so nested
                 ;; inlining keeps sharing the top-level environment
@@ -652,14 +652,17 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                    ;; strings always use the 0-mode swap because they use no endian conversion;
                    ;; endian handling is done within the string codec if necessary
                    ;; since there are many string formats with different endian properties
-                   (push name regions)
+                   (push (qualify name) regions)
                    (when slot
                      (push item slots)
-                     (push (list name (first slot) length swap-by)
-                           (getf slots-of (second slot))))
+                     (push (list (qualify name) (first slot) length swap-by)
+                           (getf slots-of (qualify (second slot)))))
                    (case type
                      (:span (preprocess-spec items)))
                    (when (eq type :string) (push 0 swap-specs)))))
+             (qualify (name)
+               (if (not (and prefix name))
+                   name (intern (format nil "~a/~a" prefix name) :keyword)))
              (resolve-region (name slot-field slot-type slot-width swap-by)
                `(funcall ,write (aref ,serializers ,swap-by)
                         (cons ,slot-width
@@ -688,6 +691,7 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                       type-indicator type-conditions
                                       slot enumerate-by subtypes items)
                    item
+                 (let ((qname (qualify name)))
                  
                  ;; (when context (setf name (intern (format nil "~a/~a" (first context) name)
                  ;;                                  "KEYWORD")))
@@ -714,36 +718,37 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                        ,enter)))
                    (:manifest
                     (append
-                     `((push (list ,name ,index ,index) ,map))
+                     `((push (list ,qname ,index ,index) ,map))
                      (loop :for closure :in context
                            :collect `(unless (assoc ,closure ,map)
                                        (push (list ,closure ,index ,index) ,map)))
                      (list name (macroexpand (append (list 'marshal (first actual) destination)
-                                                     (list :-+sub-lexicon+- sub-lexicon)
+                                                     (list :-+sub-lexicon+-
+                                                           (list* :pr-sym (qualify name) sub-lexicon))
                                                      (rest actual)
                                                      (getf pairs name))))
-                     `((setf (third (assoc ,name ,map)) ,index))
+                     `((setf (third (assoc ,qname ,map)) ,index))
                      (loop :for closure :in context
                            :collect `(setf (third (assoc ,closure ,map)) ,index))
-                     (loop :for slot-of :in (getf slots-of name)
+                     (loop :for slot-of :in (getf slots-of qname)
                            :when (not (eq :checksum-of (second slot-of)))
-                             :collect (apply #'resolve-region name slot-of))))
+                             :collect (apply #'resolve-region qname slot-of))))
                     (:span
                      ;; push a fresh per-instance region at the span's start so that
                      ;; repeated span names across sibling sub-manifests don't collide
                      ;; in the shared map (each instance gets its own start/end)
-                     (append `((push (list ,name ,index ,index) ,map))
-                             (loop :for i :in items :append (generate i (cons name context)))
-                             `((setf (third (assoc ,name ,map)) ,index))
-                             (loop :for slot-of :in (getf slots-of name)
+                     (append `((push (list ,qname ,index ,index) ,map))
+                             (loop :for i :in items :append (generate i (cons qname context)))
+                             `((setf (third (assoc ,qname ,map)) ,index))
+                             (loop :for slot-of :in (getf slots-of qname)
                                    :when (not (eq :checksum-of (second slot-of)))
-                                     :collect (apply #'resolve-region name slot-of))))
-                   (t (let ((length-form (if type-indicator `(caddr (assoc (getf ,values ,type-indicator)
-                                                                           ',type-conditions))
-                                             length)))
+                                     :collect (apply #'resolve-region qname slot-of))))
+                    (t (let ((length-form (if (not type-indicator)
+                                              length `(caddr (assoc (getf ,values ,(qualify type-indicator))
+                                                             ',type-conditions)))))
                         ;; (print (list :oo name type-indicator type-conditions))
-                        `(,name
-                          (push (list ,name ,index ,index) ,map)
+                        `(,qname
+                          (push (list ,qname ,index ,index) ,map)
                           ,@(loop :for closure :in context
                                   :collect `(unless (assoc ,closure ,map)
                                               (push (list ,closure ,index ,index) ,map)))
@@ -771,7 +776,7 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                               `(funcall (aref ,serializers ,swap-by)
                                         (cons ,length-form
                                               (destructuring-bind (start end)
-                                                  (rest (assoc ,(second slot) ,map))
+                                                  (rest (assoc ,(qualify (second slot)) ,map))
                                                 (funcall ,(getf slot :by) ,access start end)))
                                         ,enter))
                              (t `(funcall (aref ,serializers ,swap-by)
@@ -784,18 +789,18 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                                      (error "Field ~a not specified." name)))
                                           ,enter)))
 
-                          (setf (third (assoc ,name ,map)) ,index)
-                          ,@(and (getf slots-of name)
-                                 (loop :for slot-of :in (getf slots-of name)
+                          (setf (third (assoc ,qname ,map)) ,index)
+                          ,@(and (getf slots-of qname)
+                                 (loop :for slot-of :in (getf slots-of qname)
                                        :when (not (eq :checksum-of (second slot-of)))
-                                         :collect (apply #'resolve-region name slot-of)))
+                                         :collect (apply #'resolve-region qname slot-of)))
                           ,@(loop :for closure :in context
                                   :collect `(setf (third (assoc ,closure ,map)) ,index))
                           (push ,(getf pairs name) ,values)
-                          (push ,name ,values)
+                          (push ,qname ,values)
                           ;; (print (list :bi ,name ,index ,length))
 
-                          )))))))
+                          ))))))))
 
       (preprocess-spec (rest spec))
 
