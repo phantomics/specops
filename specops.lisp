@@ -635,7 +635,8 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                                         ,end-by)))))
                    (:masque `(:-masque
                               (funcall (aref ,serializers ,swap-by)
-                                       (masque ,actual ,@(mapcar #'masque-binder bindings))
+                                       ;; (masque ,actual ,@(mapcar #'masque-binder bindings))
+                                       (cons ,length (masque ,actual ,@(mapcar #'masque-binder bindings)))
                                        ,enter)))
                    (:manifest
                     (append
@@ -769,47 +770,6 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
               ;; (print (list :v ,values))
               ))))
 
-
-;; (integer (let ((output 0))
-;;            (loop :for i :below length :do
-;;              (setf output (ash output unit-power))
-;;              (incf output (logand mask (ash collected (- (* unit index))))))
-;;            output))
-
-;; (defun deserializer-for (&optional (unit-power 0) (swap-by 0))
-;;   (let* ((unit (ash 1 (+ 3 unit-power)))
-;;          (mask (1- (ash 1 unit))))
-;;     (lambda (index length collected)
-;;       (typecase collected
-;;         (integer
-;;          ;; INDEX counts units from the least-significant end of COLLECTED; the field
-;;          ;; occupies units INDEX .. INDEX+LENGTH-1, with earlier stream units being the
-;;          ;; more significant. The extracted bits are therefore the MSB-first
-;;          ;; composition serializer-for emitted, i.e. (swap-segments value ...).
-;;          ;; swap-segments reverses segment order, so applying it again restores VALUE.
-;;          (let ((units (find-width collected unit)))
-;;            (swap-segments (ldb (byte (- units index length)) ;; (byte (* unit length) (* unit index))
-;;                                collected)
-;;                           (ash length unit-power)
-;;                           swap-by)))
-;;         (vector  (let* ((vtype (array-element-type collected))
-;;                         (vunit (if (listp vtype) (second vtype)
-;;                                    (error "Incompatible type for collection array."))))
-;;                    (if (= unit vunit)
-;;                        ;; (aref collected index)
-;;                        (swap-segments (ldb (byte (* unit length) (* unit index))
-;;                                            (aref collected index))
-;;                                       (ash length unit-power)
-;;                                       swap-by))
-;;                        (let* ((vshft (floor (log vunit 2)))
-;;                               (ushft (floor (log  unit 2)))
-;;                               (start-at (ash index (- vshft ushft)))
-;;                               (output 0))
-;;                          (loop :for i :below (1+ (abs (- vshft ushft)))
-;;                                :do (incf output (ash (aref collected (+ start-at i))
-;;                                                      (ash i vshft))))
-;;                          output))))))))
-
 (defun deserializer-for (&optional (unit-power 0) (swap-by 0))
   (let ((unit (ash 1 (+ 3 unit-power))))
     (labels ((finish (raw length signed)
@@ -873,7 +833,25 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
   (let* ((spec (gethash name *manifests*))
          (config (and (eq :config (getf (first spec) :type))
                       (first spec)))
-         (all-keys (loop :for item :in (rest spec) :collect (getf item :name)))
+         ;; (all-keys (loop :for item :in (rest spec) :when (getf item :name) :collect (getf item :name)))
+         (all-keys (labels ((named (items)
+                              (loop :for it :in items
+                                    :append (case (getf it :type)
+                                              (:span   (named (getf it :items)))
+                                              (:masque (loop :for b :in (getf it :bindings)
+                                                             :when (getf b :name) :collect (getf b :name)))
+                                              (t (and (getf it :name) (list (getf it :name))))))))
+                     (named (rest spec))))
+         (length-sources
+           (let (acc)
+             (labels ((scan (items)
+                        (dolist (it items)
+                          (let ((slot (getf it :slot)))
+                            (when (and slot (eq :length-of (first slot)) (getf it :name))
+                              (push (cons (second slot) (getf it :name)) acc)))
+                          (when (eq :span (getf it :type)) (scan (getf it :items))))))
+               (scan (rest spec)))
+             acc))
          (in-keys keys)
          (keys (or keys all-keys))
          (dvector (make-array 4 :initial-element nil))
@@ -881,7 +859,7 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
          sub-lexicon prefix cursor)
     
     (if (getf params :-+sub-lexicon+-)
-        (destructuring-bind (&key cr-sym pr-sym) (getf params :-+sub-lexicon+-)
+        (destructuring-bind (&key cr-sym pr-sym &allow-other-keys) (getf params :-+sub-lexicon+-)
           (setf cursor cr-sym prefix pr-sym sub-lexicon (getf params :-+sub-lexicon+-)))
         (setf cursor (gensym "CR")
               ;; dsym   (gensym "DS")
@@ -890,55 +868,160 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
     ;; (loop :for item :in (rest spec) :do (setf (getf fields (getf item :name)) item))
 
     ;; (print (list :ff fields keys))
-    
-    (flet ((interpret (form enumerate-by)
-             (cond
-               (enumerate-by `(enumerated ,form (gethash ',enumerate-by *enums*)))
-               (t form)))
-           (qualify (name)
-             (if (not (and prefix name))
-                 name (intern (format nil "~a/~a" prefix name) :keyword))))
-             
 
-      (let ((vars) (reads) (src (gensym "SRC")))
-        (dolist (item (rest spec)) 
-          (destructuring-bind (&key name type length signed (swap-by 0)
-                                 enumerate-by actual &allow-other-keys)
-              item
-            (when (member type '(:span)) ;; :manifest))
-              (error "unmarshal: ~a fields not yet supported." type))
 
-            (unless (aref dvector swap-by)
-              (setf (aref dvector swap-by) `(deserializer-for ,(getf config :unit-spec) ,swap-by)))
+    (let ((vars) (reads) (src (gensym "SRC")))
+      (labels ((interpret (form enumerate-by)
+                 (cond
+                   (enumerate-by `(enumerated ,form (gethash ',enumerate-by *enums*)))
+                   (t form)))
+               (qualify (name)
+                 (if (not (and prefix name))
+                     name (intern (format nil "~a/~a" prefix name) :keyword)))
+               (var-of (field what)
+                 (or (rest (assoc field vars))
+                     (error "unmarshal: ~a needs field ~a, which isn't read before it." what field)))
+               (vec-count-form (name count length)
+                 (cond ((integerp count) count)                                   ; :count 4
+                       ((keywordp count) (var-of count name))                     ; :count :n-items
+                       ((assoc name length-sources)                               ; reverse :length-of
+                        `(floor ,(var-of (rest (assoc name length-sources)) name) ,length))
+                       (t (error "unmarshal: no element count for vector field ~a ~
+                   (give :count or a :length-of slot)." name))))
+               (process-item (item)
+                 (destructuring-bind (&key name type subtypes length signed (swap-by 0)
+                                        count items enumerate-by actual bindings &allow-other-keys)
+                     item
+                   (when nil ;; (member type '(:span)) ;; :manifest))
+                     (error "unmarshal: ~a fields not yet supported." type))
 
-            (case type
-              (:manifest
-               (push
-                (list 'list (macroexpand (list 'unmarshal (first actual) src
-                                               (list :-+sub-lexicon+-
-                                                     (list* :pr-sym (qualify name) sub-lexicon)))))
-                reads))
-              (t (when (and name (member name keys))
-                   (let ((var (gensym (string name))))
-                     (push (cons name var) vars)
-                     (push `(setf ,var ,(interpret `(funcall (aref ,dsym ,swap-by) ,cursor ,length ,signed ,src)
-                                                   enumerate-by))
-                           reads)))
-               (push (list 'incf cursor length) reads)))))
+                   (unless (aref dvector swap-by)
+                     (setf (aref dvector swap-by) `(deserializer-for ,(getf config :unit-spec) ,swap-by)))
+
+                   (case type
+                     ;; (:manifest
+                     ;;  (push
+                     ;;   (list 'multiple-value-list
+                     ;;         (macroexpand (list 'unmarshal (first actual) src
+                     ;;                            (list :-+sub-lexicon+-
+                     ;;                                  (list* :pr-sym (qualify name) sub-lexicon)))))
+                     ;;   reads))
+                     (:manifest
+                      (let* ((sub-name (first actual))
+                             (sub-spec (gethash sub-name *manifests*))
+                             (var      (gensym (string (or name sub-name)))))
+                        (unless sub-spec
+                          (error "unmarshal: sub-manifest ~a is not defined." sub-name))
+                        (unless (eql (getf (first sub-spec) :unit-spec) (getf config :unit-spec))
+                          (error "unmarshal: sub-manifest ~a uses a different unit than ~a." sub-name name))
+                        (when name (push (cons name var) vars))
+                        (push `(setf ,var
+                                     ,(macroexpand
+                                       `(unmarshal ,sub-name ,src
+                                                   (:-+sub-lexicon+- ,(list* :pr-sym (qualify name)
+                                                                             sub-lexicon)))))
+                              reads)))
+                     (:span
+                      (loop :for item :in items :do (process-item item)))
+                     (:masque
+                      (multiple-value-bind (base segments symbols bits) (quantify-mask-string actual nil)
+                        (when (= 1 (first segments))
+                          (error "unmarshal: decimal masque strings like ~s aren't supported yet." actual))
+                        (let ((raw (gensym "MQ"))
+                              (checks) (sets)
+                              (const-mask (1- (ash 1 bits))))
+                          (flet ((group (char)
+                                   ;; width and bit position (from the LSB) of mask group CHAR
+                                   (let ((ix (position (intern (string-upcase char) "KEYWORD") symbols)))
+                                     (unless ix
+                                       (error "unmarshal: group ~a not found in masque ~s." char actual))
+                                     (values (- (nth (1+ ix) segments) (nth ix segments))
+                                             (nth ix segments)))))
+                            ;; bits outside every group are the mask string's constant digits
+                            (loop :for s :in symbols :for ix :from 0 :when s
+                                  :do (setf const-mask
+                                            (logandc2 const-mask
+                                                      (ash (1- (ash 1 (- (nth (1+ ix) segments)
+                                                                         (nth ix segments))))
+                                                           (nth ix segments)))))
+                            (dolist (b bindings)
+                              (if (eq :binding (first b))
+                                  ;; static group, e.g. (p +goff-ptv-prefix+): check it against the constant
+                                  (destructuring-bind (char form) (second b)
+                                    (multiple-value-bind (w p) (group char)
+                                      (push `(unless (= (ldb (byte ,w 0) ,form) (ldb (byte ,w ,p) ,raw))
+                                               (error "unmarshal: masque ~s group ~a is ~a, expected ~a."
+                                                      ,actual ',char (ldb (byte ,w ,p) ,raw)
+                                                      (ldb (byte ,w 0) ,form)))
+                                            checks)))
+                                  ;; keyword group, e.g. (t :kind :u8): read it as a field
+                                  (destructuring-bind (&key name bind-to signed enumerate-by &allow-other-keys) b
+                                    (when name
+                                      (multiple-value-bind (w p) (group bind-to)
+                                        (let ((var (gensym (string name)))
+                                              (v   (gensym "V")))
+                                          (push (cons name var) vars)
+                                          (push `(setf ,var
+                                                       ,(interpret
+                                                         (if signed
+                                                             `(let ((,v (ldb (byte ,w ,p) ,raw)))
+                                                                (if (logbitp ,(1- w) ,v) (- ,v ,(ash 1 w)) ,v))
+                                                             `(ldb (byte ,w ,p) ,raw))
+                                                         enumerate-by))
+                                                sets)))))))
+                            (push `(let ((,raw (funcall (aref ,dsym ,swap-by) ,cursor ,length nil ,src)))
+                                     (unless (= ,base (logand ,const-mask ,raw))
+                                       (error "unmarshal: constant bits of masque ~s don't match (read #x~x)."
+                                              ,actual ,raw))
+                                     ,@(reverse checks)
+                                     ,@(reverse sets))
+                                  reads)
+                            (push `(incf ,cursor ,length) reads)))))
+                     (t
+                      (cond
+                        ((member :vec subtypes)
+                         (let* ((var   (gensym (string (or name :vec))))
+                                (bits  (* length (ash 1 (+ 3 (getf config :unit-spec)))))
+                                (etype (cond (enumerate-by t)
+                                             (signed `(signed-byte ,bits))
+                                             (t      `(unsigned-byte ,bits))))
+                                (n (gensym "N")) (v (gensym "V")) (i (gensym "I")))
+                           (when name (push (cons name var) vars))
+                           ;; unnamed vecs are still read so the cursor advances
+                           (push `(setf ,var
+                                        (let* ((,n ,(vec-count-form name count length))
+                                               (,v (make-array ,n :element-type ',etype)))
+                                          (dotimes (,i ,n ,v)
+                                            (setf (aref ,v ,i)
+                                                  ,(interpret `(funcall (aref ,dsym ,swap-by)
+                                                                        (+ ,cursor (* ,i ,length)) ,length ,signed ,src)
+                                                              enumerate-by)))))
+                                 reads)
+                           (push `(incf ,cursor (* (length ,var) ,length)) reads)))
+                        (t
+                         (when name ;; (and name (or (member name keys)))
+                          (let ((var (gensym (string name))))
+                            (push (cons name var) vars)
+                            (push `(setf ,var ,(interpret `(funcall (aref ,dsym ,swap-by)
+                                                                    ,cursor ,length ,signed ,src)
+                                                          enumerate-by))
+                                  reads)))
+                         (push (list 'incf cursor length) reads))))))))
+        
+        (dolist (item (rest spec)) (process-item item))
 
         ;; (dolist (k keys)
         ;;   (unless (assoc k vars) (error "unmarshal: no field ~a in manifest ~a." k name)))
 
-        (print vars)
         `(let* ((,src ,source)
                 (,dsym (vector ,@(coerce dvector 'list)))
                 ,@(and (not (getf params :-+sub-lexicon+-))
                        (list (list cursor 0)))
                 ,@(mapcar #'rest vars))
            ,@(reverse reads)
-           (values ,@(if in-keys (mapcar (lambda (k) (rest (assoc k vars))) keys)
-                         (loop :for key :in all-keys :append (list key (rest (assoc key vars))))
-                         )))))))
+           ,(cons (if in-keys 'values 'list)
+                  (if in-keys (mapcar (lambda (k) (rest (assoc k vars))) keys)
+                      (loop :for key :in all-keys :append (list key (rest (assoc key vars)))))))))))
 
 #|
 

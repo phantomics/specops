@@ -43,7 +43,7 @@
 (defmanifest png-ihdr-chunk (:unit 8 :endian :big)
   (:length (:u 4) :slot (:length-of :png-ihdr))
   (span :type+data
-    (:type (:u 1 :vec))
+    (:type (:u 1 :vec) :count 4)
     (manifest :png-ihdr png-ihdr))
   (:crc (:u 4) :default 0 :slot (:checksum-of :type+data :by #'crc)))
 
@@ -51,7 +51,7 @@
 (defmanifest png-idat-chunk (:unit 8 :endian :big)
   (:length (:u 4) :slot (:length-of :data))
   (span :type+data
-    (:type (:u 1 :vec))
+    (:type (:u 1 :vec) :count 4)
     (:data (:u 1 :vec)))
   (:crc (:u 4) :default 0 :slot (:checksum-of :type+data :by #'crc)))
 
@@ -59,7 +59,7 @@
 (defmanifest png-iend-chunk (:unit 8 :endian :big)
   (:length (:u 4) :slot (:length-of :data))
   (span :type+data
-    (:type (:u 1 :vec))
+    (:type (:u 1 :vec) :count 4)
     (:data (:u 1 :vec)))
   (:crc (:u 4) :default 0 :slot (:checksum-of :type+data :by #'crc)))
 
@@ -206,7 +206,7 @@ prints a report."
 by unmarshal with the values that were marshalled. Returns T if all pass."
   (let ((results nil))
     (flet ((check (label got want)
-             (let ((ok (equal got want)))
+             (let ((ok (equalp got want)))
                (push ok results)
                (format t "~&  ~:[FAIL~;ok  ~]  ~a~%" ok label)
                (unless ok
@@ -218,8 +218,9 @@ by unmarshal with the values that were marshalled. Returns T if all pass."
         (marshal png-ihdr buf :width 640 :height 480 :bit-depth 8
                               :color-type :rgba :interlace :adam7)
         (check "png-ihdr, all fields in manifest order (enums decoded)"
-               (multiple-value-list (unmarshal png-ihdr buf))
-               '(640 480 8 :rgba 0 0 :adam7))
+               (unmarshal png-ihdr buf)
+               '(:width 640 :height 480 :bit-depth 8 :color-type :rgba
+                 :compression 0 :filter 0 :interlace :adam7))
         (check "png-ihdr, :height alone (skips :width)"
                (multiple-value-list (unmarshal png-ihdr buf nil :height))
                '(480))
@@ -243,12 +244,107 @@ by unmarshal with the values that were marshalled. Returns T if all pass."
                (coerce buf 'list)
                '(#xFF #xFE  #x02 #x01  #xD4 #xFE #xFF #xFF  7))
         (check "unmarshal-probe, all fields (signed BE, unsigned LE, signed LE)"
-               (multiple-value-list (unmarshal unmarshal-probe buf))
-               '(-2 #x0102 -300 7))
+               (unmarshal unmarshal-probe buf)
+               '(:a -2 :b #x0102 :c -300 :d 7))
         (check "unmarshal-probe, :d alone (cursor passes three fields)"
                (multiple-value-list (unmarshal unmarshal-probe buf nil :d))
                '(7))))
     (let ((pass (every #'identity results)))
       (format t "~&unmarshal checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
+              pass (count t results) (length results))
+      pass)))
+
+;;; ===========================================================================
+;;; Part E — unmarshal checks for chunks: spans, vectors, sub-manifests
+;;; ===========================================================================
+
+;; A sub-manifest between two scalars, to check the shared cursor moves through it.
+(defmanifest nest-probe (:unit 8 :endian :big)
+  (:marker  :u8 :default 0)
+  (manifest :ihdr png-ihdr)
+  (:trailer :u8 :default 0))
+
+;; One more level of nesting, to check the sub-lexicon is passed down.
+(defmanifest nest-probe2 (:unit 8 :endian :big)
+  (:head :u8 :default 0)
+  (manifest :inner nest-probe))
+
+(defun run-chunk-unmarshal-demo ()
+  "Unmarshal PNG chunks out of the marshalled 1x1 PNG, plus nested probes.
+Returns T if all checks pass."
+  (let* ((results nil)
+         (png  (make-1x1-png))
+         (blob (zlib-store (->bytes (vector 0 255 0 0))))
+         (ihdr-chunk (subseq png 8 33))    ; 4 len + 4 type + 13 body + 4 crc
+         (idat-chunk (subseq png 33 60))   ; 4 len + 4 type + 15 data + 4 crc
+         (iend-chunk (subseq png 60 72)))  ; 4 len + 4 type + 0 data + 4 crc
+    (flet ((check (label got want)
+             (let ((ok (equalp got want)))
+               (push ok results)
+               (format t "~&  ~:[FAIL~;ok  ~]  ~a~%" ok label)
+               (unless ok
+                 (format t "~&          got  ~s~%          want ~s~%" got want)))))
+      (format t "~&chunk unmarshal checks:~%")
+
+      ;; 1. IDAT: span, fixed-count :type, :data counted by the :length field.
+      (check "IDAT, all fields"
+             (unmarshal png-idat-chunk idat-chunk)
+             (list :length 15 :type +png-type-idat+ :data blob
+                   :crc (rd-u32-be idat-chunk 23)))
+      (check "IDAT, :data alone (count taken from unrequested :length)"
+             (unmarshal png-idat-chunk idat-chunk nil :data)
+             blob)
+      (check "IDAT, :type :length (out of order)"
+             (multiple-value-list (unmarshal png-idat-chunk idat-chunk nil :type :length))
+             (list +png-type-idat+ 15))
+      (check "IDAT, stored :crc matches recomputed CRC over type+data"
+             (unmarshal png-idat-chunk idat-chunk nil :crc)
+             (crc idat-chunk 4 23))
+
+      ;; 2. IEND: zero-length :data.
+      (check "IEND, all fields (empty :data)"
+             (unmarshal png-iend-chunk iend-chunk)
+             (list :length 0 :type +png-type-iend+ :data #()
+                   :crc (rd-u32-be iend-chunk 8)))
+
+      ;; 3. Sub-manifest between scalars.
+      (let ((buf (ub8 15)))
+        (marshal nest-probe buf :marker 238
+                                :ihdr (:width 640 :height 480 :bit-depth 8
+                                       :color-type :rgba :interlace :adam7)
+                                :trailer 170)
+        (check "nest-probe, all fields (nested plist)"
+               (unmarshal nest-probe buf)
+               '(:marker 238
+                 :ihdr (:width 640 :height 480 :bit-depth 8 :color-type :rgba
+                        :compression 0 :filter 0 :interlace :adam7)
+                 :trailer 170))
+        (check "nest-probe, :trailer alone (cursor passes the sub-manifest)"
+               (unmarshal nest-probe buf nil :trailer)
+               170))
+
+      ;; 4. Two levels of nesting.
+      (let ((buf (ub8 16)))
+        (marshal nest-probe2 buf :head 9
+                                 :inner (:marker 238
+                                         :ihdr (:width 1 :height 2 :color-type :rgb)
+                                         :trailer 170))
+        (check "nest-probe2, two levels"
+               (unmarshal nest-probe2 buf)
+               '(:head 9
+                 :inner (:marker 238
+                         :ihdr (:width 1 :height 2 :bit-depth 8 :color-type :rgb
+                                :compression 0 :filter 0 :interlace :none)
+                         :trailer 170))))
+
+      ;; 5. IHDR chunk: span containing a sub-manifest.
+      (check "IHDR chunk, all fields (span + sub-manifest)"
+             (unmarshal png-ihdr-chunk ihdr-chunk)
+             (list :length 13 :type +png-type-ihdr+
+                   :png-ihdr '(:width 1 :height 1 :bit-depth 8 :color-type :rgb
+                               :compression 0 :filter 0 :interlace :none)
+                   :crc (rd-u32-be ihdr-chunk 21))))
+    (let ((pass (every #'identity results)))
+      (format t "~&chunk unmarshal checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
               pass (count t results) (length results))
       pass)))
