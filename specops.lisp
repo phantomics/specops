@@ -94,24 +94,6 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                              dc-width)))))
           (t (error "Attempted to serialize incompatible value - must be an integer, a vector or a pair indicating integer value and encoding width.")))))))
 
-(defun deserializer-for (&optional (unit-power 0) (swap-by 0))
-  (let* ((unit (ash 1 (+ 3 unit-power)))
-         (mask (1- (ash 1 unit))))
-    (lambda (index collected)
-      (typecase collected
-        (integer (logand mask (ash collected (* unit index))))
-        (vector  (let* ((vtype (array-element-type collected))
-                        (vunit (if (listp vtype) (second vtype)
-                                   (error "Incompatible type for collection array."))))
-                   (if (= unit vunit) (aref collected index)
-                       (let* ((vshft (floor (log vunit 2)))
-                              (ushft (floor (log  unit 2)))
-                              (start-at (ash index (- vshft ushft)))
-                              (output 0))
-                         (loop :for i :below (1+ (abs (- vshft ushft)))
-                               :do (incf output (ash (aref collected (+ start-at i))
-                                                     (ash i vshft))))))))))))
-
 ;; (defun make-array-writer (array &key num-width)
 ;;   (lambda (offset &rest numbers)
 ;;     (let ((width) (mask) (count 0) (eltype (array-element-type array)))
@@ -787,44 +769,176 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
               ;; (print (list :v ,values))
               ))))
 
+
+;; (integer (let ((output 0))
+;;            (loop :for i :below length :do
+;;              (setf output (ash output unit-power))
+;;              (incf output (logand mask (ash collected (- (* unit index))))))
+;;            output))
+
+;; (defun deserializer-for (&optional (unit-power 0) (swap-by 0))
+;;   (let* ((unit (ash 1 (+ 3 unit-power)))
+;;          (mask (1- (ash 1 unit))))
+;;     (lambda (index length collected)
+;;       (typecase collected
+;;         (integer
+;;          ;; INDEX counts units from the least-significant end of COLLECTED; the field
+;;          ;; occupies units INDEX .. INDEX+LENGTH-1, with earlier stream units being the
+;;          ;; more significant. The extracted bits are therefore the MSB-first
+;;          ;; composition serializer-for emitted, i.e. (swap-segments value ...).
+;;          ;; swap-segments reverses segment order, so applying it again restores VALUE.
+;;          (let ((units (find-width collected unit)))
+;;            (swap-segments (ldb (byte (- units index length)) ;; (byte (* unit length) (* unit index))
+;;                                collected)
+;;                           (ash length unit-power)
+;;                           swap-by)))
+;;         (vector  (let* ((vtype (array-element-type collected))
+;;                         (vunit (if (listp vtype) (second vtype)
+;;                                    (error "Incompatible type for collection array."))))
+;;                    (if (= unit vunit)
+;;                        ;; (aref collected index)
+;;                        (swap-segments (ldb (byte (* unit length) (* unit index))
+;;                                            (aref collected index))
+;;                                       (ash length unit-power)
+;;                                       swap-by))
+;;                        (let* ((vshft (floor (log vunit 2)))
+;;                               (ushft (floor (log  unit 2)))
+;;                               (start-at (ash index (- vshft ushft)))
+;;                               (output 0))
+;;                          (loop :for i :below (1+ (abs (- vshft ushft)))
+;;                                :do (incf output (ash (aref collected (+ start-at i))
+;;                                                      (ash i vshft))))
+;;                          output))))))))
+
+(defun deserializer-for (&optional (unit-power 0) (swap-by 0))
+  (let ((unit (ash 1 (+ 3 unit-power))))
+    (labels ((finish (raw length signed)
+               (let ((v    (swap-segments raw (ash length unit-power) swap-by))
+                     (bits (* unit length)))
+                 (if (and signed (plusp bits) (logbitp (1- bits) v))
+                     (- v (ash 1 bits))
+                     v)))
+             (extract (value units index length signed)
+               ;; VALUE holds UNITS units in stream order (most significant first).
+               ;; INDEX counts units from the most-significant end; the field spans
+               ;; units INDEX .. INDEX+LENGTH-1. START is the field's lowest unit
+               ;; counted from the least-significant end.
+               (let ((start (- units index length)))
+                 (when (or (minusp index) (minusp start))
+                   (error "Field at unit ~a (length ~a) exceeds the ~a-unit source."
+                          index length units))
+                 ;; the extracted bits are the MSB-first composition serializer-for
+                 ;; emitted, i.e. (swap-segments value ...); applying it again restores it
+                 ;; (funcall (lambda (v)
+                 ;;            (if (and signed (logbitp (1- (* unit length)) v))
+                 ;;                (- v (ash 1 (* unit length)))
+                 ;;                v))
+                 (finish (ldb (byte (* unit length) (* unit start)) value) length signed)
+                 ;; (swap-segments 
+                 ;;                ;; (ldb (byte (* unit length) (* unit start)) value)
+                 ;;                (ash length unit-power)
+                 ;;                swap-by)
+                 )))
+      (lambda (index length signed collected)
+        (typecase collected
+          ;; (units . integer): explicit unit count, so leading zero units are kept
+          (cons (destructuring-bind (units . value) collected
+                  (unless (integerp value)
+                    (error "Source ~a must be (units . integer)." collected))
+                  (when (> (find-width value unit) units)
+                    (error "Source value ~a exceeds its declared ~a unit(s)." value units))
+                  (extract value units index length signed)))
+          ;; bare integer: unit count inferred, so leading zero units are lost —
+          ;; only reliable when the first unit is nonzero
+          (integer (extract collected (find-width collected unit) index length signed))
+          ;; vector: length is intrinsic; compose elements MSB-first, then unswap
+          (vector
+           (let* ((raw 0)
+                  (vtype (array-element-type collected))
+                  (vunit (if (listp vtype) (second vtype)
+                             (error "Incompatible type for collection array."))))
+             (when (/= unit vunit)
+               (error "Mismatched unit widths.")) ;; add handler later
+             (loop :for i :below length
+                   :do (setf raw (logior (ash raw unit) (aref collected (+ index i)))))
+             ;; (swap-segments raw (ash length unit-power) swap-by)
+             (finish raw length signed)
+             )))))))
+
+
 (defun enumerated (value form)
   (loop :for (key val) :on (rest form) :by #'cddr :when (equalp val value) :return key))
 
-(defmacro unmarshal (name source &rest keys)
+(defmacro unmarshal (name source &optional params &rest keys)
   (let* ((spec (gethash name *manifests*))
          (config (and (eq :config (getf (first spec) :type))
                       (first spec)))
-         (keys (or keys (loop :for item :in (rest spec) :when (member :name item)
-                              :collect (getf item :name))))
-         (dslist `((deserializer-for ,(getf config :unit-spec) 0)))
-         (offset 0) (dsym (gensym "DS"))
-         (fields) (output))
+         (all-keys (loop :for item :in (rest spec) :collect (getf item :name)))
+         (in-keys keys)
+         (keys (or keys all-keys))
+         (dvector (make-array 4 :initial-element nil))
+         (dsym (gensym "DS"))
+         sub-lexicon prefix cursor)
     
-    (loop :for item :in (rest spec) :when (member (getf item :name) keys)
-          :do (setf (getf fields (getf item :name))           item
-                    (getf (getf fields (getf item :name)) :xoffset) offset)
-              (incf offset (or (getf item :length) 1)))
+    (if (getf params :-+sub-lexicon+-)
+        (destructuring-bind (&key cr-sym pr-sym) (getf params :-+sub-lexicon+-)
+          (setf cursor cr-sym prefix pr-sym sub-lexicon (getf params :-+sub-lexicon+-)))
+        (setf cursor (gensym "CR")
+              ;; dsym   (gensym "DS")
+              sub-lexicon (list :cr-sym cursor :ds-sym dsym)))
+          
+    ;; (loop :for item :in (rest spec) :do (setf (getf fields (getf item :name)) item))
 
     ;; (print (list :ff fields keys))
     
     (flet ((interpret (form enumerate-by)
              (cond
                (enumerate-by `(enumerated ,form (gethash ',enumerate-by *enums*)))
-               (t form))))
-      
-      (dolist (key keys)
-        (destructuring-bind (&key name type kind signed (swap-by 0) upto default offset
-                               count actual bindings with length encode-by end-by
-                               type-indicator type-conditions xoffset
-                               slot enumerate-by subtypes items)
-            (getf fields key)
+               (t form)))
+           (qualify (name)
+             (if (not (and prefix name))
+                 name (intern (format nil "~a/~a" prefix name) :keyword))))
+             
 
-          (push (case type
-                  (t (interpret `(funcall (aref ,dsym 0) ,xoffset ,source)
-                                enumerate-by)))
-                output)))
-      `(let ((,dsym ,(cons 'vector dslist)))
-         ,(cons 'list (reverse output))))))
+      (let ((vars) (reads) (src (gensym "SRC")))
+        (dolist (item (rest spec)) 
+          (destructuring-bind (&key name type length signed (swap-by 0)
+                                 enumerate-by actual &allow-other-keys)
+              item
+            (when (member type '(:span)) ;; :manifest))
+              (error "unmarshal: ~a fields not yet supported." type))
+
+            (unless (aref dvector swap-by)
+              (setf (aref dvector swap-by) `(deserializer-for ,(getf config :unit-spec) ,swap-by)))
+
+            (case type
+              (:manifest
+               (push
+                (list 'list (macroexpand (list 'unmarshal (first actual) src
+                                               (list :-+sub-lexicon+-
+                                                     (list* :pr-sym (qualify name) sub-lexicon)))))
+                reads))
+              (t (when (and name (member name keys))
+                   (let ((var (gensym (string name))))
+                     (push (cons name var) vars)
+                     (push `(setf ,var ,(interpret `(funcall (aref ,dsym ,swap-by) ,cursor ,length ,signed ,src)
+                                                   enumerate-by))
+                           reads)))
+               (push (list 'incf cursor length) reads)))))
+
+        ;; (dolist (k keys)
+        ;;   (unless (assoc k vars) (error "unmarshal: no field ~a in manifest ~a." k name)))
+
+        (print vars)
+        `(let* ((,src ,source)
+                (,dsym (vector ,@(coerce dvector 'list)))
+                ,@(and (not (getf params :-+sub-lexicon+-))
+                       (list (list cursor 0)))
+                ,@(mapcar #'rest vars))
+           ,@(reverse reads)
+           (values ,@(if in-keys (mapcar (lambda (k) (rest (assoc k vars))) keys)
+                         (loop :for key :in all-keys :append (list key (rest (assoc key vars))))
+                         )))))))
 
 #|
 

@@ -186,3 +186,69 @@ prints a report."
     (format t "~&Marshalled 1x1 PNG, ~a bytes:~% ~a~%" (length png) png)
     (verify-png png)
     png))
+
+;;; ===========================================================================
+;;; Part D — unmarshal checks (flat, fixed-width manifests)
+;;; ===========================================================================
+
+;; Mixed signedness and per-field endianness, for exercising the deserializers.
+(defmanifest unmarshal-probe (:unit 8 :endian :big)
+  (:a (:s 2) :default 0)                  ; signed, big-endian
+  (:b (:u 2) :default 0 :endian :little)  ; unsigned, little-endian
+  (:c (:s 4) :default 0 :endian :little)  ; signed, little-endian
+  (:d :u8    :default 0))                 ; trailing byte, checks the cursor advanced
+
+(defun ub8 (n)
+  (make-array n :element-type '(unsigned-byte 8) :initial-element 0))
+
+(defun run-unmarshal-demo ()
+  "Exercise unmarshal on flat manifests. Each check compares the values returned
+by unmarshal with the values that were marshalled. Returns T if all pass."
+  (let ((results nil))
+    (flet ((check (label got want)
+             (let ((ok (equal got want)))
+               (push ok results)
+               (format t "~&  ~:[FAIL~;ok  ~]  ~a~%" ok label)
+               (unless ok
+                 (format t "~&          got  ~s~%          want ~s~%" got want)))))
+      (format t "~&unmarshal checks:~%")
+
+      ;; 1. Round trip a png-ihdr body with distinct field values.
+      (let ((buf (ub8 13)))
+        (marshal png-ihdr buf :width 640 :height 480 :bit-depth 8
+                              :color-type :rgba :interlace :adam7)
+        (check "png-ihdr, all fields in manifest order (enums decoded)"
+               (multiple-value-list (unmarshal png-ihdr buf))
+               '(640 480 8 :rgba 0 0 :adam7))
+        (check "png-ihdr, :height alone (skips :width)"
+               (multiple-value-list (unmarshal png-ihdr buf nil :height))
+               '(480))
+        (check "png-ihdr, :interlace :width (out of order, returned in call order)"
+               (multiple-value-list (unmarshal png-ihdr buf nil :interlace :width))
+               '(:adam7 640))
+        (check "png-ihdr, :color-type alone (enum decode mid-record)"
+               (multiple-value-list (unmarshal png-ihdr buf nil :color-type))
+               '(:rgba)))
+
+      ;; 2. Read the IHDR body out of the demo PNG (bytes 16..28).
+      (let ((ihdr (subseq (make-1x1-png) 16 29)))
+        (check "IHDR body from the marshalled 1x1 PNG"
+               (multiple-value-list (unmarshal png-ihdr ihdr nil :width :height :color-type))
+               '(1 1 :rgb)))
+
+      ;; 3. Signed values and per-field endianness.
+      (let ((buf (ub8 9)))
+        (marshal unmarshal-probe buf :a -2 :b #x0102 :c -300 :d 7)
+        (check "marshalled bytes for unmarshal-probe"
+               (coerce buf 'list)
+               '(#xFF #xFE  #x02 #x01  #xD4 #xFE #xFF #xFF  7))
+        (check "unmarshal-probe, all fields (signed BE, unsigned LE, signed LE)"
+               (multiple-value-list (unmarshal unmarshal-probe buf))
+               '(-2 #x0102 -300 7))
+        (check "unmarshal-probe, :d alone (cursor passes three fields)"
+               (multiple-value-list (unmarshal unmarshal-probe buf nil :d))
+               '(7))))
+    (let ((pass (every #'identity results)))
+      (format t "~&unmarshal checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
+              pass (count t results) (length results))
+      pass)))
