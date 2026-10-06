@@ -23,7 +23,7 @@
       (format t "#x~8,'0x " c))))
 |#
 
-(defconstant +crc-table+
+(defvar +crc-table+
   (make-array
    256
    :element-type '(unsigned-byte 32)

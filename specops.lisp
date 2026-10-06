@@ -453,13 +453,16 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                                         :swap-by swap-by)
                                             ;; might need it for nonzero padding
                                             accumulator))))
-                             (str (destructuring-bind (actual &key encode-by length terminated-by) (rest f)
+                             (str (destructuring-bind (actual &key codec encode-by length end-by)
+                                      (rest f)
                                     (let ((count (* (length actual) (or length 1))))
                                       (push (list 'list :type :string :actual actual :swap-by swap-by
-                                                        :terminated-by terminated-by :length count
-                                                        :encode-by (list 'quote encode-by))
+                                                        :end-by end-by :length count
+                                                        ;; :index (+ (length actual) (if end-by 1 0))
+                                                        :encode-by (list 'quote encode-by)
+                                                        :codec (list 'quote codec))
                                             accumulator)
-                                      (incf index count))))
+                                      (incf index (+ count (if end-by 1 0))))))
                              (masque (destructuring-bind (spec-string &rest bindings) (rest f)
                                        (let ((bindings-out))
                                          (dolist (b bindings)
@@ -599,17 +602,24 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
              (masque-binder (b)
                (if (eq :binding (first b))
                    (second b)
-                   (destructuring-bind (&key bind-to &allow-other-keys) b
-                     (list (getf b :bind-to) (or (getf pairs (getf b :name)) 0)))))
+                   (destructuring-bind (&key name bind-to default enumerate-by &allow-other-keys) b
+                     (list bind-to
+                           (or (enumerate enumerate-by (getf pairs name))
+                               default
+                               (error "Masque field ~a not specified." name))))))
              (enumerate (table-name value)
-               (if (not table-name)
-                   value (let ((table (gethash table-name *enums*)))
-                           (typecase value
-                             (keyword (getf (rest table) value))))))
+               (cond ((not table-name) value)
+                     ((keywordp value)                      ; literal, resolve now
+                      (or (getf (rest (gethash table-name *enums*)) value)
+                          (error "~a is not a member of enum ~a." value table-name)))
+                     ((or (null value) (constantp value)) value)   ; nil or a literal number
+                     (t (let ((v (gensym "V")))             ; runtime form, resolve when it runs
+                          `(let ((,v ,value))
+                             (if (keywordp ,v) (getf (rest (gethash ',table-name *enums*)) ,v) ,v))))))
              (generate (item &optional context)
                (destructuring-bind (&key name type kind signed (swap-by 0) upto default offset
                                       count actual bindings with length encode-by end-by
-                                      type-indicator type-conditions
+                                      type-indicator type-conditions codec
                                       slot enumerate-by subtypes items)
                    item
                  (let ((qname (qualify name)))
@@ -625,14 +635,21 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                  :do (funcall (aref ,serializers ,swap-by) ,with ,enter))
                            (assert (<= ,index ,olength) ()
                                    "Out of bounds.")))
-                   (:string `(,qname
-                              (funcall (aref ,serializers 0)
-                                       ;; strings always use 0-swap for reasons given above
-                                       (funcall ,(or encode-by '#'identity) ,actual)
-                                       ,enter)
-                              ,@(when end-by `((funcall (aref ,serializers 0)
-                                                        (funcall ,(or encode-by '#'identity) ,actual)
-                                                        ,end-by)))))
+                   ;; (:string `(,qname
+                   ;;            (funcall (aref ,serializers 0)
+                   ;;                     ;; strings always use 0-swap for reasons given above
+                   ;;                     (funcall ,(or encode-by '#'identity) ,actual)
+                   ;;                     ,enter)
+                   ;;            ,@(when end-by `((funcall (aref ,serializers 0)
+                   ;;                                      (funcall ,(or encode-by '#'identity) ,actual)
+                   ;;                                      ,end-by)))))
+                   (:string
+                    `(,qname
+                      (loop :for ch :across ,actual
+                            :do (funcall (aref ,serializers 0)
+                                         ,(if codec `(funcall ,codec ch) '(char-code ch))
+                                         ,enter))
+                      ,@(when end-by `((funcall (aref ,serializers 0) ,end-by ,enter)))))
                    (:masque `(:-masque
                               (funcall (aref ,serializers ,swap-by)
                                        ;; (masque ,actual ,@(mapcar #'masque-binder bindings))
@@ -890,7 +907,8 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                    (give :count or a :length-of slot)." name))))
                (process-item (item)
                  (destructuring-bind (&key name type subtypes length signed (swap-by 0)
-                                        count items enumerate-by actual bindings &allow-other-keys)
+                                        count items enumerate-by actual codec end-by
+                                        bindings &allow-other-keys)
                      item
                    (when nil ;; (member type '(:span)) ;; :manifest))
                      (error "unmarshal: ~a fields not yet supported." type))
@@ -923,6 +941,20 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                               reads)))
                      (:span
                       (loop :for item :in items :do (process-item item)))
+                     (:string
+                      (let ((i (gensym "I")) (got (gensym "G")))
+                        (push `(loop :for ch :across ,actual :for ,i :from 0
+                                     :for ,got := (funcall (aref ,dsym 0) (+ ,cursor ,i) 1 nil ,src)
+                                     :unless (eql ,got ,(if codec `(funcall ,codec ch) '(char-code ch)))
+                                       :do (error "unmarshal: expected ~s at unit ~a, read #x~x."
+                                                  ,actual (+ ,cursor ,i) ,got))
+                              reads)
+                        (when end-by
+                          (push `(unless (eql ,end-by (funcall (aref ,dsym 0)
+                                                               (+ ,cursor ,(length actual)) 1 nil ,src))
+                                   (error "unmarshal: missing terminator after ~s." ,actual))
+                                reads))
+                        (push `(incf ,cursor ,(+ (length actual) (if end-by 1 0))) reads)))
                      (:masque
                       (multiple-value-bind (base segments symbols bits) (quantify-mask-string actual nil)
                         (when (= 1 (first segments))

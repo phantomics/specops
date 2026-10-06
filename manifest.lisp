@@ -17,9 +17,6 @@
   (coerce seq '(simple-array (unsigned-byte 8) (*))))
 
 (defparameter +png-signature+ (->bytes #(137 80 78 71 13 10 26 10)))
-(defparameter +png-type-ihdr+ (->bytes #(73 72 68 82)))  ; "IHDR"
-(defparameter +png-type-idat+ (->bytes #(73 68 65 84)))  ; "IDAT"
-(defparameter +png-type-iend+ (->bytes #(73 69 78 68)))  ; "IEND"
 
 ;;; ===========================================================================
 ;;; Part A — PNG manifests
@@ -43,7 +40,7 @@
 (defmanifest png-ihdr-chunk (:unit 8 :endian :big)
   (:length (:u 4) :slot (:length-of :png-ihdr))
   (span :type+data
-    (:type (:u 1 :vec) :count 4)
+    (str "IHDR")
     (manifest :png-ihdr png-ihdr))
   (:crc (:u 4) :default 0 :slot (:checksum-of :type+data :by #'crc)))
 
@@ -51,7 +48,7 @@
 (defmanifest png-idat-chunk (:unit 8 :endian :big)
   (:length (:u 4) :slot (:length-of :data))
   (span :type+data
-    (:type (:u 1 :vec) :count 4)
+    (str "IDAT")
     (:data (:u 1 :vec)))
   (:crc (:u 4) :default 0 :slot (:checksum-of :type+data :by #'crc)))
 
@@ -59,13 +56,13 @@
 (defmanifest png-iend-chunk (:unit 8 :endian :big)
   (:length (:u 4) :slot (:length-of :data))
   (span :type+data
-    (:type (:u 1 :vec) :count 4)
+    (str "IEND")
     (:data (:u 1 :vec)))
   (:crc (:u 4) :default 0 :slot (:checksum-of :type+data :by #'crc)))
 
 ;; Whole file: signature + chunks (each a sub-manifest instance).
 (defmanifest png-file (:unit 8 :endian :big)
-  (:signature (:u 1 :vec))
+  (:signature (:u 1 :vec) :count 8)
   (manifest :ihdr png-ihdr-chunk)
   (manifest :idat png-idat-chunk)
   (manifest :iend png-iend-chunk))
@@ -106,10 +103,9 @@ simple (unsigned-byte 8) vector."
         (buf  (make-array 512 :element-type '(unsigned-byte 8) :initial-element 0)))
     (let ((end (marshal png-file buf
                  :signature +png-signature+
-                 :ihdr (:type +png-type-ihdr+
-                        :png-ihdr (:width 1 :height 1 :bit-depth 8 :color-type :rgb))
-                 :idat (:type +png-type-idat+ :data idat)
-                 :iend (:type +png-type-iend+ :data #()))))
+                 :ihdr (:png-ihdr (:width 1 :height 1 :bit-depth 8 :color-type :rgb))
+                 :idat (:data idat)
+                 :iend (:data #()))))
       (subseq buf 0 end))))
 
 ;;; --- structural verifier (a hand reader; prototypes unmarshal) --------------
@@ -286,17 +282,17 @@ Returns T if all checks pass."
                  (format t "~&          got  ~s~%          want ~s~%" got want)))))
       (format t "~&chunk unmarshal checks:~%")
 
-      ;; 1. IDAT: span, fixed-count :type, :data counted by the :length field.
+      ;; 1. IDAT: span, constant "IDAT" tag, :data counted by the :length field.
       (check "IDAT, all fields"
              (unmarshal png-idat-chunk idat-chunk)
-             (list :length 15 :type +png-type-idat+ :data blob
+             (list :length 15 :data blob
                    :crc (rd-u32-be idat-chunk 23)))
       (check "IDAT, :data alone (count taken from unrequested :length)"
              (unmarshal png-idat-chunk idat-chunk nil :data)
              blob)
-      (check "IDAT, :type :length (out of order)"
-             (multiple-value-list (unmarshal png-idat-chunk idat-chunk nil :type :length))
-             (list +png-type-idat+ 15))
+      (check "IDAT, :data :length (out of order)"
+             (multiple-value-list (unmarshal png-idat-chunk idat-chunk nil :data :length))
+             (list blob 15))
       (check "IDAT, stored :crc matches recomputed CRC over type+data"
              (unmarshal png-idat-chunk idat-chunk nil :crc)
              (crc idat-chunk 4 23))
@@ -304,7 +300,7 @@ Returns T if all checks pass."
       ;; 2. IEND: zero-length :data.
       (check "IEND, all fields (empty :data)"
              (unmarshal png-iend-chunk iend-chunk)
-             (list :length 0 :type +png-type-iend+ :data #()
+             (list :length 0 :data #()
                    :crc (rd-u32-be iend-chunk 8)))
 
       ;; 3. Sub-manifest between scalars.
@@ -340,11 +336,177 @@ Returns T if all checks pass."
       ;; 5. IHDR chunk: span containing a sub-manifest.
       (check "IHDR chunk, all fields (span + sub-manifest)"
              (unmarshal png-ihdr-chunk ihdr-chunk)
-             (list :length 13 :type +png-type-ihdr+
+             (list :length 13
                    :png-ihdr '(:width 1 :height 1 :bit-depth 8 :color-type :rgb
                                :compression 0 :filter 0 :interlace :none)
                    :crc (rd-u32-be ihdr-chunk 21))))
     (let ((pass (every #'identity results)))
       (format t "~&chunk unmarshal checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
+              pass (count t results) (length results))
+      pass)))
+
+;;; ===========================================================================
+;;; Part F — masque fields: marshal and unmarshal
+;;; ===========================================================================
+
+;; A masque between two scalars: a static group P and a keyword group T.
+(defmanifest masque-probe (:unit 8 :endian :big)
+  (:lead :u8 :default 0)
+  (masque "h:pptt" (p #x03) (t :kind :u8 :default 0))
+  (:tail :u8 :default 0))
+
+;; Static group of zero, so the masque's leading byte is 0.
+(defmanifest masque-probe-zero (:unit 8 :endian :big)
+  (:lead :u8 :default 0)
+  (masque "h:pptt" (p #x00) (t :kind :u8 :default 0))
+  (:tail :u8 :default 0))
+
+;; An enum group and a signed group.
+(defmanifest masque-probe-typed (:unit 8 :endian :big)
+  (masque "h:aabb" (a :mode  :u8 :default 0 :enumerate-by png-color-type)
+                   (b :delta (:s 1) :default 0))
+  (:tail :u8 :default 0))
+
+(defun run-masque-demo ()
+  "Marshal and unmarshal masque fields. Returns T if all checks pass."
+  (let ((results nil))
+    (flet ((check (label got want)
+             (let ((ok (equalp got want)))
+               (push ok results)
+               (format t "~&  ~:[FAIL~;ok  ~]  ~a~%" ok label)
+               (unless ok
+                 (format t "~&          got  ~s~%          want ~s~%" got want)))))
+      (format t "~&masque checks:~%")
+
+      ;; 1. Static and keyword groups.
+      (let ((buf (ub8 4)))
+        (marshal masque-probe buf :lead 1 :kind 5 :tail 9)
+        (check "masque-probe, marshalled bytes"
+               (coerce buf 'list) '(1 3 5 9))
+        (check "masque-probe, all fields"
+               (unmarshal masque-probe buf)
+               '(:lead 1 :kind 5 :tail 9))
+        (check "masque-probe, :tail alone (cursor passes the masque)"
+               (unmarshal masque-probe buf nil :tail)
+               9)
+        (check "masque-probe, :kind alone"
+               (unmarshal masque-probe buf nil :kind)
+               5)
+        (let ((bad (copy-seq buf)))
+          (setf (aref bad 1) #x04)
+          (check "masque-probe, wrong static group signals an error"
+                 (handler-case (progn (unmarshal masque-probe bad) :no-error)
+                   (error () :error))
+                 :error)))
+
+      ;; 2. Keyword group omitted: its default is written.
+      (let ((buf (ub8 4)))
+        (marshal masque-probe buf :lead 1 :tail 9)
+        (check "masque-probe, omitted :kind uses its default"
+               (coerce buf 'list) '(1 3 0 9)))
+
+      ;; 3. Leading zero byte inside the masque.
+      (let ((buf (make-array 4 :element-type '(unsigned-byte 8) :initial-element #xEE)))
+        (marshal masque-probe-zero buf :lead 1 :kind 0 :tail 9)
+        (check "masque-probe-zero, marshalled bytes (leading zero kept)"
+               (coerce buf 'list) '(1 0 0 9))
+        (check "masque-probe-zero, all fields"
+               (unmarshal masque-probe-zero buf)
+               '(:lead 1 :kind 0 :tail 9)))
+
+      ;; 4. Enum and signed groups.
+      (let ((buf (ub8 3)))
+        (marshal masque-probe-typed buf :mode :rgba :delta -3 :tail 7)
+        (check "masque-probe-typed, marshalled bytes (enum 6, -3 as #xFD)"
+               (coerce buf 'list) '(6 #xFD 7))
+        (check "masque-probe-typed, all fields (enum decoded, sign extended)"
+               (unmarshal masque-probe-typed buf)
+               '(:mode :rgba :delta -3 :tail 7))))
+    (let ((pass (every #'identity results)))
+      (format t "~&masque checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
+              pass (count t results) (length results))
+      pass)))
+
+;;; ===========================================================================
+;;; Part G — constant strings: chunk tags, codecs, terminators
+;;; ===========================================================================
+
+;; Constant string encoded in EBCDIC (code page 037).
+(defmanifest ebcdic-probe (:unit 8 :endian :big)
+  (str "HELLO" :codec #'specops/format.ebcdic:ebcdic-code-cp037)
+  (:n :u8 :default 0))
+
+;; Constant string with a terminator byte.
+(defmanifest terminated-probe (:unit 8 :endian :big)
+  (str "AB" :end-by 0)
+  (:n :u8 :default 0))
+
+(defun signals-error-p (thunk)
+  (handler-case (progn (funcall thunk) nil)
+    (error () t)))
+
+(defun run-string-demo ()
+  "Marshal and unmarshal constant strings. Returns T if all checks pass."
+  (let ((results nil))
+    (flet ((check (label got want)
+             (let ((ok (equalp got want)))
+               (push ok results)
+               (format t "~&  ~:[FAIL~;ok  ~]  ~a~%" ok label)
+               (unless ok
+                 (format t "~&          got  ~s~%          want ~s~%" got want)))))
+      (format t "~&string checks:~%")
+
+      ;; 1. Chunk tags in the marshalled PNG.
+      (let* ((png  (make-1x1-png))
+             (idat (subseq png 33 60)))
+        (check "IHDR/IDAT/IEND tags written by constant str fields"
+               (list (map 'string #'code-char (subseq png 12 16))
+                     (map 'string #'code-char (subseq png 37 41))
+                     (map 'string #'code-char (subseq png 64 68)))
+               '("IHDR" "IDAT" "IEND"))
+        (let ((bad (copy-seq idat)))
+          (setf (aref bad 7) (char-code #\X))           ; "IDAT" -> "IDAX"
+          (check "IDAT with a corrupted tag signals an error"
+                 (signals-error-p (lambda () (unmarshal png-idat-chunk bad)))
+                 t))
+        (check "png-file, whole file read back"
+               (unmarshal png-file png)
+               (list :signature +png-signature+
+                     :ihdr (list :length 13
+                                 :png-ihdr '(:width 1 :height 1 :bit-depth 8 :color-type :rgb
+                                             :compression 0 :filter 0 :interlace :none)
+                                 :crc (rd-u32-be png 29))
+                     :idat (list :length 15 :data (subseq png 41 56) :crc (rd-u32-be png 56))
+                     :iend (list :length 0 :data #() :crc (rd-u32-be png 68)))))
+
+      ;; 2. EBCDIC codec.
+      (let ((buf (ub8 6)))
+        (marshal ebcdic-probe buf :n 7)
+        (check "ebcdic-probe, \"HELLO\" written in code page 037"
+               (coerce buf 'list) '(#xC8 #xC5 #xD3 #xD3 #xD6 7))
+        (check "ebcdic-probe, read back (string validated)"
+               (unmarshal ebcdic-probe buf)
+               '(:n 7))
+        (let ((bad (copy-seq buf)))
+          (setf (aref bad 0) (char-code #\H))           ; ASCII H, not EBCDIC
+          (check "ebcdic-probe, ASCII byte in place of EBCDIC signals an error"
+                 (signals-error-p (lambda () (unmarshal ebcdic-probe bad)))
+                 t)))
+
+      ;; 3. Terminator.
+      (let ((buf (ub8 4)))
+        (marshal terminated-probe buf :n 9)
+        (check "terminated-probe, bytes include the terminator"
+               (coerce buf 'list) '(#x41 #x42 0 9))
+        (check "terminated-probe, read back (cursor passes the terminator)"
+               (unmarshal terminated-probe buf)
+               '(:n 9))
+        (let ((bad (copy-seq buf)))
+          (setf (aref bad 2) 1)
+          (check "terminated-probe, missing terminator signals an error"
+                 (signals-error-p (lambda () (unmarshal terminated-probe bad)))
+                 t))))
+    (let ((pass (every #'identity results)))
+      (format t "~&string checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
               pass (count t results) (length results))
       pass)))

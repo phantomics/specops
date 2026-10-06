@@ -17,7 +17,7 @@
   :license  "BSD"
   :version "0.0.1"
   :serial t
-  :depends-on (#:specops)
+  :depends-on (#:specops #:specops/format.ebcdic)
   :components ((:file "manifest")))
 
 (asdf:defsystem #:specops/format.ebcdic
