@@ -440,19 +440,26 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                      (push (list 'list :type :span :name (second f)
                                                        :items (cons 'list (reverse sub-items)))
                                            accumulator)))
-                             (pad (destructuring-bind (with for-or-spec &optional spec-arg) (rest f)
-                                    (let ((count (if (integerp for-or-spec)
-                                                     for-or-spec (case for-or-spec
-                                                                   (:to (- spec-arg index))
-                                                                   ;; the align argument lets you align
-                                                                   ;; output to a given byte granularity
-                                                                   (:align (mod index spec-arg))))))
-                                      (incf index count)
-                                      (push (list 'list :type :pad :with with :length count
-                                                        :upto (and (eq :to for-or-spec) spec-arg)
-                                                        :swap-by swap-by)
-                                            ;; might need it for nonzero padding
-                                            accumulator))))
+                             (pad (destructuring-bind (with spec &optional n) (rest f)
+                                    (push (list 'list :type :pad :with with
+                                                      :mode (if (integerp spec) :count spec)
+                                                      ;; :count | :to | :align
+                                                      :n    (if (integerp spec) spec n)
+                                                      :swap-by swap-by)
+                                          accumulator)))
+                             ;; (pad (destructuring-bind (with for-or-spec &optional spec-arg) (rest f)
+                             ;;        (let ((count (if (integerp for-or-spec)
+                             ;;                         for-or-spec (case for-or-spec
+                             ;;                                       (:to (- spec-arg index))
+                             ;;                                       ;; the align argument lets you align
+                             ;;                                       ;; output to a given byte granularity
+                             ;;                                       (:align (mod index spec-arg))))))
+                             ;;          (incf index count)
+                             ;;          (push (list 'list :type :pad :with with :length count
+                             ;;                            :upto (and (eq :to for-or-spec) spec-arg)
+                             ;;                            :swap-by swap-by)
+                             ;;                ;; might need it for nonzero padding
+                             ;;                accumulator))))
                              (str (destructuring-bind (actual &key codec encode-by length end-by)
                                       (rest f)
                                     (let ((count (* (length actual) (or length 1))))
@@ -498,10 +505,9 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
         
         (dolist (f fields) (setf field-specs (process-entry f field-specs)))
 
-        (when (and length (< index length))
-          (push (list 'list :type :pad :with (or pad 0) :offset offset
-                            :swap-by swap-by :length (- length index))
-                field-specs))
+        (when length (push (list 'list :type :pad :with (or pad 0) :offset offset
+                                       :mode :to :n length :swap-by swap-by)
+                           field-specs))
         
         `(eval-when (:compile-toplevel :load-toplevel :execute)
            (setf (gethash ',name *manifests*)
@@ -523,31 +529,40 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                (funcall handler item))))
     output))
 
+(defun pad-count-form (mode n pos base)
+  (ecase mode
+    (:count n)
+    (:to    (let ((c (gensym "C")))
+              `(let ((,c (- (+ ,base ,n) ,pos)))
+                 (when (minusp ,c)
+                   (error "pad :to ~a overrun: already ~a units into the record." ,n (- ,pos ,base)))
+                 ,c)))
+    (:align `(mod (- ,n (mod ,pos ,n)) ,n))))          ; absolute position
+
 (defmacro marshal (name destination &body pairs)
   (let* ((spec (gethash name *manifests*))
          (params (first spec))
-         (regions) (slots) (slots-of)
-         (swap-specs) (offset)
-         (access) (enter) (index) (tell) (write) (prefix)
-         (values) (length) (serializers) (map) (b) (i) 
+         (base (gensym "BA"))
+         regions slots slots-of swap-specs offset access enter index tell write prefix
+         values length serializers map b i olength sub-lexicon)
          ;; (access (gensym "AC")) (enter (gensym "EN")) (index (gensym "IN"))
          ;; (tell (gensym "TL")) (write (gensym "WR")) (bindings-sym (gensym "BN"))
          ;; (values (gensym "VL")) (length (gensym "LN")) (serializers (gensym "SR"))
          ;; (map (gensym "MP")) (b (gensym "BB")) (i (gensym "II"))
-         (olength) (sub-lexicon))
 
     ;; populate the symbol lexicon or import it from an enclosing marshal macro
     (if (getf pairs :-+sub-lexicon+-)
-        (destructuring-bind (&key ac-sym en-sym in-sym tl-sym wr-sym pr-sym
+        (destructuring-bind (&key ac-sym en-sym ba-sym in-sym tl-sym wr-sym pr-sym
                                vl-sym ln-sym sr-sym mp-sym b-sym i-sym)
             (getf pairs :-+sub-lexicon+-)
-          (setf access ac-sym enter en-sym index in-sym tell tl-sym write wr-sym prefix pr-sym
+          (setf access ac-sym enter en-sym base ba-sym index in-sym tell tl-sym write wr-sym prefix pr-sym
                 values vl-sym length ln-sym serializers sr-sym map mp-sym b b-sym i i-sym
                 ;; propagate the same lexicon to deeper sub-manifests so nested
                 ;; inlining keeps sharing the top-level environment
                 sub-lexicon (getf pairs :-+sub-lexicon+-)))
         (setf access (gensym "AC")
               enter (gensym "EN")
+              ;; base  (gensym "BA")
               index (gensym "IN")
               tell (gensym "TL")
               write (gensym "WR")
@@ -558,8 +573,8 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
               map (gensym "MP")
               b (gensym "BB")
               i (gensym "II")
-              sub-lexicon (list :ac-sym access :en-sym enter :in-sym index :tl-sym tell
-                                :wr-sym write ;; :bn-sym bindings-sym
+              sub-lexicon (list :ac-sym access :en-sym enter :ba-sym base :in-sym index
+                                :tl-sym tell :wr-sym write ;; :bn-sym bindings-sym
                                 :vl-sym values :ln-sym length
                                 :sr-sym serializers :mp-sym map :b-sym b :i-sym i)))
 
@@ -620,7 +635,7 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                (destructuring-bind (&key name type kind signed (swap-by 0) upto default offset
                                       count actual bindings with length encode-by end-by
                                       type-indicator type-conditions codec
-                                      slot enumerate-by subtypes items)
+                                      slot enumerate-by subtypes items mode n)
                    item
                  (let ((qname (qualify name)))
                  
@@ -630,11 +645,14 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                  ;; (print (list :nn name context))
                  ;; types: ; :scalar | :pad | :masque | :bytes | :sized | :leb | :name | :slot
                  (case type
+                   ;; (:pad `(:-pad
+                   ;;         (loop :repeat ,(if (not upto) length `(max 0 (- ,upto ,index)))
+                   ;;               :do (funcall (aref ,serializers ,swap-by) ,with ,enter))
+                   ;;         (assert (<= ,index ,olength) ()
+                   ;;                 "Out of bounds.")))
                    (:pad `(:-pad
-                           (loop :repeat ,(if (not upto) length `(max 0 (- ,upto ,index)))
-                                 :do (funcall (aref ,serializers ,swap-by) ,with ,enter))
-                           (assert (<= ,index ,olength) ()
-                                   "Out of bounds.")))
+                           (loop :repeat ,(pad-count-form mode n index base)
+                                 :do (funcall (aref ,serializers ,swap-by) (cons 1 ,with) ,enter))))
                    ;; (:string `(,qname
                    ;;            (funcall (aref ,serializers 0)
                    ;;                     ;; strings always use 0-swap for reasons given above
@@ -747,16 +765,17 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
             :unless (member key regions)
               :do (error "Slot reference found with no matching region."))
       
-      (append (if (getf pairs :-+sub-lexicon+-) `(progn)
+      (append (if (getf pairs :-+sub-lexicon+-) `(let ((,base ,index)))
                   `(let* ((,access ,destination)
                           (,index ,(or offset 0))
+                          (,base ,index)
                           (,values) ;; (,bindings-sym)
                           ,@(if (getf params :length) `((,length ,(getf params :length))))
                           (,enter) (,tell) (,write) (,map)
                            (,serializers (make-array ,(1+ (reduce #'max swap-specs :initial-value 0)) :initial-element nil)))
 
                      (typecase ,access
-                       (function (setf ,enter (lambda (,b) (funcall ,access ,b))
+                       (function (setf ,enter (lambda (,b) (funcall ,access ,b) (incf ,index))
                                        ,tell  (lambda () ,index)))
                        (vector   (setf ,enter (lambda (,b) (setf (aref ,access ,index) ,b) (incf ,index))
                                        ,tell  (lambda () ,index)
@@ -872,14 +891,13 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
          (in-keys keys)
          (keys (or keys all-keys))
          (dvector (make-array 4 :initial-element nil))
-         (dsym (gensym "DS"))
+         (base (gensym "BA")) (dsym (gensym "DS"))
          sub-lexicon prefix cursor)
     
     (if (getf params :-+sub-lexicon+-)
-        (destructuring-bind (&key cr-sym pr-sym &allow-other-keys) (getf params :-+sub-lexicon+-)
+        (destructuring-bind (&key ba-sym cr-sym pr-sym &allow-other-keys) (getf params :-+sub-lexicon+-)
           (setf cursor cr-sym prefix pr-sym sub-lexicon (getf params :-+sub-lexicon+-)))
         (setf cursor (gensym "CR")
-              ;; dsym   (gensym "DS")
               sub-lexicon (list :cr-sym cursor :ds-sym dsym)))
           
     ;; (loop :for item :in (rest spec) :do (setf (getf fields (getf item :name)) item))
@@ -908,7 +926,7 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                (process-item (item)
                  (destructuring-bind (&key name type subtypes length signed (swap-by 0)
                                         count items enumerate-by actual codec end-by
-                                        bindings &allow-other-keys)
+                                        bindings mode n &allow-other-keys)
                      item
                    (when nil ;; (member type '(:span)) ;; :manifest))
                      (error "unmarshal: ~a fields not yet supported." type))
@@ -924,6 +942,7 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                      ;;                            (list :-+sub-lexicon+-
                      ;;                                  (list* :pr-sym (qualify name) sub-lexicon)))))
                      ;;   reads))
+                     (:pad (push `(incf ,cursor ,(pad-count-form mode n cursor base)) reads))
                      (:manifest
                       (let* ((sub-name (first actual))
                              (sub-spec (gethash sub-name *manifests*))
@@ -1046,6 +1065,7 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
         ;;   (unless (assoc k vars) (error "unmarshal: no field ~a in manifest ~a." k name)))
 
         `(let* ((,src ,source)
+                (,base ,(if (getf params :-+sub-lexicon+-) cursor 0))
                 (,dsym (vector ,@(coerce dvector 'list)))
                 ,@(and (not (getf params :-+sub-lexicon+-))
                        (list (list cursor 0)))

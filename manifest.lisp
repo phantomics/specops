@@ -510,3 +510,142 @@ Returns T if all checks pass."
       (format t "~&string checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
               pass (count t results) (length results))
       pass)))
+
+;;; ===========================================================================
+;;; Part H — padding: count, :to (record-relative), :align (absolute), :length
+;;; ===========================================================================
+
+;; :align and :to after a variable-length vector, so pad sizes depend on the data.
+(defmanifest pad-probe (:unit 8 :endian :big)
+  (:len  :u8 :default 0)
+  (:data (:u 1 :vec) :count :len)
+  (pad #xAA :align 4)
+  (:x    :u8 :default 0)
+  (pad 0 :to 12)
+  (:y    :u8 :default 0))
+
+;; :to inside a sub-manifest counts from the child's start.
+(defmanifest pad-inner (:unit 8 :endian :big)
+  (:a :u8 :default 0)
+  (pad 0 :to 6)
+  (:b :u8 :default 0))
+
+(defmanifest pad-outer (:unit 8 :endian :big)
+  (:h1 :u8 :default 0)
+  (:h2 :u8 :default 0)
+  (manifest :inner pad-inner)
+  (:tail :u8 :default 0))
+
+;; Trailing :length pads the record out after a variable-length field.
+(defmanifest pad-length (:unit 8 :endian :big :length 16)
+  (:len  :u8 :default 0)
+  (:data (:u 1 :vec) :count :len))
+
+(defmanifest pad-length-outer (:unit 8 :endian :big)
+  (manifest :rec pad-length)
+  (:after :u8 :default 0))
+
+;; The GOFF END record layout (goff.lisp isn't loaded by any system).
+(defmanifest goff-end-probe (:unit 8 :endian :big :length 80 :pad 0)
+  (masque "h:pptt00" (p #x03) (t :t-tag :u8 :default 0))
+  (:entry-flag   :u8  :default 0)
+  (:amode        :u8  :default 0)
+  (pad 0 3)
+  (:record-count :u32 :default 0)
+  (:entry-esdid  :u32 :default 0)
+  (pad 0 4)
+  (:entry-offset :u32 :default 0))
+
+(defun run-pad-demo ()
+  "Marshal and unmarshal pads. Returns T if all checks pass."
+  (let ((results nil))
+    (flet ((check (label got want)
+             (let ((ok (equalp got want)))
+               (push ok results)
+               (format t "~&  ~:[FAIL~;ok  ~]  ~a~%" ok label)
+               (unless ok
+                 (format t "~&          got  ~s~%          want ~s~%" got want)))))
+      (format t "~&pad checks:~%")
+
+      ;; 1. :align and :to depend on the length of the preceding vector.
+      (let ((buf (ub8 13)))
+        (marshal pad-probe buf :len 1 :data #(7) :x #x11 :y #x22)
+        (check "pad-probe, 1-byte data: 2 align bytes, :to 12 fills 7"
+               (coerce buf 'list) '(1 7 #xAA #xAA #x11 0 0 0 0 0 0 0 #x22))
+        (check "pad-probe, 1-byte data, read back"
+               (unmarshal pad-probe buf)
+               '(:len 1 :data #(7) :x #x11 :y #x22)))
+      (let ((buf (ub8 13)))
+        (marshal pad-probe buf :len 3 :data #(7 8 9) :x #x11 :y #x22)
+        (check "pad-probe, 3-byte data: already aligned, no align bytes"
+               (coerce buf 'list) '(3 7 8 9 #x11 0 0 0 0 0 0 0 #x22))
+        (check "pad-probe, 3-byte data, read back"
+               (unmarshal pad-probe buf)
+               '(:len 3 :data #(7 8 9) :x #x11 :y #x22))
+        (check "pad-probe, :y alone (cursor passes both pads)"
+               (unmarshal pad-probe buf nil :y)
+               #x22))
+
+      ;; 2. :to past its target signals an error in both directions.
+      (check "pad-probe, :to overrun on marshal signals an error"
+             (signals-error-p
+              (lambda () (marshal pad-probe (ub8 32) :len 9 :data #(1 2 3 4 5 6 7 8 9)
+                                                     :x 1 :y 2)))
+             t)
+      (let ((bad (ub8 16)))
+        (replace bad '(9 1 2 3 4 5 6 7 8 9 #xAA #xAA #x11))
+        (check "pad-probe, :to overrun on unmarshal signals an error"
+               (signals-error-p (lambda () (unmarshal pad-probe bad)))
+               t))
+
+      ;; 3. :to inside a sub-manifest is relative to the child's start.
+      (let ((buf (ub8 10)))
+        (marshal pad-outer buf :h1 1 :h2 2 :inner (:a 3 :b 4) :tail 5)
+        (check "pad-outer, child :to 6 counts from the child (byte 2)"
+               (coerce buf 'list) '(1 2 3 0 0 0 0 0 4 5))
+        (check "pad-outer, read back"
+               (unmarshal pad-outer buf)
+               '(:h1 1 :h2 2 :inner (:a 3 :b 4) :tail 5)))
+
+      ;; 4. Trailing :length.
+      (let* ((buf (make-array 20 :element-type '(unsigned-byte 8) :initial-element #xEE))
+             (end (marshal pad-length buf :len 3 :data #(1 2 3))))
+        (check "pad-length, marshal stops at :length 16"
+               end 16)
+        (check "pad-length, bytes padded to 16, rest of buffer untouched"
+               (coerce buf 'list)
+               '(3 1 2 3 0 0 0 0 0 0 0 0 0 0 0 0 #xEE #xEE #xEE #xEE)))
+      (let ((buf (ub8 17)))
+        (marshal pad-length-outer buf :rec (:len 3 :data #(1 2 3)) :after 9)
+        (check "pad-length-outer, field after a padded sub-manifest lands at byte 16"
+               (aref buf 16) 9)
+        (check "pad-length-outer, read back"
+               (unmarshal pad-length-outer buf)
+               '(:rec (:len 3 :data #(1 2 3)) :after 9)))
+
+      ;; 5. GOFF END record layout.
+      (let* ((buf (make-array 96 :element-type '(unsigned-byte 8) :initial-element #xEE))
+             (end (marshal goff-end-probe buf :t-tag #x40 :entry-flag 1 :amode 2
+                                              :record-count 7 :entry-esdid 5
+                                              :entry-offset #x100)))
+        (check "goff-end-probe, record is 80 bytes"
+               end 80)
+        (check "goff-end-probe, first 24 bytes"
+               (coerce (subseq buf 0 24) 'list)
+               '(#x03 #x40 0  1 2  0 0 0  0 0 0 7  0 0 0 5  0 0 0 0  0 0 1 0))
+        (check "goff-end-probe, bytes 24..79 are zero"
+               (every #'zerop (subseq buf 24 80)) t)
+        (check "goff-end-probe, read back"
+               (unmarshal goff-end-probe buf)
+               '(:t-tag #x40 :entry-flag 1 :amode 2 :record-count 7
+                 :entry-esdid 5 :entry-offset #x100)))
+
+      ;; 6. A function destination produces the same bytes as a vector.
+      (let ((acc nil))
+        (marshal pad-probe (lambda (b) (push b acc)) :len 1 :data #(7) :x #x11 :y #x22)
+        (check "pad-probe to a function destination matches the vector bytes"
+               (reverse acc) '(1 7 #xAA #xAA #x11 0 0 0 0 0 0 0 #x22))))
+    (let ((pass (every #'identity results)))
+      (format t "~&pad checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
+              pass (count t results) (length results))
+      pass)))
