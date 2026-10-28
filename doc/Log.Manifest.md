@@ -11,20 +11,20 @@ provenance:
   assistant:   claude-opus (OpenCode)
   session:     Marshal
 decisions:
-  - SPECOPS-D1
-  - SPECOPS-D2
-  - SPECOPS-D3
-  - SPECOPS-D4
-  - SPECOPS-D5
-  - SPECOPS-D6
-  - SPECOPS-D7
-  - SPECOPS-D8
-  - SPECOPS-D9
-  - SPECOPS-D10
-  - SPECOPS-D11
-  - SPECOPS-D12
-  - SPECOPS-D13
-  - SPECOPS-D14
+  - SPECOPS-DRAFT-manifest-D1
+  - SPECOPS-DRAFT-manifest-D2
+  - SPECOPS-DRAFT-manifest-D3
+  - SPECOPS-DRAFT-manifest-D4
+  - SPECOPS-DRAFT-manifest-D5
+  - SPECOPS-DRAFT-manifest-D6
+  - SPECOPS-DRAFT-manifest-D7
+  - SPECOPS-DRAFT-manifest-D8
+  - SPECOPS-DRAFT-manifest-D9
+  - SPECOPS-DRAFT-manifest-D10
+  - SPECOPS-DRAFT-manifest-D11
+  - SPECOPS-DRAFT-manifest-D12
+  - SPECOPS-DRAFT-manifest-D13
+  - SPECOPS-DRAFT-manifest-D14
 cites:
   - title:    lisp-binary (Common Lisp binary format library) wiki
     locator:  github.com/j3pic/lisp-binary/wiki — DEFBINARY structs; EVAL type specifier
@@ -82,7 +82,7 @@ to requested fields.
 Decision identifiers are provisional; final numbers come from the namespace
 registry at acceptance.
 
-### SPECOPS-D1 — Manifest-driven marshal replaces the freeform item list
+### SPECOPS-DRAFT-manifest-D1 — Manifest-driven marshal replaces the freeform item list
 
 **Status:** Accepted
 **Context:** The freeform `marshal` serialized an ad hoc item list. It could
@@ -94,7 +94,7 @@ mode was removed rather than reconciled.
 (rejected: two vocabularies for one job); a struct-only interface (deferred;
 keyword input came first).
 
-### SPECOPS-D2 — Manifests describe structure only; logic stays at the call site
+### SPECOPS-DRAFT-manifest-D2 — Manifests describe structure only; logic stays at the call site
 
 **Status:** Accepted
 **Context:** Early drafts added `:compute` forms, binding blocks and inverse
@@ -107,7 +107,7 @@ either a static value or a direct keyword input, so reading is always direct.
 binding blocks with explicit inverse clauses (rejected as unnecessary once
 logic left the manifest).
 
-### SPECOPS-D3 — Compile-time manifest registry with inlining macros
+### SPECOPS-DRAFT-manifest-D3 — Compile-time manifest registry with inlining macros
 
 **Status:** Accepted
 **Context:** A runtime composer-function design could not introduce lexical
@@ -120,7 +120,7 @@ Enums use a parallel `*enums*` table populated by `defenum`.
 names (rejected: prefix mismatches, call-time macroexpansion, no binding-body
 reader); a hybrid of the two (rejected as more moving parts).
 
-### SPECOPS-D4 — Keywords are fields, specops symbols are directives
+### SPECOPS-DRAFT-manifest-D4 — Keywords are fields, specops symbols are directives
 
 **Status:** Accepted
 **Context:** Field declarations and structural directives share one list.
@@ -132,7 +132,7 @@ input field, anything else a static value.
 **Alternatives:** Dispatch by symbol name with an open directive registry
 (rejected in favor of fixed, package-identified directives).
 
-### SPECOPS-D5 — Unit-counted width specs with modifier sets
+### SPECOPS-DRAFT-manifest-D5 — Unit-counted width specs with modifier sets
 
 **Status:** Accepted
 **Context:** Bit-named keywords (`:u32`) cannot express 24-bit or other odd
@@ -145,7 +145,7 @@ field's value. Bit-named keywords remain as sugar for 8-bit output only.
 **Alternatives:** Keeping only bit-named keywords (rejected); a single
 modifier slot (rejected: vectors of LEB-encoded elements need two).
 
-### SPECOPS-D6 — Per-character string codecs, Latin-1 by default
+### SPECOPS-DRAFT-manifest-D6 — Per-character string codecs, Latin-1 by default
 
 **Status:** Accepted
 **Context:** Text in binary formats uses many encodings (ASCII, EBCDIC code
@@ -160,7 +160,7 @@ literal byte by byte.
 **Alternatives:** Whole-string `:encode-by`/`:decode-by` functions (deferred
 until a variable-width encoding such as UTF-8 or Shift-JIS is needed).
 
-### SPECOPS-D7 — Backpatching through destination `tell`/`write` with absolute positions
+### SPECOPS-DRAFT-manifest-D7 — Backpatching through destination `tell`/`write` with absolute positions
 
 **Status:** Accepted
 **Context:** Length, offset and checksum fields often precede the data they
@@ -176,7 +176,7 @@ collector.
 the whole record (deferred: an auto-buffer for non-seekable destinations is
 planned only for manifests that need it).
 
-### SPECOPS-D8 — Nesting-only spans, region-close slot resolution over a runtime map
+### SPECOPS-DRAFT-manifest-D8 — Nesting-only spans, region-close slot resolution over a runtime map
 
 **Status:** Accepted
 **Context:** A checksum may cover several fields; a length may describe one
@@ -194,7 +194,7 @@ A slot placed after its region (a trailing checksum) is computed inline.
 become possible); a static table of region offsets (rejected: variable-length
 fields make offsets unknowable at expansion).
 
-### SPECOPS-D9 — Pluggable checksums over output spans
+### SPECOPS-DRAFT-manifest-D9 — Pluggable checksums over output spans
 
 **Status:** Accepted
 **Context:** Checksum algorithms vary by format; SpecOps should stay free of
@@ -207,7 +207,7 @@ functions.
 computing checksums from a single field's input value (the first
 implementation; replaced because it cannot cover multiple fields).
 
-### SPECOPS-D10 — Sub-manifests inline into the parent through a sub-lexicon
+### SPECOPS-DRAFT-manifest-D10 — Sub-manifests inline into the parent through a sub-lexicon
 
 **Status:** Accepted
 **Context:** Formats compose records from records (a PNG file of chunks, a
@@ -224,7 +224,7 @@ as a region in `map`.
 callers could not vary them); flat namespaced keys such as `:ihdr.width`
 (rejected as verbose).
 
-### SPECOPS-D11 — Per-instance name prefixes; spans do not prefix
+### SPECOPS-DRAFT-manifest-D11 — Per-instance name prefixes; spans do not prefix
 
 **Status:** Accepted
 **Context:** Sibling sub-manifest instances (IHDR, IDAT and IEND chunks)
@@ -238,7 +238,7 @@ nothing to the prefix, since names are already unique within one manifest.
 targeting and did not address sibling instances); requiring unique names across
 nesting (rejected as restrictive).
 
-### SPECOPS-D12 — `deserializer-for` as the inverse of `serializer-for`
+### SPECOPS-DRAFT-manifest-D12 — `deserializer-for` as the inverse of `serializer-for`
 
 **Status:** Accepted
 **Context:** Reading needs the exact inverse of the write path, including
@@ -252,7 +252,7 @@ or `(units . integer)` pairs, the last preserving leading zero units that
 **Alternatives:** Extra width parameter on the lambda (rejected in favor of the
 cons form, mirroring `serializer-for`'s `(width . value)`).
 
-### SPECOPS-D13 — unmarshal return shapes: values when keyed, plist otherwise
+### SPECOPS-DRAFT-manifest-D13 — unmarshal return shapes: values when keyed, plist otherwise
 
 **Status:** Accepted
 **Context:** Callers either bind specific fields or want to see a record's
@@ -267,7 +267,7 @@ length and count fields are available to later fields.
 20-value limit); a binding-body form (superseded); nesting span children under
 the span name (rejected: spans are regions, not namespaces).
 
-### SPECOPS-D14 — Masque reads by direct group extraction
+### SPECOPS-DRAFT-manifest-D14 — Masque reads by direct group extraction
 
 **Status:** Accepted
 **Context:** `unmasque` binds group characters as variables (impossible for
@@ -290,8 +290,9 @@ stored `:length`).
   negative values in two's complement instead of looping forever.
   `specops.lisp:serializer-for@10b1568` gained an overflow guard on
   `(width . value)` pairs and zero padding for `(n)` pairs.
-  `specops.lisp:deserializer-for@10b1568` implements SPECOPS-D12, with a shared
-  `finish` step for byte order and sign.
+  `specops.lisp:deserializer-for@10b1568` implements
+  SPECOPS-DRAFT-manifest-D12, with a shared `finish` step for byte order and
+  sign.
 - **Registries and enums.** `*manifests*` and `*enums*` are defined under
   `eval-when`; `specops.lisp:defenum@10b1568` registers keyword-to-integer
   maps and `specops.lisp:enumerated@10b1568` decodes them on read.
@@ -316,7 +317,8 @@ stored `:length`).
   deserializer vector, `:vec` with counts from `:count`, an earlier field, or a
   reverse `:length-of` lookup (`vec-count-form`), spans walked in place,
   sub-manifests expanded with the shared cursor and their own deserializers,
-  masques per SPECOPS-D14, and constant strings validated per SPECOPS-D6.
+  masques per SPECOPS-DRAFT-manifest-D14, and constant strings validated per
+  SPECOPS-DRAFT-manifest-D6.
 
 Fixes made along the way, each found by the PNG exercise or by review:
 
