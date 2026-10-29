@@ -973,11 +973,33 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                (var-of (field what)
                  (or (rest (assoc field vars))
                      (error "unmarshal: ~a needs field ~a, which isn't read before it." what field)))
+               (term-code-form (name end-by codec)
+                 (typecase end-by
+                   (character (if codec
+                                  `(or (funcall ,codec ,end-by)
+                                       (error "unmarshal: terminator ~s of field ~s has no code in ~a."
+                                              ,end-by ',name ',codec))
+                                  (char-code end-by)))
+                   (integer end-by)
+                   (t (error "unmarshal: :end-by of field ~s must be a character or an integer, not ~s."
+                             name end-by))))
                (vec-count-form (name count length)
-                 (cond ((integerp count) count)                                   ; :count 4
-                       ((keywordp count) (var-of count name))                     ; :count :n-items
-                       ((assoc name length-sources)                               ; reverse :length-of
+                 (cond ((integerp count) count)                    ;; :count 4
+                       ((keywordp count) (var-of count name))      ;; :count :n-items
+                       ((assoc name length-sources)                ;; reverse :length-of
                         `(floor ,(var-of (rest (assoc name length-sources)) name) ,length))
+                       (end-by
+                        (let ((tm (gensym "TM")) (k (gensym "K")))
+                          `(let ((,tm ,(term-code-form name end-by codec)))
+                             (loop :for ,k :from 0
+                                   :when (and (vectorp ,src)
+                                              (> (+ ,cursor (* (1+ ,k) ,length)) (length ,src)))
+                                     :do (error
+                                          "unmarshal: field ~s has no terminator before the end of the source."
+                                          ',name)
+                                   :until (eql ,tm (funcall (aref ,dsym ,swap-by)
+                                                            (+ ,cursor (* ,k ,length)) ,length nil ,src))
+                                   :finally (return ,k)))))
                        (t (error "unmarshal: no element count for vector field ~a ~
                    (give :count or a :length-of slot)." name))))
                (process-item (item)
@@ -1105,7 +1127,8 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                                                     ,in ,(write-to-string codec)
                                                                     "invalid input."))))))
                                     (setf ,var
-                                          (let* ((,n ,(vec-count-form name count length))
+                                          (let* ((,n ,(vec-count-form name count length
+                                                                      end-by swap-by codec))
                                                  (,v (make-array ,n :element-type ',etype)))
                                             (dotimes (,i ,n ,v)
                                               (setf (aref ,v ,i)
@@ -1116,7 +1139,9 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                             ,(if (not codec)
                                                  v `(map 'string ,decoder ,v)))))
                                  reads)
-                           (push `(incf ,cursor (* (length ,var) ,length)) reads)))
+                           ;; (push `(incf ,cursor (* (length ,var) ,length)) reads)
+                           (push `(incf ,cursor (* ,length ,(if end-by `(1+ (length ,var)) `(length ,var))))
+                                 reads)))
                         (t
                          (when name ;; (and name (or (member name keys)))
                           (let ((var (gensym (string name))))
