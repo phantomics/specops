@@ -172,7 +172,7 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
 (defmacro defcodetable (symbol options &rest rows)
   (let ((assignments)
         (blank-symbol (caar rows))
-        (table (gensym)) (xtable (gensym)) (char (gensym))
+        (table (gensym)) (xtable (gensym)) (char (gensym)) (code (gensym)) (v (gensym))
         (store (rest (assoc :store options))))
     (dolist (row (rest rows))
       (let ((base (first row)))
@@ -186,23 +186,26 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                              (:vector `(aref ,table (char-code ,item))))
                            assignments))))))
     `(let ((,table ,(case store
-                      (:vector `(make-array 256 :initial-element #x00 :element-type '(unsigned-byte 8)))
+                      (:vector `(make-array 256 :initial-element -1 :element-type '(signed-byte 16)))
                       (:htable `(make-hash-table))))
-           (,xtable (make-array 256 :element-type 'character)))
+           (,xtable (make-array 256 :initial-element nil)))
        (setf ,@assignments)
        ,(case store
-          (:vector `(loop :for x :across ,table :for ix :from 0 :do (setf (aref ,xtable x) (code-char ix))))
+          (:vector `(loop :for x :across ,table :for ix :from 0
+                          :unless (= x -1) :do (setf (aref ,xtable x) (code-char ix))))
           (:htable `(loop :for x :being :the :hash-keys :of ,table :for ix :from 0
-                          :do (when t ; (gethash x ,table)
-                                ;; (print (list :aa x))
-                                (setf (aref ,xtable (gethash x ,table)) (code-char x))))))
+                          :do (setf (aref ,xtable (gethash x ,table)) (code-char x)))))
        (setf (symbol-function ',symbol)
              (lambda (,char)
                (typecase ,char
                  (character ,(case store
-                               (:vector `(aref ,table (char-code ,char)))
+                               (:vector `(let ((,code (char-code ,char)))
+                                           (and (< ,code (length ,table))
+                                                (let ((,v (aref ,table ,code)))
+                                                  (and (/= -1 ,v) ,v)))))
                                (:htable `(gethash (char-code ,char) ,table))))
-                 (integer (aref ,xtable ,char))))))))
+                 (integer (and (< -1 ,char (length ,xtable))
+                               (aref ,xtable ,char)))))))))
 
 (defun quantify-mask-string (string params)
   (let ((segments) (symbols) (factor) (base 0) (bits 0) (width 1) (sx 0) (enumask "01"))
@@ -323,7 +326,12 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
         `(if (/= ,base (logand ,variant-mask ,test-value))
              nil (let ,pairs ,@body))))))
 
-(defun txcodec-ebcdic (a) (print a))
+(defun codec-for (fn on-error)
+  (lambda (x) (or (funcall fn x) (funcall on-error x))))
+
+;; (defun txcodec-ebcdic (a) (specops/format.ebcdic:ebcdic-code-cp037 a))
+
+;; (defun txcodec-ebcdic (a) (specops/format.ebcdic:ebcdic-code-cp037 a))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defvar *manifests* (make-hash-table :test 'eq))
@@ -384,7 +392,7 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                                 item (list 'quote item)))))
                (process-field (field-spec &optional unincrementing)
                  (destructuring-bind (symbol predicate &key (endian 0) length enumerate-by end-by
-                                                         count default slot &allow-other-keys)
+                                                         count default slot codec &allow-other-keys)
                      field-spec
                    (let ((width) (signed) (subtype-list) (type-indicator) (type-conditions)
                          (this-swap-by (case endian
@@ -424,7 +432,7 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                            :name (and (not (string= "_" (symbol-name symbol))) symbol)
                            :signed signed :length (ash width (- unit-spec))
                            :count count :enumerate-by (list 'quote enumerate-by)
-                           :slot (format-slot-spec slot)
+                           :codec (list 'quote codec) :slot (format-slot-spec slot)
                            :type-indicator type-indicator :type-conditions type-conditions
                            :subtypes (and subtype-list (cons 'list subtype-list))
                            :end-by end-by :swap-by (or this-swap-by swap-by)
@@ -447,19 +455,6 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                                       :n    (if (integerp spec) spec n)
                                                       :swap-by swap-by)
                                           accumulator)))
-                             ;; (pad (destructuring-bind (with for-or-spec &optional spec-arg) (rest f)
-                             ;;        (let ((count (if (integerp for-or-spec)
-                             ;;                         for-or-spec (case for-or-spec
-                             ;;                                       (:to (- spec-arg index))
-                             ;;                                       ;; the align argument lets you align
-                             ;;                                       ;; output to a given byte granularity
-                             ;;                                       (:align (mod index spec-arg))))))
-                             ;;          (incf index count)
-                             ;;          (push (list 'list :type :pad :with with :length count
-                             ;;                            :upto (and (eq :to for-or-spec) spec-arg)
-                             ;;                            :swap-by swap-by)
-                             ;;                ;; might need it for nonzero padding
-                             ;;                accumulator))))
                              (str (destructuring-bind (actual &key codec encode-by length end-by)
                                       (rest f)
                                     (let ((count (* (length actual) (or length 1))))
@@ -638,126 +633,189 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                       slot enumerate-by subtypes items mode n)
                    item
                  (let ((qname (qualify name)))
-                 
-                 ;; (when context (setf name (intern (format nil "~a/~a" (first context) name)
-                 ;;                                  "KEYWORD")))
-                 
-                 ;; (print (list :nn name context))
-                 ;; types: ; :scalar | :pad | :masque | :bytes | :sized | :leb | :name | :slot
-                 (case type
-                   ;; (:pad `(:-pad
-                   ;;         (loop :repeat ,(if (not upto) length `(max 0 (- ,upto ,index)))
-                   ;;               :do (funcall (aref ,serializers ,swap-by) ,with ,enter))
-                   ;;         (assert (<= ,index ,olength) ()
-                   ;;                 "Out of bounds.")))
-                   (:pad `(:-pad
-                           (loop :repeat ,(pad-count-form mode n index base)
-                                 :do (funcall (aref ,serializers ,swap-by) (cons 1 ,with) ,enter))))
-                   ;; (:string `(,qname
-                   ;;            (funcall (aref ,serializers 0)
-                   ;;                     ;; strings always use 0-swap for reasons given above
-                   ;;                     (funcall ,(or encode-by '#'identity) ,actual)
-                   ;;                     ,enter)
-                   ;;            ,@(when end-by `((funcall (aref ,serializers 0)
-                   ;;                                      (funcall ,(or encode-by '#'identity) ,actual)
-                   ;;                                      ,end-by)))))
-                   (:string
-                    `(,qname
-                      (loop :for ch :across ,actual
-                            :do (funcall (aref ,serializers 0)
-                                         ,(if codec `(funcall ,codec ch) '(char-code ch))
-                                         ,enter))
-                      ,@(when end-by `((funcall (aref ,serializers 0) ,end-by ,enter)))))
-                   (:masque `(:-masque
-                              (funcall (aref ,serializers ,swap-by)
-                                       ;; (masque ,actual ,@(mapcar #'masque-binder bindings))
-                                       (cons ,length (masque ,actual ,@(mapcar #'masque-binder bindings)))
-                                       ,enter)))
-                   (:manifest
-                    (append
-                     `((push (list ,qname ,index ,index) ,map))
-                     (loop :for closure :in context
-                           :collect `(unless (assoc ,closure ,map)
-                                       (push (list ,closure ,index ,index) ,map)))
-                     (list name (macroexpand (append (list 'marshal (first actual) destination)
-                                                     (list :-+sub-lexicon+-
-                                                           (list* :pr-sym (qualify name) sub-lexicon))
-                                                     (rest actual)
-                                                     (getf pairs name))))
-                     `((setf (third (assoc ,qname ,map)) ,index))
-                     (loop :for closure :in context
-                           :collect `(setf (third (assoc ,closure ,map)) ,index))
-                     (loop :for slot-of :in (getf slots-of qname)
-                           :when (not (eq :checksum-of (second slot-of)))
-                             :collect (apply #'resolve-region qname slot-of))))
-                    (:span
-                     ;; push a fresh per-instance region at the span's start so that
-                     ;; repeated span names across sibling sub-manifests don't collide
-                     ;; in the shared map (each instance gets its own start/end)
-                     (append `((push (list ,qname ,index ,index) ,map))
-                             (loop :for i :in items :append (generate i (cons qname context)))
-                             `((setf (third (assoc ,qname ,map)) ,index))
-                             (loop :for slot-of :in (getf slots-of qname)
-                                   :when (not (eq :checksum-of (second slot-of)))
-                                     :collect (apply #'resolve-region qname slot-of))))
-                    (t (let ((length-form (if (not type-indicator)
-                                              length `(caddr (assoc (getf ,values ,(qualify type-indicator))
-                                                             ',type-conditions)))))
-                        ;; (print (list :oo name type-indicator type-conditions))
+                   
+                   ;; (when context (setf name (intern (format nil "~a/~a" (first context) name)
+                   ;;                                  "KEYWORD")))
+                   
+                   ;; (print (list :nn name context))
+                   ;; types: ; :scalar | :pad | :masque | :bytes | :sized | :leb | :name | :slot
+                   (case type
+                     (:pad `(:-pad
+                             (loop :repeat ,(pad-count-form mode n index base)
+                                   :do (funcall (aref ,serializers ,swap-by) (cons 1 ,with) ,enter))))
+                     (:string
+                      (let ((encoder (gensym "EN")) (in (gensym "I")))
                         `(,qname
-                          (push (list ,qname ,index ,index) ,map)
-                          ,@(loop :for closure :in context
-                                  :collect `(unless (assoc ,closure ,map)
-                                              (push (list ,closure ,index ,index) ,map)))
+                          (let ((,encoder ,(and codec
+                                                `(codec-for ,codec
+                                                            (lambda (,in)
+                                                              (error "Failed to encode input `~a` using ~a: ~a"
+                                                                     ,in ,(write-to-string codec)
+                                                                     "invalid input."))))))
+                            (loop :for ch :across ,actual
+                                  :do (funcall (aref ,serializers 0)
+                                               ,(if codec `(funcall ,encoder ch) '(char-code ch))
+                                               ,enter))
+                            ,@(when end-by `((funcall (aref ,serializers 0) ,end-by ,enter)))))))
+                     (:masque `(:-masque
+                                (funcall (aref ,serializers ,swap-by)
+                                         ;; (masque ,actual ,@(mapcar #'masque-binder bindings))
+                                         (cons ,length (masque ,actual ,@(mapcar #'masque-binder bindings)))
+                                         ,enter)))
+                     (:manifest
+                      (append
+                       `((push (list ,qname ,index ,index) ,map))
+                       (loop :for closure :in context
+                             :collect `(unless (assoc ,closure ,map)
+                                         (push (list ,closure ,index ,index) ,map)))
+                       (list name (macroexpand (append (list 'marshal (first actual) destination)
+                                                       (list :-+sub-lexicon+-
+                                                             (list* :pr-sym (qualify name) sub-lexicon))
+                                                       (rest actual)
+                                                       (getf pairs name))))
+                       `((setf (third (assoc ,qname ,map)) ,index))
+                       (loop :for closure :in context
+                             :collect `(setf (third (assoc ,closure ,map)) ,index))
+                       (loop :for slot-of :in (getf slots-of qname)
+                             :when (not (eq :checksum-of (second slot-of)))
+                               :collect (apply #'resolve-region qname slot-of))))
+                     (:span
+                      ;; push a fresh per-instance region at the span's start so that
+                      ;; repeated span names across sibling sub-manifests don't collide
+                      ;; in the shared map (each instance gets its own start/end)
+                      (append `((push (list ,qname ,index ,index) ,map))
+                              (loop :for i :in items :append (generate i (cons qname context)))
+                              `((setf (third (assoc ,qname ,map)) ,index))
+                              (loop :for slot-of :in (getf slots-of qname)
+                                    :when (not (eq :checksum-of (second slot-of)))
+                                      :collect (apply #'resolve-region qname slot-of))))
+                     (t (let ((length-form (if (not type-indicator)
+                                               length `(caddr (assoc (getf ,values ,(qualify type-indicator))
+                                                                     ',type-conditions)))))
+                          ;; (print (list :oo name type-indicator type-conditions))
+                          `(,qname
+                            (push (list ,qname ,index ,index) ,map)
+                            ,@(loop :for closure :in context
+                                    :collect `(unless (assoc ,closure ,map)
+                                                (push (list ,closure ,index ,index) ,map)))
 
-                          ,(cond
-                             ((member :leb subtypes)
-                              `(funcall (if signed #'encode-leb128-signed #'encode-leb128-unsigned)
-                                        (cons ,length-form
-                                              ,(or (enumerate enumerate-by (getf pairs name))
-                                                   default (error "Field ~a not specified." name)))
-                                        ,enter))
-                             ((member :vec subtypes)
-                              (if (getf pairs name)
-                                  `(loop :for e :across ,(getf pairs name)
-                                         :do (funcall (aref ,serializers ,swap-by)
-                                                      (cons ,length-form e)
-                                                      ,enter))
-                                  (if length-form
-                                      `(loop :for e :below ,length-form
-                                             :do (funcall (aref ,serializers ,swap-by)
-                                                          (cons ,length-form ,default)
-                                                          ,enter))
-                                      (error "No content or default specified for vector data."))))
-                             ((and slot (eq :checksum-of (first slot)))
-                              `(funcall (aref ,serializers ,swap-by)
-                                        (cons ,length-form
-                                              (destructuring-bind (start end)
-                                                  (rest (assoc ,(qualify (second slot)) ,map))
-                                                (funcall ,(getf slot :by) ,access start end)))
-                                        ,enter))
-                             (t `(funcall (aref ,serializers ,swap-by)
+                            ,(cond
+                               ((member :leb subtypes)
+                                `(funcall (if signed #'encode-leb128-signed #'encode-leb128-unsigned)
                                           (cons ,length-form
                                                 ,(or (enumerate enumerate-by (getf pairs name))
-                                                     default
-                                                     (and slot 0)
-                                                     ;; slot values do not need a default since they 
-                                                     ;; will be populated according to other slots' values
-                                                     (error "Field ~a not specified." name)))
-                                          ,enter)))
+                                                     default (error "Field ~a not specified." name)))
+                                          ,enter))
+                               ((member :vec subtypes)
+                                (when (and end-by count)
+                                  (error "Field ~a: :count with :end-by is not supported yet." name))
+                                (let* ((encoder (gensym "EN")) (in (gensym "I"))
+                                       (term (gensym "TM")) (e (gensym "E")) (c (gensym "C"))
+                                       ;; data and characters share one encoding path
+                                       (encode (lambda (form)
+                                                 (if codec `(funcall ,encoder ,form)
+                                                     `(let ((,in ,form))
+                                                        (if (characterp ,in) (char-code ,in)
+                                                            ,in)))))
+                                       ;; a character terminator is encoded like the data;
+                                       ;; an integer is a raw code
+                                       (term-form
+                                         (typecase end-by
+                                           (null nil)
+                                           (character (funcall encode end-by))
+                                           (integer end-by)
+                                           (t (error
+                                               "Field ~a: :end-by must be a character or an integer, not ~s."
+                                               name end-by))))
+                                       (source (cond ((getf pairs name))
+                                                     ((vectorp default) default)
+                                                     (end-by "")))
+                                       (write-element (lambda (code-form)
+                                                        `(funcall (aref ,serializers ,swap-by)
+                                                                  (cons ,length-form ,code-form) ,enter))))
+                                  `(let* ((,encoder
+                                            ,(and codec
+                                                  `(codec-for ,codec
+                                                              (lambda (,in)
+                                                                (error "Failed to encode input `~a` using ~a: ~a"
+                                                                       ,in ,(write-to-string codec)
+                                                                       "invalid input.")))))
+                                          ,@(and term-form `((,term ,term-form))))
+                                     ,(cond
+                                        (source
+                                         `(loop :for ,e :across ,source
+                                                :for ,c := ,(funcall encode e)
+                                                ,@(and term-form
+                                                       `(:when (eql ,c ,term)
+                                                          :do (error "Field ~a contains its terminator ~a."
+                                                                     ',name ,term)))
+                                                :do ,(funcall write-element c)))
+                                        ((integerp count) ;; numeric default, repeated
+                                         `(loop :repeat ,count :do ,(funcall write-element default)))
+                                        (t (error "Field ~a: no value, no default, and no integer :count."
+                                                  name)))
+                                     ,@(and term-form (list (funcall write-element term))))))
+                               ;; ((member :vec subtypes)
+                               ;;  (when (and end-by count)
+                               ;;    (error "Field ~a: :count with :end-by is not supported yet." name))
+                               ;;  (let ((encoder (gensym "EN")) (in (gensym "I")) (e (gensym "E")))
+                               ;;    `(let ((,encoder
+                               ;;             ,(and codec
+                               ;;                   `(codec-for ,codec
+                               ;;                               (lambda (,in)
+                               ;;                                 (error "Failed to encode input `~a` using ~a: ~a"
+                               ;;                                        ,in ,(write-to-string codec)
+                               ;;                                        "invalid input."))))))
+                               ;;       ,(if (getf pairs name)
+                               ;;            `(loop :for ,e :across ,(getf pairs name)
+                               ;;                   :do (funcall (aref ,serializers ,swap-by)
+                               ;;                                (cons ,length-form ,(if (not codec)
+                               ;;                                                        e `(funcall ,encoder ,e)))
+                               ;;                                ,enter))
+                               ;;            (if length-form
+                               ;;                (if (vectorp default)
+                               ;;                    `(loop :for ,e :across ,default
+                               ;;                           :do (funcall (aref ,serializers ,swap-by)
+                               ;;                                        (cons ,length-form
+                               ;;                                              ,(if (not codec)
+                               ;;                                                   e `(funcall ,encoder ,e)))
+                               ;;                                        ,enter))
+                               ;;                    (if count `(loop :for ,e :below ,count
+                               ;;                                     :do (funcall (aref ,serializers ,swap-by)
+                               ;;                                                  (cons ,length-form ,default)
+                               ;;                                                  ,enter))
+                               ;;                        (error "Attempting to encode vector data without count."
+                               ;;                               )))
+                               ;;                (error "No content or default specified for vector data."))))))
+                               ((and slot (eq :checksum-of (first slot)))
+                                `(funcall (aref ,serializers ,swap-by)
+                                          (cons ,length-form
+                                                (destructuring-bind (start end)
+                                                    (rest (assoc ,(qualify (second slot)) ,map))
+                                                  (funcall ,(getf slot :by) ,access start end)))
+                                          ,enter))
+                               (t `(funcall (aref ,serializers ,swap-by)
+                                            (cons ,length-form
+                                                  ,(or (enumerate enumerate-by (getf pairs name))
+                                                       default
+                                                       (and slot 0)
+                                                       ;; slot values do not need a default since they 
+                                                       ;; will be populated according to other slots' values
+                                                       (error "Field ~a not specified." name)))
+                                            ,enter)))
 
-                          (setf (third (assoc ,qname ,map)) ,index)
-                          ,@(and (getf slots-of qname)
-                                 (loop :for slot-of :in (getf slots-of qname)
-                                       :when (not (eq :checksum-of (second slot-of)))
-                                         :collect (apply #'resolve-region qname slot-of)))
-                          ,@(loop :for closure :in context
-                                  :collect `(setf (third (assoc ,closure ,map)) ,index))
-                          (push ,(getf pairs name) ,values)
-                          (push ,qname ,values)
-                          ;; (print (list :bi ,name ,index ,length))
+                            (setf (third (assoc ,qname ,map)) ,index)
+                            ,@(and (getf slots-of qname)
+                                   (loop :for slot-of :in (getf slots-of qname)
+                                         :when (not (eq :checksum-of (second slot-of)))
+                                           :collect (apply #'resolve-region qname slot-of)))
+                            ,@(loop :for closure :in context
+                                    :collect `(setf (third (assoc ,closure ,map)) ,index))
+                            (push ,(getf pairs name) ,values)
+                            (push ,qname ,values)
+                            ;; (print (list :bi ,name ,index ,length))
 
-                          ))))))))
+                            ))))))))
 
       (preprocess-spec (rest spec))
 
@@ -803,7 +861,6 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
               ;; `((print (list :mmm ,map)))
               
               (list index)
-              ;; (print (list :v ,values))
               ))))
 
 (defun deserializer-for (&optional (unit-power 0) (swap-by 0))
@@ -1036,17 +1093,28 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                 (etype (cond (enumerate-by t)
                                              (signed `(signed-byte ,bits))
                                              (t      `(unsigned-byte ,bits))))
+                                (decoder (gensym "DE")) (in (gensym))
                                 (n (gensym "N")) (v (gensym "V")) (i (gensym "I")))
                            (when name (push (cons name var) vars))
                            ;; unnamed vecs are still read so the cursor advances
-                           (push `(setf ,var
-                                        (let* ((,n ,(vec-count-form name count length))
-                                               (,v (make-array ,n :element-type ',etype)))
-                                          (dotimes (,i ,n ,v)
-                                            (setf (aref ,v ,i)
-                                                  ,(interpret `(funcall (aref ,dsym ,swap-by)
-                                                                        (+ ,cursor (* ,i ,length)) ,length ,signed ,src)
-                                                              enumerate-by)))))
+                           (push `(let ((,decoder
+                                          ,(if (not codec) '#'identity
+                                               `(codec-for ,codec
+                                                           (lambda (,in)
+                                                             (error "Failed to decode input `~a` using ~a: ~a"
+                                                                    ,in ,(write-to-string codec)
+                                                                    "invalid input."))))))
+                                    (setf ,var
+                                          (let* ((,n ,(vec-count-form name count length))
+                                                 (,v (make-array ,n :element-type ',etype)))
+                                            (dotimes (,i ,n ,v)
+                                              (setf (aref ,v ,i)
+                                                    ,(interpret `(funcall (aref ,dsym ,swap-by)
+                                                                          (+ ,cursor (* ,i ,length))
+                                                                          ,length ,signed ,src)
+                                                                enumerate-by)))
+                                            ,(if (not codec)
+                                                 v `(map 'string ,decoder ,v)))))
                                  reads)
                            (push `(incf ,cursor (* (length ,var) ,length)) reads)))
                         (t
@@ -1121,6 +1189,13 @@ Intended call once the fixes land:
 (marshal png-ihdr-chunk buf
   :type #(73 72 68 82)
   :png-ihdr (:width 1 :height 1 :bit-depth 8 :color-type :rgb))
+
+(defmanifest stuff (:unit 8 :endian :big)
+  (:num :u16 :default 0)
+  (:str (:u 1 :vec) :default "     " :count 5 :codec #'specops/format.ebcdic:ebcdic-code-cp037))
+
+(marshal stuff (lambda (a) (print a)) :num 50 :str "Hello")
+(unmarshal stuff (make-array 8 :element-type '(unsigned-byte 8) :initial-contents '(0 50 200 133 147 147 150 90))
 
 |#
 

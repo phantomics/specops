@@ -68,7 +68,10 @@
    #:mqbase
 
    ;; -- Marshal macros
+   #:defmanifest
+   #:defenum
    #:marshal
+   #:unmarshal
    
    ;; -- Main utility functions and macros
    #:extns-of
