@@ -649,3 +649,142 @@ Returns T if all checks pass."
       (format t "~&pad checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
               pass (count t results) (length results))
       pass)))
+
+;;; ===========================================================================
+;;; Part I — codecs on :vec fields, and terminated fields (:end-by)
+;;; ===========================================================================
+
+;; A fixed-length text field encoded in EBCDIC, with a string default.
+(defmanifest codec-probe (:unit 8 :endian :big)
+  (:num  :u16 :default 0)
+  (:text (:u 1 :vec) :count 5 :default "     "
+         :codec #'specops/format.ebcdic:ebcdic-code-cp037))
+
+;; A numeric default is already a code, so it is not passed through the codec.
+(defmanifest codec-default-probe (:unit 8 :endian :big)
+  (:fill (:u 1 :vec) :count 3 :default 64
+         :codec #'specops/format.ebcdic:ebcdic-code-cp037))
+
+;; A constant string with a character the codec does not map (a Tab).
+(defmanifest codec-str-probe (:unit 8 :endian :big)
+  (str #.(coerce (list #\A #\Tab) 'string)
+       :codec #'specops/format.ebcdic:ebcdic-code-cp037))
+
+;; A NUL-terminated string: the terminator is a raw code.
+(defmanifest cstring-probe (:unit 8 :endian :big)
+  (:s     (:u 1 :vec) :end-by 0)
+  (:after :u8 :default 0))
+
+;; A character terminator is encoded with the field's codec ($ is #x5B in CP037).
+(defmanifest ebcdic-terminated-probe (:unit 8 :endian :big)
+  (:s     (:u 1 :vec) :end-by #\$ :codec #'specops/format.ebcdic:ebcdic-code-cp037)
+  (:after :u8 :default 0))
+
+;; Two-unit little-endian elements: the terminator is one element, two bytes.
+(defmanifest wide-terminated-probe (:unit 8 :endian :big)
+  (:s     (:u 2 :vec) :endian :little :end-by 0)
+  (:after :u8 :default 0))
+
+;; A length slot over a span that holds a terminated field counts the terminator.
+(defmanifest terminated-span-probe (:unit 8 :endian :big)
+  (:len :u8 :slot (:length-of :body))
+  (span :body
+    (:s (:u 1 :vec) :end-by 0)
+    (:k :u8 :default 0)))
+
+(defun run-terminated-demo ()
+  "Marshal and unmarshal codec-encoded vectors and terminated fields.
+Returns T if all checks pass."
+  (let ((results nil))
+    (flet ((check (label got want)
+             (let ((ok (equalp got want)))
+               (push ok results)
+               (format t "~&  ~:[FAIL~;ok  ~]  ~a~%" ok label)
+               (unless ok
+                 (format t "~&          got  ~s~%          want ~s~%" got want))))
+           (to-list (manifest-thunk)
+             (let ((acc nil))
+               (funcall manifest-thunk (lambda (b) (push b acc)))
+               (reverse acc))))
+      (format t "~&codec and terminator checks:~%")
+
+      ;; 1. Codecs on :vec fields.
+      (check "codec-probe, \"Hello\" encoded in CP037"
+             (to-list (lambda (d) (marshal codec-probe d :num 50 :text "Hello")))
+             '(0 50 #xC8 #x85 #x93 #x93 #x96))
+      (check "codec-probe, string default encoded (EBCDIC spaces)"
+             (to-list (lambda (d) (marshal codec-probe d :num 50)))
+             '(0 50 #x40 #x40 #x40 #x40 #x40))
+      (check "codec-probe, read back and decoded to a string"
+             (unmarshal codec-probe (->bytes #(0 50 #xC8 #x85 #x93 #x93 #x96)))
+             '(:num 50 :text "Hello"))
+      (check "codec-default-probe, numeric default written as is, :count times"
+             (to-list (lambda (d) (marshal codec-default-probe d)))
+             '(64 64 64))
+      (check "codec-probe, a character the codec doesn't map signals an error on write"
+             (signals-error-p
+              (lambda () (to-list (lambda (d)
+                                    (marshal codec-probe d :num 1
+                                             :text (coerce (list #\A #\Tab #\B #\C #\D)
+                                                           'string))))))
+             t)
+      (check "codec-probe, a code the codec doesn't assign signals an error on read"
+             (signals-error-p
+              (lambda () (unmarshal codec-probe (->bytes #(0 1 #x30 #xC1 #xC1 #xC1 #xC1)))))
+             t)
+      (check "codec-str-probe, unmapped character in a constant string signals an error"
+             (signals-error-p (lambda () (to-list (lambda (d) (marshal codec-str-probe d)))))
+             t)
+
+      ;; 2. NUL-terminated strings.
+      (check "cstring-probe, \"abc\" then the terminator"
+             (to-list (lambda (d) (marshal cstring-probe d :s "abc" :after 9)))
+             '(97 98 99 0 9))
+      (check "cstring-probe, read back (field after the terminator lines up)"
+             (unmarshal cstring-probe (->bytes #(97 98 99 0 9)))
+             '(:s #(97 98 99) :after 9))
+      (check "cstring-probe, no value writes the terminator alone"
+             (to-list (lambda (d) (marshal cstring-probe d :after 9)))
+             '(0 9))
+      (check "cstring-probe, empty field read back"
+             (unmarshal cstring-probe (->bytes #(0 9)))
+             '(:s #() :after 9))
+      (check "cstring-probe, data containing the terminator signals an error"
+             (signals-error-p
+              (lambda () (to-list (lambda (d)
+                                    (marshal cstring-probe d
+                                             :s (coerce (list #\a (code-char 0) #\b) 'string)
+                                             :after 9)))))
+             t)
+      (check "cstring-probe, a source with no terminator signals an error"
+             (signals-error-p (lambda () (unmarshal cstring-probe (->bytes #(97 98 99)))))
+             t)
+
+      ;; 3. Terminator encoded through the codec.
+      (check "ebcdic-terminated-probe, #\\$ written as #x5B"
+             (to-list (lambda (d) (marshal ebcdic-terminated-probe d :s "HI" :after 9)))
+             '(#xC8 #xC9 #x5B 9))
+      (check "ebcdic-terminated-probe, read back as \"HI\""
+             (unmarshal ebcdic-terminated-probe (->bytes #(#xC8 #xC9 #x5B 9)))
+             '(:s "HI" :after 9))
+
+      ;; 4. Two-byte elements and terminator.
+      (check "wide-terminated-probe, little-endian elements and a 2-byte terminator"
+             (to-list (lambda (d) (marshal wide-terminated-probe d :s #(#x4142 #x43) :after 9)))
+             '(#x42 #x41 #x43 0 0 0 9))
+      (check "wide-terminated-probe, read back"
+             (unmarshal wide-terminated-probe (->bytes #(#x42 #x41 #x43 0 0 0 9)))
+             '(:s #(#x4142 #x43) :after 9))
+
+      ;; 5. A length slot over a span holding a terminated field.
+      (let ((buf (ub8 5)))
+        (marshal terminated-span-probe buf :s "ab" :k 7)
+        (check "terminated-span-probe, length counts the terminator"
+               (coerce buf 'list) '(4 97 98 0 7))
+        (check "terminated-span-probe, read back"
+               (unmarshal terminated-span-probe buf)
+               '(:len 4 :s #(97 98) :k 7))))
+    (let ((pass (every #'identity results)))
+      (format t "~&codec and terminator checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
+              pass (count t results) (length results))
+      pass)))

@@ -983,7 +983,7 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                    (integer end-by)
                    (t (error "unmarshal: :end-by of field ~s must be a character or an integer, not ~s."
                              name end-by))))
-               (vec-count-form (name count length)
+               (vec-count-form (name count length &optional end-by swap-by codec)
                  (cond ((integerp count) count)                    ;; :count 4
                        ((keywordp count) (var-of count name))      ;; :count :n-items
                        ((assoc name length-sources)                ;; reverse :length-of
