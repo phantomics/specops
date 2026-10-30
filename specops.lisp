@@ -416,7 +416,6 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                       (:str (setf width 1)))
                                     (error "Type symbols are only valid for 8-bit output.")))
                        (list (destructuring-bind (is-signed count &rest subtypes) predicate
-                               (print (list :cc is-signed))
                                (if (eq :case is-signed)
                                    (setf type-indicator  count
                                          type-conditions

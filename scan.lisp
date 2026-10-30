@@ -87,3 +87,65 @@ advances CURSOR. READ-AT maps an offset form to a form reading one raw element."
                        ,@(and after `((when ,stop (loop-finish))))))
            (incf ,cursor (* ,k ,length))
            ,result)))))
+
+(defgeneric frame-effector (rule ctx)
+  (:documentation "Write-side fragments for RULE: :bindings, :check (forms run on each
+data element), :mark (expansion-time function of an element form and a last-p form,
+returning the form to write), :trailer (forms run after the last element)."))
+
+(defmethod frame-effector ((r count-rule) ctx)
+  (declare (ignore ctx))
+  nil) ;; length vs :count check waits on Plan O5
+
+(defmethod frame-effector ((r terminator-rule) ctx)
+  (destructuring-bind (&key name element write &allow-other-keys) ctx
+    (let ((tm (gensym "TM")))
+      (list :bindings `((,tm ,(rule-code r)))
+            :check `((when (eql ,element ,tm)
+                       (error "Field ~s contains its terminator ~a." ',name ,tm)))
+            :trailer (list (funcall write tm))))))
+
+(defmethod frame-effector ((r continuation-rule) ctx)
+  (declare (ignore ctx))
+  (let ((bit (rule-bit r)))
+    (list :mark (lambda (e last) `(if ,last ,e (logior ,e ,(ash 1 bit)))))))
+
+(defgeneric disassemble-effector (assembler ctx)
+  (:documentation "Write-side fragments for ASSEMBLER: :bindings, :declare, :prelude,
+:more (true while elements remain, tested before each), :next (yields the next element)
+and :last (true when the element just yielded was the final one)."))
+
+(defmethod disassemble-effector ((a leb-assembler) ctx)
+  (destructuring-bind (&key name value &allow-other-keys) ctx
+    (let ((v (gensym "V")) (g (gensym "G")) (fin (gensym "FIN")))
+      (list :bindings `((,v ,value) (,g 0) (,fin nil))
+            :declare `((type integer ,v) (type (unsigned-byte 7) ,g))
+            :prelude (and (not (slot-value a 'signed))
+                          `((when (minusp ,v)
+                              (error "Field ~s: ~a is negative, but the LEB is unsigned."
+                                     ',name ,v))))
+            :more `(not ,fin)
+            :next `(progn (setf ,g (logand ,v #x7f) ,v (ash ,v -7)
+                                ,fin ,(if (slot-value a 'signed)
+                                          `(if (logbitp 6 ,g) (= ,v -1) (zerop ,v))
+                                          `(zerop ,v)))
+                          ,g)
+            :last fin))))
+
+(defun emit-frame (name rule assembler value-form write)
+  "Return one loop that splits VALUE-FORM into elements, checks and marks each under
+RULE, and writes them with WRITE, an expansion-time function of an element form."
+  (let* ((e (gensym "E")) (l (gensym "L"))
+         (ctx (list :name name :element e :value value-form :write write)))
+    (destructuring-bind (&key bindings check mark trailer) (frame-effector rule ctx)
+      (destructuring-bind (&key ((:bindings ab)) ((:declare ad)) prelude more next last)
+          (disassemble-effector assembler ctx)
+        `(let* (,@ab ,@bindings)
+           (declare ,@ad)
+           ,@prelude
+           (loop :while ,more
+                 :do (let* ((,e ,next) (,l ,last))
+                       (declare (ignorable ,l))
+                       ,@check
+                       ,(funcall write (if mark (funcall mark e l) e))))
+           ,@trailer)))))
