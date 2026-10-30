@@ -205,6 +205,7 @@ RULE, and writes them with WRITE, an expansion-time function of an element form.
                                    ',(getf ctx :name) ,s)))))))))
 
 (defmethod read-effector  ((p case-plan) ctx) (case-clauses p ctx #'read-effector))
+
 (defmethod write-effector ((p case-plan) ctx) (case-clauses p ctx #'write-effector))
 
 (defun simplify-plan (p)

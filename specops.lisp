@@ -700,12 +700,6 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                                 (push (list ,closure ,index ,index) ,map)))
 
                             ,(cond
-                               ;; ((member :leb subtypes)
-                               ;;  `(funcall (if signed #'encode-leb128-signed #'encode-leb128-unsigned)
-                               ;;            (cons ,length-form
-                               ;;                  ,(or (enumerate enumerate-by (getf pairs name))
-                               ;;                       default (error "Field ~a not specified." name)))
-                               ;;            ,enter))
                                ((member :leb subtypes)
                                 (unless (eql 1 length-form)
                                   (error "Field ~s: a LEB field must be one unit wide." name))
@@ -713,7 +707,10 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                             (make-instance 'leb-assembler :signed signed)
                                             (or (enumerate enumerate-by (getf pairs name))
                                                 default (error "Field ~a not specified." name))
-                                            (lambda (f) `(funcall (aref ,serializers ,swap-by) (cons 1 ,f) ,enter))))
+                                            (lambda (f) `(funcall (aref ,serializers ,swap-by) (cons 1 ,f)
+                                                                  ,enter))))
+                               ((member :case subtypes)
+                                (write-effector (make-instance 'case-plan)))
                                ((member :vec subtypes)
                                 (when (and end-by count)
                                   (error "Field ~a: :count with :end-by is not supported yet." name))
@@ -1130,6 +1127,8 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                  (push `(setf ,var ,(interpret form enumerate-by)) reads))
                                ;; unnamed LEBs are still scanned to move the cursor
                                (push form reads))))
+                        ((member :case subtypes)
+                         (read-effector (make-instance 'case-plan)))                        
                         ((member :vec subtypes)
                          (let* ((var   (gensym (string (or name :vec))))
                                 (bits  (* length (ash 1 (+ 3 (getf config :unit-spec)))))
