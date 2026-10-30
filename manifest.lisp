@@ -788,3 +788,124 @@ Returns T if all checks pass."
       (format t "~&codec and terminator checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
               pass (count t results) (length results))
       pass)))
+
+;;; ===========================================================================
+;;; Part J — LEB128 fields
+;;; ===========================================================================
+
+(defmanifest leb-probe (:unit 8 :endian :big)
+  (:n     (:u 1 :leb) :default 0)
+  (:after :u8 :default 0))
+
+(defmanifest sleb-probe (:unit 8 :endian :big)
+  (:n     (:s 1 :leb) :default 0)
+  (:after :u8 :default 0))
+
+;; A length slot over a span counts however many bytes the LEB takes.
+(defmanifest leb-span-probe (:unit 8 :endian :big)
+  (:len :u8 :slot (:length-of :body))
+  (span :body
+    (:n (:u 1 :leb) :default 0)
+    (:k :u8 :default 0)))
+
+(defenum leb-opcode nil :nop 0 :call 200 :jump 300)
+
+(defmanifest leb-enum-probe (:unit 8 :endian :big)
+  (:op (:u 1 :leb) :default 0 :enumerate-by leb-opcode))
+
+;; An unnamed LEB is still read through, so the field after it lines up.
+(defmanifest leb-unnamed-probe (:unit 8 :endian :big)
+  (_ (:u 1 :leb) :default 300)
+  (:k :u8 :default 0))
+
+(defun run-leb-demo ()
+  "Marshal and unmarshal unsigned and signed LEB128 fields.
+Returns T if all checks pass."
+  (let ((results nil))
+    (flet ((check (label got want)
+             (let ((ok (equalp got want)))
+               (push ok results)
+               (format t "~&  ~:[FAIL~;ok  ~]  ~a~%" ok label)
+               (unless ok
+                 (format t "~&          got  ~s~%          want ~s~%" got want))))
+           (to-list (manifest-thunk)
+             (let ((acc nil))
+               (funcall manifest-thunk (lambda (b) (push b acc)))
+               (reverse acc))))
+      (format t "~&LEB128 checks:~%")
+
+      ;; 1. Unsigned.
+      (check "leb-probe, 624485 then the next field"
+             (to-list (lambda (d) (marshal leb-probe d :n 624485 :after 9)))
+             '(#xE5 #x8E #x26 9))
+      (check "leb-probe, read back (field after the LEB lines up)"
+             (unmarshal leb-probe (->bytes #(#xE5 #x8E #x26 9)))
+             '(:n 624485 :after 9))
+      (check "leb-probe, 0, 127 and 128 at the one-byte boundary"
+             (mapcar (lambda (x) (to-list (lambda (d) (marshal leb-probe d :n x :after 9))))
+                     '(0 127 128))
+             '((0 9) (#x7F 9) (#x80 #x01 9)))
+      (check "leb-probe, no value writes the default 0"
+             (to-list (lambda (d) (marshal leb-probe d)))
+             '(0 0))
+      (check "leb-probe, a negative value signals an error"
+             (signals-error-p (lambda () (to-list (lambda (d) (marshal leb-probe d :n -1)))))
+             t)
+      (check "leb-probe, an unfinished LEB at the end of the source signals an error"
+             (signals-error-p (lambda () (unmarshal leb-probe (->bytes #(#x80 #x80)))))
+             t)
+
+      ;; 2. Signed.
+      (check "sleb-probe, -123456"
+             (to-list (lambda (d) (marshal sleb-probe d :n -123456 :after 9)))
+             '(#xC0 #xBB #x78 9))
+      (check "sleb-probe, read back"
+             (unmarshal sleb-probe (->bytes #(#xC0 #xBB #x78 9)))
+             '(:n -123456 :after 9))
+      (check "sleb-probe, 63, 64, -64 and -65 at the sign-bit boundary"
+             (mapcar (lambda (x) (to-list (lambda (d) (marshal sleb-probe d :n x :after 9))))
+                     '(63 64 -64 -65))
+             '((#x3F 9) (#xC0 #x00 9) (#x40 9) (#xBF #x7F 9)))
+
+      ;; 3. Round trips, bignums included.
+      (check "leb-probe, unsigned values round-trip"
+             (loop :for x :in (list 0 1 127 128 300 16383 16384 624485 (expt 2 70))
+                   :collect (getf (unmarshal leb-probe
+                                             (->bytes (to-list (lambda (d)
+                                                                 (marshal leb-probe d :n x)))))
+                                  :n))
+             (list 0 1 127 128 300 16383 16384 624485 (expt 2 70)))
+      (check "sleb-probe, signed values round-trip"
+             (loop :for x :in (list 0 1 -1 63 64 -64 -65 -128 -123456 (expt 2 70) (- (expt 2 70)))
+                   :collect (getf (unmarshal sleb-probe
+                                             (->bytes (to-list (lambda (d)
+                                                                 (marshal sleb-probe d :n x)))))
+                                  :n))
+             (list 0 1 -1 63 64 -64 -65 -128 -123456 (expt 2 70) (- (expt 2 70))))
+
+      ;; 4. A length slot over a span holding a LEB.
+      (let ((buf (ub8 4)))
+        (marshal leb-span-probe buf :n 300 :k 7)
+        (check "leb-span-probe, length counts the LEB's two bytes"
+               (coerce buf 'list) '(3 #xAC #x02 7))
+        (check "leb-span-probe, read back"
+               (unmarshal leb-span-probe buf)
+               '(:len 3 :n 300 :k 7)))
+
+      ;; 5. Enumerated and unnamed LEBs.
+      (check "leb-enum-probe, :call written as LEB 200"
+             (to-list (lambda (d) (marshal leb-enum-probe d :op :call)))
+             '(#xC8 #x01))
+      (check "leb-enum-probe, read back as :call"
+             (unmarshal leb-enum-probe (->bytes #(#xC8 #x01)))
+             '(:op :call))
+      (check "leb-unnamed-probe, default 300 written"
+             (to-list (lambda (d) (marshal leb-unnamed-probe d :k 7)))
+             '(#xAC #x02 7))
+      (check "leb-unnamed-probe, read skips the LEB"
+             (unmarshal leb-unnamed-probe (->bytes #(#xAC #x02 7)))
+             '(:k 7)))
+    (let ((pass (every #'identity results)))
+      (format t "~&LEB128 checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
+              pass (count t results) (length results))
+      pass)))

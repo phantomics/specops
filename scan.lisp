@@ -13,11 +13,34 @@
 (defclass continuation-rule (stop-rule)
   ((bit  :initarg :bit  :initform 7 :reader rule-bit)))
 
+(defclass field-plan () ())
+
+(defclass scalar-plan (field-plan)
+  ((width :initarg :width) (signed :initarg :signed :initform nil)))
+
+(defclass scan-plan   (field-plan)
+  ((rule :initarg :rule) (assembler :initarg :assembler)))
+
+(defclass case-plan   (field-plan)
+  ((selector :initarg :selector)   ;; form yielding the selector
+   (branches :initarg :branches))) ;; ((keys . plan) …), keys or OTHERWISE
+
 (defgeneric known-count (rule)
   (:method ((r stop-rule)) nil)
   (:method ((r count-rule)) (rule-n r)))
 
+(defgeneric known-extent (plan)
+  (:method ((p field-plan)) nil)
+  (:method ((p scalar-plan)) (slot-value p 'width))
+  (:method ((p case-plan))
+    (let ((ws (mapcar (lambda (b) (known-extent (rest b))) (slot-value p 'branches))))
+      (and (first ws) (every (lambda (w) (eql w (first ws))) ws) (first ws)))))
+
 (defgeneric stop-effector (rule ctx))
+
+(defgeneric read-effector (plan ctx))  ;; form that returns the value and advances the cursor
+
+(defgeneric write-effector (plan ctx)) ;; form that writes the :value in ctx
 
 (defmethod stop-effector ((r count-rule) ctx)
   (list :before `(>= ,(getf ctx :index) ,(getf ctx :count))))
@@ -149,3 +172,48 @@ RULE, and writes them with WRITE, an expansion-time function of an element form.
                        ,@check
                        ,(funcall write (if mark (funcall mark e l) e))))
            ,@trailer)))))
+
+(defmethod read-effector ((p scalar-plan) ctx)
+  (destructuring-bind (&key read-at cursor &allow-other-keys) ctx
+    (with-slots (width signed) p
+      `(prog1 ,(funcall read-at cursor width signed) (incf ,cursor ,width)))))
+
+(defmethod read-effector ((p scan-plan) ctx)
+  (destructuring-bind (&key name read-at cursor src &allow-other-keys) ctx
+    (with-slots (rule assembler) p
+      (emit-scan name rule assembler (lambda (at) (funcall read-at at 1 nil)) cursor 1 src))))
+
+(defmethod write-effector ((p scalar-plan) ctx)
+  (destructuring-bind (&key value write &allow-other-keys) ctx
+    (funcall write (slot-value p 'width) value)))
+
+(defmethod write-effector ((p scan-plan) ctx)
+  (destructuring-bind (&key name value write &allow-other-keys) ctx
+    (with-slots (rule assembler) p
+      (emit-frame name rule assembler value (lambda (f) (funcall write 1 f))))))
+
+(defun case-clauses (p ctx effector)
+  (with-slots (selector branches) p
+    (let ((s (gensym "SEL")))
+      `(let ((,s ,selector))
+         (case ,s
+           ,@(loop :for (keys . plan) :in branches
+                   :collect `(,(if (eq keys 'otherwise) 'otherwise (if (listp keys) keys (list keys)))
+                              ,(funcall effector plan ctx)))
+           ,@(unless (assoc 'otherwise branches)
+               `((otherwise (error "Field ~s: no branch for selector value ~s."
+                                   ',(getf ctx :name) ,s)))))))))
+
+(defmethod read-effector  ((p case-plan) ctx) (case-clauses p ctx #'read-effector))
+(defmethod write-effector ((p case-plan) ctx) (case-clauses p ctx #'write-effector))
+
+(defun simplify-plan (p)
+  "A case plan whose selector is a constant reduces to its branch at expansion."
+  (if (and (typep p 'case-plan) (constantp (slot-value p 'selector)))
+      (let ((k (eval (slot-value p 'selector))))
+        (or (rest (find-if (lambda (b) (let ((keys (first b)))
+                                         (or (eq keys 'otherwise) (eql keys k)
+                                             (and (listp keys) (member k keys)))))
+                           (slot-value p 'branches)))
+            (error "No branch for constant selector ~s." k)))
+      p))
