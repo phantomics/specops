@@ -699,12 +699,20 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                                 (push (list ,closure ,index ,index) ,map)))
 
                             ,(cond
+                               ;; ((member :leb subtypes)
+                               ;;  `(funcall (if signed #'encode-leb128-signed #'encode-leb128-unsigned)
+                               ;;            (cons ,length-form
+                               ;;                  ,(or (enumerate enumerate-by (getf pairs name))
+                               ;;                       default (error "Field ~a not specified." name)))
+                               ;;            ,enter))
                                ((member :leb subtypes)
-                                `(funcall (if signed #'encode-leb128-signed #'encode-leb128-unsigned)
-                                          (cons ,length-form
-                                                ,(or (enumerate enumerate-by (getf pairs name))
-                                                     default (error "Field ~a not specified." name)))
-                                          ,enter))
+                                (unless (eql 1 length-form)
+                                  (error "Field ~s: a LEB field must be one unit wide." name))
+                                (emit-frame name (make-instance 'continuation-rule)
+                                            (make-instance 'leb-assembler :signed signed)
+                                            (or (enumerate enumerate-by (getf pairs name))
+                                                default (error "Field ~a not specified." name))
+                                            (lambda (f) `(funcall (aref ,serializers ,swap-by) (cons 1 ,f) ,enter))))
                                ((member :vec subtypes)
                                 (when (and end-by count)
                                   (error "Field ~a: :count with :end-by is not supported yet." name))
@@ -1107,6 +1115,18 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                   reads)
                             (push `(incf ,cursor ,length) reads)))))
                      (t
+                      ((member :leb subtypes)
+                       (unless (and (zerop (getf config :unit-spec)) (= 1 length))
+                         (error "unmarshal: LEB field ~s must be one 8-bit unit wide." name))
+                       (let ((form (emit-scan name (make-instance 'continuation-rule)
+                                              (make-instance 'leb-assembler :signed signed)
+                                              (lambda (at) `(funcall (aref ,dsym ,swap-by) ,at 1 nil ,src))
+                                              cursor 1 src)))
+                         (if name
+                             (let ((var (gensym (string name))))
+                               (push (cons name var) vars)
+                               (push `(setf ,var ,(interpret form enumerate-by)) reads))
+                             (push form reads))))       ; unnamed LEBs are still scanned to move the cursor
                       (cond
                         ((member :vec subtypes)
                          (let* ((var   (gensym (string (or name :vec))))
