@@ -208,6 +208,34 @@ RULE, and writes them with WRITE, an expansion-time function of an element form.
 
 (defmethod write-effector ((p case-plan) ctx) (case-clauses p ctx #'write-effector))
 
+(defun translate-keys (keys enum field)
+  "Branch keys as a list of codes, or OTHERWISE. Keyword keys go through ENUM."
+  (flet ((code (k)
+           (if (keywordp k)
+               (or (and enum (getf (rest enum) k))
+                   (error "Field ~s: :case key ~s is not in the selector's enum." field k))
+               k)))
+    (cond ((eq keys 'otherwise) 'otherwise)
+          ((listp keys) (mapcar #'code keys))
+          (t (list (code keys))))))
+
+(defun field-plan (item selector-form enum-of)
+  "Build the plan for the stored field plist ITEM."
+  (destructuring-bind (&key name length signed subtypes type-indicator type-conditions
+                       &allow-other-keys) item
+    (cond ((member :case subtypes)
+           (let ((enum (funcall enum-of type-indicator)))
+             (make-instance 'case-plan
+               :selector (funcall selector-form type-indicator)
+               :branches (loop :for b :in type-conditions
+                               :collect (cons (translate-keys (getf b :keys) enum name)
+                                              (field-plan (list* :name name b)
+                                                          selector-form enum-of))))))
+          ((member :leb subtypes)
+           (make-instance 'scan-plan :rule (make-instance 'continuation-rule)
+                                     :assembler (make-instance 'leb-assembler :signed signed)))
+          (t (make-instance 'scalar-plan :width length :signed signed)))))
+
 (defun simplify-plan (p)
   "A case plan whose selector is a constant reduces to its branch at expansion."
   (if (and (typep p 'case-plan) (constantp (slot-value p 'selector)))

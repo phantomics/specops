@@ -409,11 +409,29 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                      (list (destructuring-bind (is-signed count &rest subtypes) predicate
                              (if (eq :case is-signed)
                                  (setf type-indicator  count
+                                       subtype-list    '(:case)
+                                       width           0 ;; variable; the static index can't follow it anyway
                                        type-conditions
-                                       (cons 'list (mapcar (lambda (i) (cons 'list i)) subtypes))
-                                       width           1) ;; how to handle right?
+                                       (cons 'list
+                                             (loop :for (keys . type) :in subtypes
+                                                   :collect (multiple-value-bind (w s st)
+                                                                ;; (0 :u8) and (0 :u 1 :leb) are both allowed
+                                                                (parse-type (if (and (null (rest type))
+                                                                                     (keywordp (first type)))
+                                                                                (first type) type))
+                                                              (list 'list :keys (list 'quote keys)
+                                                                          :length (ash w (- unit-spec))
+                                                                          :signed s
+                                                                          :subtypes (list 'quote st))))))
                                  (setf width        count
                                        subtype-list subtypes))
+                             ;; (if (eq :case is-signed)
+                             ;;     (setf type-indicator  count
+                             ;;           type-conditions
+                             ;;           (cons 'list (mapcar (lambda (i) (cons 'list i)) subtypes))
+                             ;;           width           1) ;; how to handle right?
+                             ;;     (setf width        count
+                             ;;           subtype-list subtypes))
                              ;; (print (list :sty subtypes))
                              (when (eq :s is-signed) (setf signed t)))))
                    (values width signed subtype-list type-indicator type-conditions)))
@@ -535,6 +553,12 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                  ,c)))
     (:align `(mod (- ,n (mod ,pos ,n)) ,n))))          ; absolute position
 
+(defun case-selectors (items)
+  (loop :for i :in items
+        :append (if (eq :span (getf i :type))
+                    (case-selectors (getf i :items))
+                    (and (member :case (getf i :subtypes)) (list (getf i :type-indicator))))))
+
 (defmacro marshal (name destination &body pairs)
   (let* ((spec (gethash name *manifests*))
          (params (first spec))
@@ -627,6 +651,11 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                      (t (let ((v (gensym "V")))             ; runtime form, resolve when it runs
                           `(let ((,v ,value))
                              (if (keywordp ,v) (getf (rest (gethash ',table-name *enums*)) ,v) ,v))))))
+             
+             (enum-of (sel)
+               (let ((e (getf (find-in-manifest (rest spec) (lambda (i) (and (eq sel (getf i :name)) i)))
+                              :enumerate-by)))
+                 (and e (gethash e *enums*))))
              (generate (item &optional context)
                (destructuring-bind (&key name type kind signed (swap-by 0) upto default offset
                                       count actual bindings with length encode-by end-by
@@ -710,7 +739,14 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                             (lambda (f) `(funcall (aref ,serializers ,swap-by) (cons 1 ,f)
                                                                   ,enter))))
                                ((member :case subtypes)
-                                (write-effector (make-instance 'case-plan)))
+                                (write-effector (simplify-plan (field-plan item #'selector-form #'enum-of))
+                                                (list :name name
+                                                      :value (or (enumerate enumerate-by (getf pairs name))
+                                                                 default (error "Field ~a not specified."
+                                                                                name))
+                                                      :write (lambda (w f)
+                                                               `(funcall (aref ,serializers ,swap-by)
+                                                                         (cons ,w ,f) ,enter)))))
                                ((member :vec subtypes)
                                 (when (and end-by count)
                                   (error "Field ~a: :count with :end-by is not supported yet." name))
@@ -806,7 +842,8 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                                        (and slot 0)
                                                        ;; slot values do not need a default since they 
                                                        ;; will be populated according to other slots' values
-                                                       (error "Field ~a not specified." name)))
+                                                       (error "Field ~a not specified." name))
+                                                  )
                                             ,enter)))
 
                             (setf (third (assoc ,qname ,map)) ,index)
@@ -954,7 +991,7 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
          (keys (or keys all-keys))
          (dvector (make-array 4 :initial-element nil))
          (base (gensym "BA")) (dsym (gensym "DS"))
-         sub-lexicon prefix cursor)
+         raws sub-lexicon prefix cursor)
     
     (if (getf params :-+sub-lexicon+-)
         (destructuring-bind (&key ba-sym cr-sym pr-sym &allow-other-keys) (getf params :-+sub-lexicon+-)
@@ -1007,6 +1044,12 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                    :finally (return ,k)))))
                        (t (error "unmarshal: no element count for vector field ~a ~
                    (give :count or a :length-of slot)." name))))
+               (selector-form (sel)
+                 (or (rest (assoc sel raws)) (var-of sel name)))
+               (enum-of (sel)
+                 (let ((e (getf (find-in-manifest (rest spec) (lambda (i) (and (eq sel (getf i :name)) i)))
+                                :enumerate-by)))
+                   (and e (gethash e *enums*))))
                (process-item (item)
                  (destructuring-bind (&key name type subtypes length signed (swap-by 0)
                                         count items enumerate-by actual codec end-by
@@ -1128,7 +1171,15 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                ;; unnamed LEBs are still scanned to move the cursor
                                (push form reads))))
                         ((member :case subtypes)
-                         (read-effector (make-instance 'case-plan)))                        
+                         (let ((form (read-effector (field-plan item #'selector-form #'enum-of)
+                                                    (list :name name :cursor cursor :src src
+                                                          :read-at (lambda (at w sg)
+                                                                     `(funcall (aref ,dsym ,swap-by)
+                                                                               ,at ,w ,sg ,src))))))
+                           (if name (let ((var (gensym (string name))))
+                                      (push (cons name var) vars)
+                                      (push `(setf ,var ,(interpret form enumerate-by)) reads))
+                               (push form reads))))
                         ((member :vec subtypes)
                          (let* ((var   (gensym (string (or name :vec))))
                                 (bits  (* length (ash 1 (+ 3 (getf config :unit-spec)))))
@@ -1166,10 +1217,16 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                          (when name ;; (and name (or (member name keys)))
                           (let ((var (gensym (string name))))
                             (push (cons name var) vars)
-                            (push `(setf ,var ,(interpret `(funcall (aref ,dsym ,swap-by)
-                                                                    ,cursor ,length ,signed ,src)
+                            ;; (push `(setf ,var ,(interpret `(funcall (aref ,dsym ,swap-by)
+                            ;;                                         ,cursor ,length ,signed ,src)
+                            ;;                               enumerate-by))
+                            ;;       reads)
+                            (push `(setf ,var ,(interpret `(setf ,raw (funcall (aref ,dsym ,swap-by)
+                                                                               ,cursor ,length ,signed ,src))
                                                           enumerate-by))
-                                  reads)))
+                                  reads)
+                            (push var raws)
+                            ))
                          (push (list 'incf cursor length) reads))))))))
         
         (dolist (item (rest spec)) (process-item item))
