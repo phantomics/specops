@@ -8,6 +8,7 @@
   :serial t
   :components ((:file "package")
                (:file "checksum")
+               (:file "scan")
                (:file "specops")
                (:file "program")))
 
