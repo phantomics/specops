@@ -347,29 +347,29 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
 ;; LEB128 encoding utilities
 ;; ===============================================================
 
-(defun encode-leb128-unsigned (value writer)
-  "Encode a non-negative integer as an unsigned LEB128 byte vector."
-  (declare (type (integer 0) value))
-  (if (zerop value)
-      (funcall writer 0)
-      (loop :while (plusp value)
-            :do (let ((byte (logand value #x7F)))
-                  (setf value (ash value -7))
-                  (when (plusp value)
-                    (setf byte (logior byte #x80)))
-                  (funcall writer byte)))))
+;; (defun encode-leb128-unsigned (value writer)
+;;   "Encode a non-negative integer as an unsigned LEB128 byte vector."
+;;   (declare (type (integer 0) value))
+;;   (if (zerop value)
+;;       (funcall writer 0)
+;;       (loop :while (plusp value)
+;;             :do (let ((byte (logand value #x7F)))
+;;                   (setf value (ash value -7))
+;;                   (when (plusp value)
+;;                     (setf byte (logior byte #x80)))
+;;                   (funcall writer byte)))))
 
-(defun encode-leb128-signed (value writer)
-  "Encode an integer as a signed LEB128 byte vector."
-  (let ((more t))
-    (loop :while more
-          :do (let ((byte (logand value #x7F)))
-                (setf value (ash value -7))
-                (if (or (and (zerop value) (zerop (logand byte #x40)))
-                        (and (= value -1)  (not (zerop (logand byte #x40)))))
-                    (setf more nil)
-                    (setf byte (logior byte #x80)))
-                (funcall writer byte)))))
+;; (defun encode-leb128-signed (value writer)
+;;   "Encode an integer as a signed LEB128 byte vector."
+;;   (let ((more t))
+;;     (loop :while more
+;;           :do (let ((byte (logand value #x7F)))
+;;                 (setf value (ash value -7))
+;;                 (if (or (and (zerop value) (zerop (logand byte #x40)))
+;;                         (and (= value -1)  (not (zerop (logand byte #x40)))))
+;;                     (setf more nil)
+;;                     (setf byte (logior byte #x80)))
+;;                 (funcall writer byte)))))
 
 (defmacro defmanifest (name params &body fields)
   (destructuring-bind (&key unit endian index vextend-by count-from length pad offset) params
@@ -668,6 +668,19 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                (let ((e (getf (find-in-manifest (rest spec) (lambda (i) (and (eq sel (getf i :name)) i)))
                               :enumerate-by)))
                  (and e (gethash e *enums*))))
+             (vec-source-form (name default count end-by)
+               (cond ((getf pairs name))
+                     ((vectorp default) default)
+                     (end-by "")
+                     ((and (integerp default) (integerp count))
+                      (make-array count :initial-element default))   ; built now, a literal in the code
+                     (t (error "Field ~a: no value, no default, and no integer :count." name))))
+             (scalar-value-form (name default enumerate-by slot)
+               (let ((value (or (enumerate enumerate-by (getf pairs name))
+                                default (and slot 0) (error "Field ~a not specified." name)))
+                     (selvar (rest (assoc name selvars))))
+                 (push name written)
+                 (if selvar `(setf ,selvar ,value) value)))
              (generate (item &optional context)
                (destructuring-bind (&key name type kind signed (swap-by 0) upto default offset
                                       count actual bindings with length encode-by end-by
@@ -742,6 +755,18 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                                 (push (list ,closure ,index ,index) ,map)))
 
                             ,(cond
+                               ((intersection '(:vec :leb :case) subtypes)
+                                (write-effector
+                                 (simplify-plan (field-plan item :selector-form #'selector-form
+                                                                 :enum-of #'enum-of
+                                                                 :unit-bits (ash 1 (+ 3 (getf params
+                                                                                              :unit-spec)))))
+                                 (list :name name
+                                       :value (if (member :vec subtypes)
+                                                  (vec-source-form name default count end-by)
+                                                  (scalar-value-form name default enumerate-by slot))
+                                       :write (lambda (w f) `(funcall (aref ,serializers ,swap-by)
+                                                                      (cons ,w ,f) ,enter)))))
                                ((member :leb subtypes)
                                 (unless (eql 1 length-form)
                                   (error "Field ~s: a LEB field must be one unit wide." name))
@@ -1058,6 +1083,11 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                    :finally (return ,k)))))
                        (t (error "unmarshal: no element count for vector field ~a ~
                    (give :count or a :length-of slot)." name))))
+               (record-read (name form)
+                 (if name (let ((var (gensym (string name))))
+                            (push (cons name var) vars)
+                            (push `(setf ,var ,form) reads))
+                     (push form reads)))
                (selector-form (sel)
                  (or (rest (assoc sel raws)) (var-of sel name)))
                (enum-of (sel)
@@ -1171,62 +1201,77 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                             (push `(incf ,cursor ,length) reads)))))
                      (t
                       (cond
-                        ((member :leb subtypes)
-                         (unless (and (zerop (getf config :unit-spec)) (= 1 length))
-                           (error "unmarshal: LEB field ~s must be one 8-bit unit wide." name))
-                         (let ((form (emit-scan name (make-instance 'continuation-rule)
-                                                (make-instance 'leb-assembler :signed signed)
-                                                (lambda (at) `(funcall (aref ,dsym ,swap-by) ,at 1 nil ,src))
-                                                cursor 1 src)))
-                           (if name
-                               (let ((var (gensym (string name))))
-                                 (push (cons name var) vars)
-                                 (push `(setf ,var ,(interpret form enumerate-by)) reads))
-                               ;; unnamed LEBs are still scanned to move the cursor
-                               (push form reads))))
-                        ((member :case subtypes)
-                         (let ((form (read-effector (field-plan item #'selector-form #'enum-of)
-                                                    (list :name name :cursor cursor :src src
-                                                          :read-at (lambda (at w sg)
-                                                                     `(funcall (aref ,dsym ,swap-by)
-                                                                               ,at ,w ,sg ,src))))))
-                           (if name (let ((var (gensym (string name))))
-                                      (push (cons name var) vars)
-                                      (push `(setf ,var ,(interpret form enumerate-by)) reads))
-                               (push form reads))))
-                        ((member :vec subtypes)
-                         (let* ((var   (gensym (string (or name :vec))))
-                                (bits  (* length (ash 1 (+ 3 (getf config :unit-spec)))))
-                                (etype (cond (enumerate-by t)
-                                             (signed `(signed-byte ,bits))
-                                             (t      `(unsigned-byte ,bits))))
-                                (decoder (gensym "DE")) (in (gensym))
-                                (n (gensym "N")) (v (gensym "V")) (i (gensym "I")))
-                           (when name (push (cons name var) vars))
-                           ;; unnamed vecs are still read so the cursor advances
-                           (push `(let ((,decoder
-                                          ,(if (not codec) '#'identity
-                                               `(codec-for ,codec
-                                                           (lambda (,in)
-                                                             (error "Failed to decode input `~a` using ~a: ~a"
-                                                                    ,in ,(write-to-string codec)
-                                                                    "invalid input."))))))
-                                    (setf ,var
-                                          (let* ((,n ,(vec-count-form name count length
-                                                                      end-by swap-by codec))
-                                                 (,v (make-array ,n :element-type ',etype)))
-                                            (dotimes (,i ,n ,v)
-                                              (setf (aref ,v ,i)
-                                                    ,(interpret `(funcall (aref ,dsym ,swap-by)
-                                                                          (+ ,cursor (* ,i ,length))
-                                                                          ,length ,signed ,src)
-                                                                enumerate-by)))
-                                            ,(if (not codec)
-                                                 v `(map 'string ,decoder ,v)))))
-                                 reads)
-                           ;; (push `(incf ,cursor (* (length ,var) ,length)) reads)
-                           (push `(incf ,cursor (* ,length ,(if end-by `(1+ (length ,var)) `(length ,var))))
-                                 reads)))
+                        ((intersection '(:vec :leb :case) subtypes)
+                         (record-read name ;; enumerate-by subtypes
+                                      (read-effector (field-plan item :selector-form #'selector-form
+                                                                      :enum-of #'enum-of
+                                                                      :count-form (lambda (i)
+                                                                                    (vec-count-form
+                                                                                     (getf i :name)
+                                                                                     (getf i :count)
+                                                                                     (getf i :length)))
+                                                                      :unit-bits (ash 1 (+ 3 (getf config
+                                                                                                   :unit-spec))))
+                                                     (list :name name :cursor cursor :src src
+                                                           :read-at (lambda (at w sg)
+                                                                      `(funcall (aref ,dsym ,swap-by)
+                                                                                ,at ,w ,sg ,src))))))
+                        ;; ((member :leb subtypes)
+                        ;;  (unless (and (zerop (getf config :unit-spec)) (= 1 length))
+                        ;;    (error "unmarshal: LEB field ~s must be one 8-bit unit wide." name))
+                        ;;  (let ((form (emit-scan name (make-instance 'continuation-rule)
+                        ;;                         (make-instance 'leb-assembler :signed signed)
+                        ;;                         (lambda (at) `(funcall (aref ,dsym ,swap-by) ,at 1 nil ,src))
+                        ;;                         cursor 1 src)))
+                        ;;    (if name
+                        ;;        (let ((var (gensym (string name))))
+                        ;;          (push (cons name var) vars)
+                        ;;          (push `(setf ,var ,(interpret form enumerate-by)) reads))
+                        ;;        ;; unnamed LEBs are still scanned to move the cursor
+                        ;;        (push form reads))))
+                        ;; ((member :case subtypes)
+                        ;;  (let ((form (read-effector (field-plan item #'selector-form #'enum-of)
+                        ;;                             (list :name name :cursor cursor :src src
+                        ;;                                   :read-at (lambda (at w sg)
+                        ;;                                              `(funcall (aref ,dsym ,swap-by)
+                        ;;                                                        ,at ,w ,sg ,src))))))
+                        ;;    (if name (let ((var (gensym (string name))))
+                        ;;               (push (cons name var) vars)
+                        ;;               (push `(setf ,var ,(interpret form enumerate-by)) reads))
+                        ;;        (push form reads))))
+                        ;; ((member :vec subtypes)
+                        ;;  (let* ((var   (gensym (string (or name :vec))))
+                        ;;         (bits  (* length (ash 1 (+ 3 (getf config :unit-spec)))))
+                        ;;         (etype (cond (enumerate-by t)
+                        ;;                      (signed `(signed-byte ,bits))
+                        ;;                      (t      `(unsigned-byte ,bits))))
+                        ;;         (decoder (gensym "DE")) (in (gensym))
+                        ;;         (n (gensym "N")) (v (gensym "V")) (i (gensym "I")))
+                        ;;    (when name (push (cons name var) vars))
+                        ;;    ;; unnamed vecs are still read so the cursor advances
+                        ;;    (push `(let ((,decoder
+                        ;;                   ,(if (not codec) '#'identity
+                        ;;                        `(codec-for ,codec
+                        ;;                                    (lambda (,in)
+                        ;;                                      (error "Failed to decode input `~a` using ~a: ~a"
+                        ;;                                             ,in ,(write-to-string codec)
+                        ;;                                             "invalid input."))))))
+                        ;;             (setf ,var
+                        ;;                   (let* ((,n ,(vec-count-form name count length
+                        ;;                                               end-by swap-by codec))
+                        ;;                          (,v (make-array ,n :element-type ',etype)))
+                        ;;                     (dotimes (,i ,n ,v)
+                        ;;                       (setf (aref ,v ,i)
+                        ;;                             ,(interpret `(funcall (aref ,dsym ,swap-by)
+                        ;;                                                   (+ ,cursor (* ,i ,length))
+                        ;;                                                   ,length ,signed ,src)
+                        ;;                                         enumerate-by)))
+                        ;;                     ,(if (not codec)
+                        ;;                          v `(map 'string ,decoder ,v)))))
+                        ;;          reads)
+                        ;;    ;; (push `(incf ,cursor (* (length ,var) ,length)) reads)
+                        ;;    (push `(incf ,cursor (* ,length ,(if end-by `(1+ (length ,var)) `(length ,var))))
+                        ;;          reads)))
                         (t
                          ;; (when name ;; (and name (or (member name keys)))
                          ;;  (let ((var (gensym (string name))))

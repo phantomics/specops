@@ -5,10 +5,12 @@
 (defclass stop-rule () ())
 
 (defclass count-rule        (stop-rule)
-  ((n    :initarg :n    :reader rule-n)))    ;; integer or form
+  ((n    :initarg :n
+         :reader  rule-n)))   ;; integer or form
 
 (defclass terminator-rule   (stop-rule)
-  ((code :initarg :code :reader rule-code))) ;; code form
+  ((code :initarg :code
+         :reader rule-code))) ;; code form
 
 (defclass continuation-rule (stop-rule)
   ((bit  :initarg :bit  :initform 7 :reader rule-bit)))
@@ -16,10 +18,17 @@
 (defclass field-plan () ())
 
 (defclass scalar-plan (field-plan)
-  ((width :initarg :width) (signed :initarg :signed :initform nil)))
+  ((width  :initarg  :width)
+   (signed :initarg  :signed
+           :initform nil)
+   (enum   :initarg  :enum
+           :initform nil)))
 
 (defclass scan-plan   (field-plan)
-  ((rule :initarg :rule) (assembler :initarg :assembler)))
+  ((rule      :initarg  :rule)
+   (assembler :initarg  :assembler)
+   (width     :initarg  :width
+              :initform 1)))
 
 (defclass case-plan   (field-plan)
   ((selector :initarg :selector)   ;; form yielding the selector
@@ -55,37 +64,82 @@
 
 (defclass assembler () ())
 
+;; (defclass vector-assembler (assembler)
+;;   ((etype   :initarg :etype)
+;;    (convert :initarg :convert :initform #'identity) ;; expansion-time fn
+;;    (decoder :initarg :decoder :initform nil)))      ;; form or nil
+
 (defclass vector-assembler (assembler)
-  ((etype   :initarg :etype)
-   (convert :initarg :convert :initform #'identity) ;; expansion-time fn
-   (decoder :initarg :decoder :initform nil)))      ;; form or nil
+  ((bits :initarg :bits)
+   (signed :initarg :signed :initform nil)
+   (enum :initarg :enum :initform nil)
+   (codec :initarg :codec :initform nil)))
 
 (defclass leb-assembler (assembler)
-  ((signed :initarg :signed :initform nil)))
+  ((signed :initarg :signed
+           :initform nil)
+   (enum   :accessor leb-assembler-enum
+           :initarg :enum
+           :initform nil)))
 
 (defgeneric assemble-effector (assembler ctx))
 
+(defun codec-form (codec direction)
+  `(codec-for ,codec (lambda (in) (error "Failed to ~a input `~a` using ~a: invalid input."
+                                         ,direction in ',codec))))
+
+(defun terminator-code-form (name end-by codec)          ; moved from unmarshal, used by both sides
+  (typecase end-by
+    (character (if codec
+                   `(or (funcall ,codec ,end-by)
+                        (error "Terminator ~s of field ~s has no code in ~a." ,end-by ',name ',codec))
+                   (char-code end-by)))
+    (integer end-by)
+    (t (error "Field ~s: :end-by must be a character or an integer, not ~s." name end-by))))
+
+(defun enum-decode-form (form enum)
+  (if enum `(enumerated ,form (gethash ',enum *enums*)) form))
+
 (defmethod assemble-effector ((a vector-assembler) ctx)
-  (with-slots (etype convert decoder) a
+  (with-slots (bits signed enum codec) a
     (destructuring-bind (&key element count &allow-other-keys) ctx
-      (let ((v (gensym "V")) (j (gensym "J")) (x (funcall convert element)))
+      (let* ((v (gensym "V")) (j (gensym "J"))
+             (etype (cond (enum t) (signed `(signed-byte ,bits)) (t `(unsigned-byte ,bits))))
+             (x (let ((s (if signed
+                             `(if (logbitp ,(1- bits) ,element) (- ,element ,(ash 1 bits)) ,element)
+                             element)))
+                  (if enum `(enumerated ,s (gethash ',enum *enums*)) s))))
         (list :bindings (if count
                             `((,v (make-array ,count :element-type ',etype)) (,j 0))
                             `((,v (make-array 8 :adjustable t :fill-pointer 0))))
-              :collect (if count
-                           `((setf (aref ,v ,j) ,x) (incf ,j))
-                           `((vector-push-extend ,x ,v)))
+              :collect (if count `((setf (aref ,v ,j) ,x) (incf ,j)) `((vector-push-extend ,x ,v)))
               :result (let ((out (if count v `(coerce ,v '(simple-array ,etype (*))))))
-                        (if decoder `(map 'string ,decoder ,out) out)))))))
+                        (if codec `(map 'string ,(codec-form codec "decode") ,out)
+                            out)))))))
+
+;; (defmethod assemble-effector ((a vector-assembler) ctx)
+;;   (with-slots (etype convert decoder) a
+;;     (destructuring-bind (&key element count &allow-other-keys) ctx
+;;       (let ((v (gensym "V")) (j (gensym "J")) (x (funcall convert element)))
+;;         (list :bindings (if count
+;;                             `((,v (make-array ,count :element-type ',etype)) (,j 0))
+;;                             `((,v (make-array 8 :adjustable t :fill-pointer 0))))
+;;               :collect (if count
+;;                            `((setf (aref ,v ,j) ,x) (incf ,j))
+;;                            `((vector-push-extend ,x ,v)))
+;;               :result (let ((out (if count v `(coerce ,v '(simple-array ,etype (*))))))
+;;                         (if decoder `(map 'string ,decoder ,out) out)))))))
 
 (defmethod assemble-effector ((a leb-assembler) ctx)
-  (let ((v (gensym "V")) (sh (gensym "SH")) (e (getf ctx :element)))
-    (list :bindings `((,v 0) (,sh 0))
-          :declare `((type unsigned-byte ,v) (type fixnum ,sh))
-          :collect `((setf ,v (logior ,v (ash (logand ,e #x7f) ,sh))) (incf ,sh 7))
-          :result (if (slot-value a 'signed)
-                      `(if (and (plusp ,sh) (logbitp (1- ,sh) ,v)) (- ,v (ash 1 ,sh)) ,v)
-                      v))))
+  (with-slots (enum) a
+    (let ((v (gensym "V")) (sh (gensym "SH")) (e (getf ctx :element)))
+      (list :bindings `((,v 0) (,sh 0))
+            :declare `((type unsigned-byte ,v) (type fixnum ,sh))
+            :collect `((setf ,v (logior ,v (ash (logand ,e #x7f) ,sh))) (incf ,sh 7))
+            :result (enum-decode-form (if (slot-value a 'signed)
+                                          `(if (and (plusp ,sh) (logbitp (1- ,sh) ,v)) (- ,v (ash 1 ,sh)) ,v)
+                                          v)
+                                      enum)))))
 
 (defun emit-scan (name rule assembler read-at cursor length src)
   "Return one fused loop that reads, stop-tests and assembles a field, then
@@ -155,6 +209,26 @@ and :last (true when the element just yielded was the final one)."))
                           ,g)
             :last fin))))
 
+(defmethod disassemble-effector ((a vector-assembler) ctx)
+  (with-slots (bits signed enum codec) a
+    (destructuring-bind (&key name value &allow-other-keys) ctx
+      (let ((src (gensym "SRC")) (j (gensym "J")) (enc (gensym "ENC")) (x (gensym "X")))
+        (list :bindings `((,src ,value) (,j 0) ,@(and codec `((,enc ,(codec-form codec "encode")))))
+              :declare `((type fixnum ,j))
+              :more `(< ,j (length ,src))
+              :next `(let ((,x (aref ,src ,j)))
+                       (incf ,j)
+                       (cond ((characterp ,x) ,(if codec `(funcall ,enc ,x) `(char-code ,x)))
+                             ,@(and enum `(((keywordp ,x)
+                                            (or (getf (rest (gethash ',enum *enums*)) ,x)
+                                                (error "Field ~s: ~s is not in enum ~a." ',name ,x ',enum)))))
+                             ,@(and signed `(((minusp ,x)
+                                              (when (< ,x ,(- (ash 1 (1- bits))))
+                                                (error "Field ~s: ~a does not fit ~a signed bits." ',name ,x ,bits))
+                                              (logand ,x ,(1- (ash 1 bits))))))
+                             (t ,x)))
+              :last `(= ,j (length ,src)))))))
+
 (defun emit-frame (name rule assembler value-form write)
   "Return one loop that splits VALUE-FORM into elements, checks and marks each under
 RULE, and writes them with WRITE, an expansion-time function of an element form."
@@ -175,13 +249,14 @@ RULE, and writes them with WRITE, an expansion-time function of an element form.
 
 (defmethod read-effector ((p scalar-plan) ctx)
   (destructuring-bind (&key read-at cursor &allow-other-keys) ctx
-    (with-slots (width signed) p
-      `(prog1 ,(funcall read-at cursor width signed) (incf ,cursor ,width)))))
+    (with-slots (width signed enum) p
+      `(prog1 ,(enum-decode-form (funcall read-at cursor width signed) enum) (incf ,cursor ,width)))))
 
 (defmethod read-effector ((p scan-plan) ctx)
   (destructuring-bind (&key name read-at cursor src &allow-other-keys) ctx
-    (with-slots (rule assembler) p
-      (emit-scan name rule assembler (lambda (at) (funcall read-at at 1 nil)) cursor 1 src))))
+    (with-slots (rule assembler width) p
+      (emit-scan name rule assembler (lambda (at) (funcall read-at at width nil))
+                 cursor width src))))
 
 (defmethod write-effector ((p scalar-plan) ctx)
   (destructuring-bind (&key value write &allow-other-keys) ctx
@@ -189,8 +264,8 @@ RULE, and writes them with WRITE, an expansion-time function of an element form.
 
 (defmethod write-effector ((p scan-plan) ctx)
   (destructuring-bind (&key name value write &allow-other-keys) ctx
-    (with-slots (rule assembler) p
-      (emit-frame name rule assembler value (lambda (f) (funcall write 1 f))))))
+    (with-slots (rule assembler width) p
+      (emit-frame name rule assembler value (lambda (f) (funcall write width f))))))
 
 (defun case-clauses (p ctx effector)
   (with-slots (selector branches) p
@@ -219,22 +294,52 @@ RULE, and writes them with WRITE, an expansion-time function of an element form.
           ((listp keys) (mapcar #'code keys))
           (t (list (code keys))))))
 
-(defun field-plan (item selector-form enum-of)
-  "Build the plan for the stored field plist ITEM."
-  (destructuring-bind (&key name length signed subtypes type-indicator type-conditions
-                       &allow-other-keys) item
+(defun field-plan (item &key selector-form enum-of count-form (unit-bits 8))
+  (destructuring-bind (&key name length signed subtypes count end-by codec enumerate-by
+                         type-indicator type-conditions &allow-other-keys) item
     (cond ((member :case subtypes)
            (let ((enum (funcall enum-of type-indicator)))
              (make-instance 'case-plan
                :selector (funcall selector-form type-indicator)
                :branches (loop :for b :in type-conditions
                                :collect (cons (translate-keys (getf b :keys) enum name)
-                                              (field-plan (list* :name name b)
-                                                          selector-form enum-of))))))
+                                              ;; a branch inherits the field's :count, :end-by, :codec
+                                              (field-plan (append b item)
+                                                          :selector-form selector-form :enum-of enum-of
+                                                          :count-form count-form :unit-bits unit-bits))))))
+          ((member :vec subtypes)
+           (when (and end-by count)          ; until SPECOPS-DRAFT-manifest-complete-D7
+             (error "Field ~a: :count with :end-by is not supported yet." name))
+           (make-instance 'scan-plan :width length
+             :rule (if end-by
+                       (make-instance 'terminator-rule :code (terminator-code-form name end-by codec))
+                       (make-instance 'count-rule :n (and count-form (funcall count-form item))))
+             :assembler (make-instance 'vector-assembler :bits (* length unit-bits) :signed signed
+                                                         :enum enumerate-by :codec codec)))
           ((member :leb subtypes)
+           (unless (and (eql 1 length) (= 8 unit-bits))
+             (error "Field ~s: a LEB field must be one 8-bit unit wide." name))
            (make-instance 'scan-plan :rule (make-instance 'continuation-rule)
-                                     :assembler (make-instance 'leb-assembler :signed signed)))
-          (t (make-instance 'scalar-plan :width length :signed signed)))))
+                                     :assembler (make-instance 'leb-assembler :signed signed
+                                                                              :enum enumerate-by)))
+          (t (make-instance 'scalar-plan :width length :signed signed :enum enumerate-by)))))
+
+;; (defun field-plan (item selector-form enum-of)
+;;   "Build the plan for the stored field plist ITEM."
+;;   (destructuring-bind (&key name length signed subtypes type-indicator type-conditions
+;;                        &allow-other-keys) item
+;;     (cond ((member :case subtypes)
+;;            (let ((enum (funcall enum-of type-indicator)))
+;;              (make-instance 'case-plan
+;;                :selector (funcall selector-form type-indicator)
+;;                :branches (loop :for b :in type-conditions
+;;                                :collect (cons (translate-keys (getf b :keys) enum name)
+;;                                               (field-plan (list* :name name b)
+;;                                                           selector-form enum-of))))))
+;;           ((member :leb subtypes)
+;;            (make-instance 'scan-plan :rule (make-instance 'continuation-rule)
+;;                                      :assembler (make-instance 'leb-assembler :signed signed)))
+;;           (t (make-instance 'scalar-plan :width length :signed signed)))))
 
 (defun simplify-plan (p)
   "A case plan whose selector is a constant reduces to its branch at expansion."

@@ -58,7 +58,9 @@ and selective reading on the read side, repeated and tag-dispatched structure,
 a struct interface, destinations that cannot be patched, and packaging. It
 assumes the decisions recorded in the
 [Manifest development log, SPECOPS-DRAFT-manifest](Log.Manifest.md) and the
-architecture in [SPECOPS-DRAFT-specops](Arch.SpecOps.md).
+architecture in [SPECOPS-DRAFT-specops](Arch.SpecOps.md). Progress is charted
+in dated updates at the end of this plan; the latest is the update of
+2026-10-30, at commit `653345f`.
 
 ## Problem
 
@@ -486,3 +488,90 @@ Table: Prior systems and what this plan draws from each.
 9. **Floats and masque completion.**
 10. **Packaging:** exports, ASDF systems and `test-op`; then a Ref for the
     manifest interface.
+
+## Update 2026-10-30 — Progress and priorities
+
+This installment charts the plan's progress at commit `653345f` and sets the
+order of the remaining work. The work done since `1e53ae7` is recorded in the
+log's update of 2026-10-30, in SPECOPS-DRAFT-manifest-D15 through
+SPECOPS-DRAFT-manifest-D21. Later stages add an installment like this one with
+a fresh progress table, pinned to their commit, so the record of progress
+stays in order.
+
+### Progress
+
+Table: State of each Roadmap milestone at commit `653345f`.
+
+| Milestone | State | Done | Remaining |
+|---|---|---|---|
+| 1. Corrections and records | Partly done | `:leb` write fixed (SPECOPS-DRAFT-manifest-D18); pad rework recorded (SPECOPS-DRAFT-manifest-D15); list type specs no longer printed | Byte orders across nesting; dead code (the static `index`, the unused `ba-sym`, `encode-leb128-unsigned` and `encode-leb128-signed`); keyword defaults on enumerated fields; unknown enum codes read as `nil`; the selector-order error names the manifest |
+| 2. Field kinds on read | Partly done | `:leb` and `:case` on both sides; one-element terminators; caller text as `:vec` with `:codec` (SPECOPS-DRAFT-manifest-D16) | `:vec` on the scan model; SPECOPS-DRAFT-manifest-complete-D7, SPECOPS-DRAFT-manifest-complete-D8 and SPECOPS-DRAFT-manifest-complete-D9; vectors of LEB elements; SPECOPS-DRAFT-manifest-complete-O5 for fields without a terminator |
+| 3. Checked reads | Open | — | Read-side region map; the policy of SPECOPS-DRAFT-manifest-complete-O1 |
+| 4. Structs and run-time nested values | Open | — | SPECOPS-DRAFT-manifest-complete-D4, SPECOPS-DRAFT-manifest-complete-O2, SPECOPS-DRAFT-manifest-complete-O3; round-trip tests |
+| 5. Variable structure | Open | The field-plan level that `:case` over sub-manifests needs (SPECOPS-DRAFT-manifest-D19) | Repeated sub-manifests; `:case` choosing a sub-manifest; SPECOPS-DRAFT-manifest-complete-O4 |
+| 6. Destinations | Open | — | Buffering (SPECOPS-DRAFT-manifest-complete-D2); checksums on streams; overrun checks |
+| 7. Selective reads and stream sources | Open | `known-count` and `known-extent` facts on rules and plans | Dependency closure and skip mode (SPECOPS-DRAFT-manifest-complete-D3); stream sources |
+| 8. WOFF | Open | — | SPECOPS-DRAFT-manifest-complete-D6, the first test of `:offset-of` |
+| 9. Floats and masque completion | Open | — | The `:f` class; decimal (`d:`) masques; range checks; keyword groups registered for `:case` and `:count` |
+| 10. Packaging | Partly done | `defmanifest`, `defenum` and `unmarshal` exported | `goff.lisp` in an ASDF system; suites behind `test-op`; a Ref |
+
+### Priorities
+
+The remaining work, in order. Where it differs from the Roadmap above, this
+order replaces it.
+
+1. **`:vec` on the scan model.** Reads through `emit-scan`, with one pass for
+   terminated fields, and writes through `emit-frame`. Then fixed buffers with
+   a terminator (SPECOPS-DRAFT-manifest-complete-D7), multi-element
+   terminators (SPECOPS-DRAFT-manifest-complete-D8), vectors of LEB elements,
+   and user-defined stop rules with the runtime fallback
+   (SPECOPS-DRAFT-manifest-complete-D9).
+2. **Corrections.** Byte orders across nesting, the dead code, and the small
+   bugs listed under milestone 1. These are small and can be taken between
+   larger steps.
+3. **Structs and round trips** (SPECOPS-DRAFT-manifest-complete-D4,
+   SPECOPS-DRAFT-manifest-complete-O2, SPECOPS-DRAFT-manifest-complete-O3).
+   Nothing in step 1 blocks this, so it can start alongside it.
+4. **Variable structure** (SPECOPS-DRAFT-manifest-complete-D5,
+   SPECOPS-DRAFT-manifest-complete-O4), ending with a PNG of any chunk
+   sequence.
+5. **Checked reads** (SPECOPS-DRAFT-manifest-complete-O1).
+6. **Destinations** (SPECOPS-DRAFT-manifest-complete-D2).
+7. **Selective reads and stream sources**
+   (SPECOPS-DRAFT-manifest-complete-D3).
+8. **WOFF** (SPECOPS-DRAFT-manifest-complete-D6).
+9. **Floats and masque completion.**
+10. **Packaging:** `goff.lisp` in ASDF, `test-op`, then a Ref.
+
+Steps 8 and 9 depend on nothing else and can be done whenever convenient.
+
+### Dependencies
+
+- **`:vec` on the scan model** comes before SPECOPS-DRAFT-manifest-complete-D7,
+  SPECOPS-DRAFT-manifest-complete-D8, SPECOPS-DRAFT-manifest-complete-D9 and
+  vectors of LEB elements, which all add rules or assemblers to it.
+- **SPECOPS-DRAFT-manifest-complete-D7** separates `known-extent` from
+  `known-count`, which selective reads (SPECOPS-DRAFT-manifest-complete-D3)
+  use to skip fields whose data count is unknown but whose size is fixed.
+- **Structs and run-time nested values** come before variable structure:
+  repeated sub-manifests return lists of records, and must accept them on
+  write, so the answers to SPECOPS-DRAFT-manifest-complete-O2 and
+  SPECOPS-DRAFT-manifest-complete-O3 shape both. Round-trip tests need them
+  too.
+- **SPECOPS-DRAFT-manifest-complete-O4**, the naming of repeated instances,
+  must be settled before repeated sub-manifests are built.
+- **The field-plan level** (SPECOPS-DRAFT-manifest-D19) is the base for
+  `:case` choosing a sub-manifest: a branch becomes a manifest plan.
+- **A read-side region map** serves both checked reads and selective reads;
+  building it once, for whichever comes first, serves the other.
+- **Selector variables** (SPECOPS-DRAFT-manifest-D20) are the mechanism for
+  registering masque keyword groups so that `:case` and `:count` can refer to
+  them on write.
+- **Buffering** (SPECOPS-DRAFT-manifest-complete-D2) comes before checksums on
+  stream destinations.
+- **Architecture questions:** byte orders across nesting depend on
+  SPECOPS-DRAFT-specops-O3 (who owns byte order); stream sources should agree
+  with the reader protocol of SPECOPS-DRAFT-specops-O4; `test-op` follows
+  SPECOPS-DRAFT-specops-O5; the Ref waits for the public interface of
+  SPECOPS-DRAFT-specops-O6.
+- **Independent:** floats, decimal masques, WOFF and overrun checks.
