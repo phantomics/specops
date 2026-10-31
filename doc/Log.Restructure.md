@@ -43,7 +43,7 @@ remaining renames and the new map systems) and `13b5887` (the split). Commit
 core files at the repository root; bisect over `ada2d19` instead. Two updates
 of 2026-10-31 at the end of this log carry the record forward: the first to
 commit `50e231d`, which adds the format systems and updates the README and the
-other documents, and the second to the commit after it, which gives the ELF
+other documents, and the second to commit `6660c7f`, which gives the ELF
 and GOFF modules packages of their own, puts the s390x program model into its
 system, and corrects the documents after review.
 
@@ -501,7 +501,7 @@ At `50e231d`, in clean images:
   run at `738105a`.
 - `specops.arch.wasm`, `specops.format.elf`, `specops.format.goff` and
   `specops.format.wasm` each load with `asdf:load-system` and no full
-  warnings. `specops.arch.wasm` failed to load before this commit.
+  warnings. `specops.arch.wasm` failed to load before `50e231d`.
 - With `specops.arch.s390x` and the three format systems loaded through ASDF,
   `emit-program` has its `:elf`, `:goff` and `:wasm` methods. But
   `asm-elf-machine` has only its default method, which signals an error: the
@@ -548,7 +548,8 @@ items above are done. The rest remains:
 
 ## Update 2026-10-31 — Packages for ELF and GOFF, the s390x program model, and review corrections
 
-This installment covers the commit after `50e231d`. A `compass-review` of this
+This installment covers commit `6660c7f`; the first update was committed on
+its own, in `beed259`. A `compass-review` of this
 log, the architecture document and the glossary, made by an assistant
 session independent of the one that drafted them, found that the log
 misdescribed commit `0ac7223`. It also found that the documents named
@@ -559,8 +560,10 @@ rather than narrow the documents.
 ### Implementation
 
 - **ELF and GOFF packages.** `elf.lisp` and `goff.lisp` each open with a
-  `defpackage` of their own, `specops.format.elf` and `specops.format.goff`,
-  in the way the map modules do. Each uses `cl` and `specops`, and imports
+  `defpackage` of their own,
+  `mod/format/elf/elf.lisp:specops.format.elf@6660c7f` and
+  `mod/format/goff/goff.lisp:specops.format.goff@6660c7f`, in the way the map
+  modules do. Each uses `cl` and `specops`, and imports
   the one internal `specops` symbol either needs,
   `src/program.lisp:%seg-bytes-as-octets@50e231d`. No code outside the two
   files used their constants or helper functions, and the manifest directives
@@ -568,9 +571,11 @@ rather than narrow the documents.
   they work unchanged from the new package. The WebAssembly writer stays in
   `specops.arch.wasm`.
 - **The s390x program model.** `mod/arch/s390x/program.lisp` joins the
-  components of `specops.arch.s390x`, after `ops`. Its methods on
-  `asm-endianness` and `asm-elf-machine` are now loaded with the
-  architecture, so the ELF writer can serve s390x through ASDF. The file
+  components of
+  `mod/arch/s390x/specops.arch.s390x.asd:specops.arch.s390x@6660c7f`, after
+  `ops`. Its methods on `asm-endianness` and
+  `mod/arch/s390x/program.lisp:asm-elf-machine@6660c7f` are now loaded with
+  the architecture, so the ELF writer can serve s390x through ASDF. The file
   depends on no format module, as SPECOPS-DRAFT-restructure-D4 requires.
 - **This log.** Directory moves now says that `0ac7223` also renamed the
   architecture modules, and records which `package.lisp` files Git follows to
@@ -598,7 +603,7 @@ rather than narrow the documents.
 
 ### Verification
 
-On the working tree of this commit, in clean images:
+On the working tree committed as `6660c7f`, in clean images:
 
 - `specops.arch.s390x`, `specops.format.elf`, `specops.format.goff` and
   `specops.format.wasm` each load, with no full warnings and no warnings of
@@ -615,7 +620,7 @@ On the working tree of this commit, in clean images:
 
 ### Files
 
-Table: Files changed in the commit after `50e231d`.
+Table: Files changed in commit `6660c7f`.
 
 | File | Action | Description |
 |------|--------|-------------|
