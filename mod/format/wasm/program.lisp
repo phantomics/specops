@@ -1,10 +1,10 @@
-;;;; wasm/program.lisp — WebAssembly program model extensions
+;;;; mod/format/wasm/program.lisp — WebAssembly program model extensions
 ;;;
 ;;; Provides WASM-specific segment-item subclasses for the typed
 ;;; sections of a WebAssembly binary module, plus convenience
 ;;; constructors and constants for building WASM programs.
 
-(in-package #:specops.wasm)
+(in-package #:specops.arch.wasm)
 
 ;; Import program model symbols from the core specops package
 ;; (import '(specops::program specops::pgm-assembler specops::pgm-units
@@ -425,7 +425,7 @@ Initializes a table region with function references."))
 Sets up a single program-unit with standard WASM sections."
   (let* ((asm (or assembler (when (boundp '*assembler-prototype-wasm*)
                               (symbol-value (find-symbol "*ASSEMBLER-PROTOTYPE-WASM*"
-                                                         (find-package :specops.wasm))))))
+                                                         (find-package :specops.arch.wasm))))))
          (pgm  (make-program asm))
          (unit (make-unit "module" pgm)))
     ;; Create standard sections; only populated sections will be serialized

@@ -1,15 +1,15 @@
 ;;;; test-scripts/test-wasm-macro.lisp — Tests for wasm-program macro
 ;;;
-;;; Run with: sbcl --noinform --non-interactive --load test-scripts/test-wasm-macro.lisp
+;;; Run with: sbcl --noinform --non-interactive --load test/test-wasm-macro.lisp
 
-(load "package.lisp")
-(load "specops.lisp")
-(load "program.lisp")
-(load "wasm/package.lisp")
-(load "wasm/base.lisp")
-(load "wasm/program.lisp")
+(load "src/package.lisp")
+(load "src/specops.lisp")
+(load "src/program.lisp")
+(load "mod/arch/wasm/package.lisp")
+(load "mod/arch/wasm/base.lisp")
+(load "mod/format/wasm/program.lisp")
 
-(in-package :specops.wasm)
+(in-package :specops.arch.wasm)
 
 (format t "~%=== Testing wasm-program macro ===~%~%")
 

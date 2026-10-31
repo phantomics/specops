@@ -506,8 +506,8 @@ is either explicit or inferred from the value's magnitude."))
 
   ;; -- Symbol name comparison --------------------------------
   ;;
-  ;; The program macro is used from architecture packages (specops.system-z,
-  ;; specops.wasm, etc.) where symbols like FUNCTION, LABEL, CODE are
+  ;; The program macro is used from architecture packages (specops.arch.s390x,
+  ;; specops.arch.wasm, etc.) where symbols like FUNCTION, LABEL, CODE are
   ;; interned in the calling package, not in SPECOPS or CL.  We compare
   ;; by symbol name string so the macro works across packages.
 

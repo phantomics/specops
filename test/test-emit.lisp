@@ -1,23 +1,23 @@
 ;;;; test-scripts/test-emit.lisp — Tests for ELF and WASM emitters
 ;;;
-;;; Run with: sbcl --noinform --non-interactive --load test-scripts/test-emit.lisp
+;;; Run with: sbcl --noinform --non-interactive --load test/test-emit.lisp
 
-(load "package.lisp")
-(load "specops.lisp")
-(load "program.lisp")
-(load "elf.lisp")
-(load "system-z/package.lisp")
-(load "system-z/base.lisp")
-(load "system-z/ops.lisp")
-(load "system-z/program.lisp")
-(load "wasm/package.lisp")
-(load "wasm/base.lisp")
-(load "wasm/program.lisp")
+(load "src/package.lisp")
+(load "src/specops.lisp")
+(load "src/program.lisp")
+(load "mod/format/elf/elf.lisp")
+(load "mod/arch/s390x/package.lisp")
+(load "mod/arch/s390x/base.lisp")
+(load "mod/arch/s390x/ops.lisp")
+(load "mod/arch/s390x/program.lisp")
+(load "mod/arch/wasm/package.lisp")
+(load "mod/arch/wasm/base.lisp")
+(load "mod/format/wasm/program.lisp")
 
 ;; ═══════════════════════════════════════════════════════════════
 ;; Test 1: ELF emitter with System Z
 ;; ═══════════════════════════════════════════════════════════════
-(in-package :specops.system-z)
+(in-package :specops.arch.s390x)
 
 (format t "~%=== Test 1: ELF emitter (System Z) ===~%")
 (let ((pgm (program *assembler-prototype-z*
@@ -78,7 +78,7 @@
 ;; ═══════════════════════════════════════════════════════════════
 ;; Test 2: WASM emitter — add(i32, i32) -> i32
 ;; ═══════════════════════════════════════════════════════════════
-(in-package :specops.wasm)
+(in-package :specops.arch.wasm)
 
 (format t "~%=== Test 2: WASM emitter (add function) ===~%")
 (multiple-value-bind (pgm unit) (make-wasm-program)

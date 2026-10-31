@@ -433,7 +433,7 @@ Returns T if all checks pass."
 
 ;; Constant string encoded in EBCDIC (code page 037).
 (defmanifest ebcdic-probe (:unit 8 :endian :big)
-  (str "HELLO" :codec #'specops/format.ebcdic:ebcdic-code-cp037)
+  (str "HELLO" :codec #'specops.map.ebcdic:ebcdic-code-cp037)
   (:n :u8 :default 0))
 
 ;; Constant string with a terminator byte.
@@ -658,17 +658,17 @@ Returns T if all checks pass."
 (defmanifest codec-probe (:unit 8 :endian :big)
   (:num  :u16 :default 0)
   (:text (:u 1 :vec) :count 5 :default "     "
-         :codec #'specops/format.ebcdic:ebcdic-code-cp037))
+         :codec #'specops.map.ebcdic:ebcdic-code-cp037))
 
 ;; A numeric default is already a code, so it is not passed through the codec.
 (defmanifest codec-default-probe (:unit 8 :endian :big)
   (:fill (:u 1 :vec) :count 3 :default 64
-         :codec #'specops/format.ebcdic:ebcdic-code-cp037))
+         :codec #'specops.map.ebcdic:ebcdic-code-cp037))
 
 ;; A constant string with a character the codec does not map (a Tab).
 (defmanifest codec-str-probe (:unit 8 :endian :big)
   (str #.(coerce (list #\A #\Tab) 'string)
-       :codec #'specops/format.ebcdic:ebcdic-code-cp037))
+       :codec #'specops.map.ebcdic:ebcdic-code-cp037))
 
 ;; A NUL-terminated string: the terminator is a raw code.
 (defmanifest cstring-probe (:unit 8 :endian :big)
@@ -677,7 +677,7 @@ Returns T if all checks pass."
 
 ;; A character terminator is encoded with the field's codec ($ is #x5B in CP037).
 (defmanifest ebcdic-terminated-probe (:unit 8 :endian :big)
-  (:s     (:u 1 :vec) :end-by #\$ :codec #'specops/format.ebcdic:ebcdic-code-cp037)
+  (:s     (:u 1 :vec) :end-by #\$ :codec #'specops.map.ebcdic:ebcdic-code-cp037)
   (:after :u8 :default 0))
 
 ;; Two-unit little-endian elements: the terminator is one element, two bytes.
@@ -1118,7 +1118,7 @@ Returns T if all checks pass."
 
 ;; Characters go through the codec; integers are raw codes.
 (defmanifest vec-codec-mixed-probe (:unit 8 :endian :big)
-  (:s (:u 1 :vec) :count 3 :codec #'specops/format.ebcdic:ebcdic-code-cp037))
+  (:s (:u 1 :vec) :count 3 :codec #'specops.map.ebcdic:ebcdic-code-cp037))
 
 ;; Signed elements with a terminator that is negative when sign-extended.
 (defmanifest vec-signed-probe (:unit 8 :endian :big)

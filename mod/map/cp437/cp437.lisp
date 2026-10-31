@@ -1,9 +1,9 @@
-(defpackage #:specops/format.cp437
+(defpackage #:specops.map.cp437
   (:use :cl)
   (:shadowing-import-from #:specops #:defcodetable)
   (:export #:cp437-code))
 
-(in-package #:specops/format.cp437)
+(in-package #:specops.map.cp437)
 
 (defcodetable cp437-code
   ((:store . :htable))

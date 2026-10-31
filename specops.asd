@@ -6,6 +6,7 @@
   :license  "BSD"
   :version "0.0.1"
   :serial t
+  :pathname "src/"
   :components ((:file "package")
                (:file "checksum")
                (:file "scan")
@@ -18,23 +19,6 @@
   :license  "BSD"
   :version "0.0.1"
   :serial t
-  :depends-on (#:specops #:specops/format.ebcdic)
+  :depends-on (#:specops #:specops.map.ebcdic)
+  :pathname "test/"
   :components ((:file "manifest")))
-
-(asdf:defsystem #:specops/format.ebcdic
-  :description "A set of EBCDIC-Unicode conversion tables."
-  :author "Andrew Sengul"
-  :license  "BSD"
-  :version "0.0.1"
-  :serial t
-  :depends-on (#:specops)
-  :components ((:file "formats/ebcdic")))
-
-(asdf:defsystem #:specops/format.cp437
-  :description "A Code Page 437-Unicode conversion table."
-  :author "Andrew Sengul"
-  :license  "BSD"
-  :version "0.0.1"
-  :serial t
-  :depends-on (#:specops)
-  :components ((:file "formats/cp437")))

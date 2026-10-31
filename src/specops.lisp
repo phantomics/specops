@@ -329,9 +329,9 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
 (defun codec-for (fn on-error)
   (lambda (x) (or (funcall fn x) (funcall on-error x))))
 
-;; (defun txcodec-ebcdic (a) (specops/format.ebcdic:ebcdic-code-cp037 a))
+;; (defun txcodec-ebcdic (a) (specops.map.ebcdic:ebcdic-code-cp037 a))
 
-;; (defun txcodec-ebcdic (a) (specops/format.ebcdic:ebcdic-code-cp037 a))
+;; (defun txcodec-ebcdic (a) (specops.map.ebcdic:ebcdic-code-cp037 a))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defvar *manifests* (make-hash-table :test 'eq))
@@ -1260,7 +1260,7 @@ Intended call once the fixes land:
 
 (defmanifest stuff (:unit 8 :endian :big)
   (:num :u16 :default 0)
-  (:str (:u 1 :vec) :default "     " :count 5 :codec #'specops/format.ebcdic:ebcdic-code-cp037))
+  (:str (:u 1 :vec) :default "     " :count 5 :codec #'specops.map.ebcdic:ebcdic-code-cp037))
 
 (marshal stuff (lambda (a) (print a)) :num 50 :str "Hello")
 (unmarshal stuff (make-array 8 :element-type '(unsigned-byte 8) :initial-contents '(0 50 200 133 147 147 150 90))

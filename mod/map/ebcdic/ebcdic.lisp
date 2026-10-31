@@ -1,12 +1,12 @@
 ;;;; ebcdic.lisp
 ;;;; EBCDIC character encoding tables
 
-(defpackage #:specops/format.ebcdic
+(defpackage #:specops.map.ebcdic
   (:use :cl)
   (:shadowing-import-from #:specops #:defcodetable)
   (:export #:ebcdic-code-cp037 #:ebcdic-code-cp310))
 
-(in-package #:specops/format.ebcdic)
+(in-package #:specops.map.ebcdic)
 
 (defcodetable ebcdic-code-cp037
   ((:store . :vector))

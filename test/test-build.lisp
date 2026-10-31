@@ -1,16 +1,16 @@
 ;;;; test-scripts/test-build.lisp — Tests for build-program
 ;;;
-;;; Run with: sbcl --noinform --non-interactive --load test-scripts/test-build.lisp
+;;; Run with: sbcl --noinform --non-interactive --load test/test-build.lisp
 
-(load "package.lisp")
-(load "specops.lisp")
-(load "program.lisp")
-(load "system-z/package.lisp")
-(load "system-z/base.lisp")
-(load "system-z/ops.lisp")
-(load "system-z/program.lisp")
+(load "src/package.lisp")
+(load "src/specops.lisp")
+(load "src/program.lisp")
+(load "mod/arch/s390x/package.lisp")
+(load "mod/arch/s390x/base.lisp")
+(load "mod/arch/s390x/ops.lisp")
+(load "mod/arch/s390x/program.lisp")
 
-(in-package :specops.system-z)
+(in-package :specops.arch.s390x)
 
 (format t "~%=== Testing build-program ===~%~%")
 
