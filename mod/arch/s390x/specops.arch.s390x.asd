@@ -9,4 +9,5 @@
   :depends-on ("specops")
   :components ((:file "package")
                (:file "base")
-               (:file "ops")))
+               (:file "ops")
+               (:file "program")))

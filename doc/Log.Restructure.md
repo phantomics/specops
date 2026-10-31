@@ -35,14 +35,17 @@ kind: instruction sets in `mod/arch/`, object and container formats in
 `mod/format/`, and two-way mapping tables in `mod/map/`. It covers the
 directory moves, the renaming of systems and packages to match, the move of
 System Z to `s390x`, and the split of the 2,547-line `specops.lisp` into one
-file per subsystem. No behavior was changed. The work starts from commit
+file per subsystem. These changed no behavior. The work starts from commit
 `738105a` and is complete at commit `13b5887`, in three commits: `0ac7223`
-(moves), `ada2d19` (renames and new map systems) and `13b5887` (the split).
-Commit `0ac7223` does not load by itself, because its `specops.asd` still
-names the core files at the repository root; bisect over `ada2d19` instead.
-The update of 2026-10-31 at the end of this log carries the record forward to
-commit `50e231d`, which adds the format systems and updates the README and
-the other documents.
+(the moves, with the renames of the architecture modules), `ada2d19` (the
+remaining renames and the new map systems) and `13b5887` (the split). Commit
+`0ac7223` does not load by itself, because its `specops.asd` still names the
+core files at the repository root; bisect over `ada2d19` instead. Two updates
+of 2026-10-31 at the end of this log carry the record forward: the first to
+commit `50e231d`, which adds the format systems and updates the README and the
+other documents, and the second to the commit after it, which gives the ELF
+and GOFF modules packages of their own, puts the s390x program model into its
+system, and corrects the documents after review.
 
 ## Problem
 
@@ -76,15 +79,14 @@ The sibling projects Classic and Origin already use `src/` for a core and
 **Status:** Proposed
 **Context:** SpecOps has seven architecture modules, three object-format
 writers (ELF, GOFF and WebAssembly) and two code tables, and ARM is on the
-Roadmap. Classic and Origin place each module
-directly under `mod/`, in a directory named for its system
-(`mod/classic.engine.ref/`).
+Roadmap. Classic and Origin place each module directly under `mod/`, in a
+directory named for its system (`mod/classic.engine.ref/`).
 **Decision:** The core system's files are in `src/`, with `specops.asd`
 naming `:pathname "src/"`. Modules are grouped by kind: `mod/arch/<isa>/`,
 `mod/format/<format>/` and `mod/map/<table>/`. Tests are in `test/`.
 **Alternatives:** A flat `mod/` with one directory per system, as in Classic
-and Origin (rejected: over fifteen directories, with the kind of each visible
-only in its name). Kind directories at the repository root, `arch/` and
+and Origin (rejected: twelve directories now and more with each instruction
+set added, with the kind of each visible only in its name). Kind directories at the repository root, `arch/` and
 `format/` (rejected: diverges from the sibling projects and keeps the root
 crowded). Leaving the layout as it was (rejected: the problems above).
 
@@ -104,7 +106,10 @@ renamed with its system. Internal symbols, such as the prototype variable
 **Alternatives:** Keeping the architecture names `specops.<arch>` and giving
 new names only to new modules (rejected by the steward: the names would no
 longer show the kind, and at version 0.0.1 there are few users to break).
-Keeping slash names (not possible outside `specops.asd`).
+Keeping slash names, as secondary systems in `specops.asd` pointing into
+`mod/`, the way `specops/format.ebcdic` pointed into `formats/` (rejected:
+every module would be defined in the core's `.asd` file, and none could carry
+its own).
 
 ### SPECOPS-DRAFT-restructure-D3 — Architecture modules are named for instruction sets; System Z becomes `s390x`
 
@@ -198,8 +203,7 @@ changes apart lets history follow the moved files).
 
 ### Directory moves
 
-Commit `0ac7223` moved every tracked file with `git mv`, so that Git records
-renames and `git log --follow` traces each file:
+Commit `0ac7223` moved every tracked file with `git mv`:
 
 - `package.lisp`, `checksum.lisp`, `scan.lisp`, `specops.lisp` and
   `program.lisp` to `src/`;
@@ -219,24 +223,38 @@ moved with their modules unchanged: `x86/base.old.lisp`, `x86/ops.main2.lisp`,
 library and is kept outside every system (SPECOPS-DRAFT-specops-D1).
 Untracked compiled files and editor backups were moved with their sources.
 
-### System and package renames
+The commit is not moves alone. It also holds the renames of the seven
+architecture modules: the `defsystem` form in each `.asd` file, and the
+`defpackage` and `in-package` forms of every source file, as in
+`mod/arch/s390x/package.lisp:specops.arch.s390x@0ac7223`, which defines the
+package formerly `specops.system-z`. Each of those files changed by one or two
+lines, which Git's rename detection tolerates, except in the seven
+`package.lisp` files of four lines each, which are nearly identical to one
+another. Git therefore finds 50 renames and three pairs of additions and
+deletions, and pairs some `package.lisp` files with the wrong directory: it
+matches `superh/package.lisp` to `mod/arch/m68k/package.lisp`, and
+`git log --follow mod/arch/s390x/package.lisp` leads back to
+`6502/package.lisp`. Every other file is followed to its old path. Keeping the
+renames out of the move commit, as SPECOPS-DRAFT-restructure-D6 did for the
+split, would have avoided this.
 
-Commit `ada2d19` renamed systems and packages per
-SPECOPS-DRAFT-restructure-D2, in `defsystem`, `defpackage`, `in-package` and
-`find-package` forms, qualified symbols and comments. For example:
+### Remaining renames
 
-- `mod/arch/s390x/package.lisp:specops.arch.s390x@ada2d19` defines the
-  package formerly `specops.system-z`;
-- `mod/format/wasm/program.lisp:emit-program@ada2d19` remains in the package
-  `specops.arch.wasm`, since giving the format module its own package would
-  have meant more than a rename;
-- `mod/map/ebcdic/ebcdic.lisp:ebcdic-code-cp037@ada2d19` is now in the
-  package `specops.map.ebcdic`, and the manifest suites and a commented
-  example in `specops.lisp` refer to it there.
+Commit `ada2d19` completed the renames of SPECOPS-DRAFT-restructure-D2:
 
-The test scripts' `(load …)` paths and `in-package` forms were updated to the
-new locations. The temporary file name `/tmp/test-specops.wasm` in
-`test-emit.lisp` was deliberately left alone.
+- the code tables' packages, so that
+  `mod/map/ebcdic/ebcdic.lisp:ebcdic-code-cp037@ada2d19` is now in
+  `specops.map.ebcdic`, with the manifest suites and a commented example in
+  `specops.lisp` referring to it there;
+- the `in-package` and `find-package` forms of the WebAssembly writer. The
+  file `mod/format/wasm/program.lisp`, which defines the method
+  `mod/format/wasm/program.lisp:emit-program@ada2d19` on `specops:emit-program`,
+  stays in the package `specops.arch.wasm`, since giving it a package of its
+  own would have meant more than a rename;
+- the package names in comments in `src/program.lisp`;
+- the test scripts' `(load …)` paths and `in-package` forms. The temporary
+  file name `/tmp/test-specops.wasm` in `test-emit.lisp` was deliberately left
+  alone.
 
 ### `specops.asd` and the map systems
 
@@ -280,19 +298,23 @@ files directly, load `serial.lisp`, `manifest/manifest.lisp` and
 
 ## Design Properties
 
-- **No change in behavior.** Every definition moved unchanged; only package
-  names, paths and header comments were edited.
-- **History follows the moves.** Git records 53 renames in `0ac7223`. Lines from the
-  split are traced back to `specops.lisp` by `git blame -C -C`.
+- **No change in behavior.** Across the three commits every definition moved
+  unchanged; only package names, paths and header comments were edited.
+- **History follows the moves, with one exception.** Git follows every moved
+  file to its old path except the seven architecture `package.lisp` files
+  (see Directory moves). Lines from the split are traced back to
+  `specops.lisp` by `git blame -C -C`.
 - **Existing code references stay valid.** References in the other documents
   are pinned to revisions before the move, such as `1e53ae7`, and resolve
   there.
 
 ## Verification
 
-Each check was run on `738105a` before the work, and again after each step.
-The final runs were at `3dac8bc`, which adds only an unloaded backup copy of
-the manifest files to the code of `13b5887`.
+Each check was run on `738105a` before the work, again after the moves and
+renames, on the working tree that was committed as `0ac7223` and `ada2d19`,
+and again after the split. `0ac7223` alone was not tested, since it does not
+load. The final runs were at `3dac8bc`, which adds only an unloaded backup
+copy of the manifest files to the code of `13b5887`.
 
 **Manifest suites.** Run via:
 
@@ -312,7 +334,8 @@ core at its new paths; later runs printed none.
 
 **Compiler warnings.** The core system was compiled fresh, with warnings
 collected, at `ada2d19` and in the split tree. Both produced the same 49
-distinct warnings, so the split changed no load-order dependency.
+distinct warnings, all of them style warnings, so the split changed no
+load-order dependency.
 
 **Content.** The 2,330 non-blank lines of `specops.lisp` after its header
 appear exactly once across the new files; the lines dropped at the cut
@@ -367,12 +390,11 @@ Table: Files moved, added or changed from commit `738105a` to commit
 | `mod/map/ebcdic/specops.map.ebcdic.asd`, `mod/map/cp437/specops.map.cp437.asd` | **New** | the map systems, formerly secondary systems in `specops.asd` |
 | `test/manifest.lisp` | Moved | from the repository root; refers to `specops.map.ebcdic` |
 | `test/test-*.lisp` | Moved | from `test-scripts/`; load paths and packages updated |
-| `doc/Log.Restructure.md` | **New** | this log |
 
 ## Metrics
 
-- Files moved: 53 in `0ac7223`, one of which, `specops.lisp`, was split in
-  `13b5887`.
+- Files moved: 53 in `0ac7223`, of which Git detects 50 as renames; one,
+  `specops.lisp`, was split in `13b5887`.
 - Files added: 5 (3 from the split, 2 `.asd` files).
 - Files deleted: 1 (`specops.lisp`).
 - Test checks: 135 plus 1 PNG verification, and 5 test scripts; regressions: 0.
@@ -412,7 +434,7 @@ Table: Files moved, added or changed from commit `738105a` to commit
 
 ## Update 2026-10-31 — Format systems, README and documents
 
-This installment covers commit `50e231d`, which completes four items of the
+This installment covers commit `50e231d`, which completes three items of the
 Outstanding Work above. It gives the format modules ASDF systems, lets the
 WebAssembly architecture system load, updates the README to the new system
 names, and brings the architecture document and the glossary up to date with
@@ -445,8 +467,9 @@ manifest layer's main test case).
   `specops.map.ebcdic`.
   `mod/format/wasm/specops.format.wasm.asd:specops.format.wasm@50e231d` also
   depends on `specops.arch.wasm`, the one case
-  SPECOPS-DRAFT-restructure-D4 permits. Its file is still in the package
-  `specops.arch.wasm`.
+  SPECOPS-DRAFT-restructure-D4 permits. None of the three has a package of its
+  own yet: the ELF and GOFF writers are in `specops`, and the WebAssembly
+  writer in `specops.arch.wasm`.
 - **WebAssembly architecture system.**
   `mod/arch/wasm/specops.arch.wasm.asd:specops.arch.wasm@50e231d` now depends
   on `specops`, the cause of its load failure in
@@ -458,10 +481,11 @@ manifest layer's main test case).
   instruction set. Mentions of System Z as a platform are unchanged.
 - **Architecture document.** [SPECOPS-DRAFT-specops](Arch.SpecOps.md) now
   describes, in Module design, the three module kinds, the naming rule and
-  the dependency rule, citing SPECOPS-DRAFT-restructure-D1 through
-  SPECOPS-DRAFT-restructure-D5 rather than restating them. Its
-  object-format and binary-format sections name the format and map modules
-  and state SPECOPS-DRAFT-restructure-D7. Its Project structure appendix shows
+  the dependency rule, summarizing them with citations of
+  SPECOPS-DRAFT-restructure-D1 through SPECOPS-DRAFT-restructure-D5. Its
+  object-format and binary-format sections name the format and map modules,
+  and state the scope of format modules recorded above, though without citing
+  SPECOPS-DRAFT-restructure-D7. Its Project structure appendix shows
   the new layout, and notes on SPECOPS-DRAFT-specops-O5, Roadmap step 4 and
   the module table record what has changed since `1e53ae7`.
 - **Glossary.** [SPECOPS-DRAFT-glossary](Glossary.SpecOps.md) has a new
@@ -479,8 +503,12 @@ At `50e231d`, in clean images:
   `specops.format.wasm` each load with `asdf:load-system` and no full
   warnings. `specops.arch.wasm` failed to load before this commit.
 - With `specops.arch.s390x` and the three format systems loaded through ASDF,
-  `emit-program` has its `:elf`, `:goff` and `:wasm` methods.
-- The five test scripts pass.
+  `emit-program` has its `:elf`, `:goff` and `:wasm` methods. But
+  `asm-elf-machine` has only its default method, which signals an error: the
+  s390x methods for it and for `asm-endianness` are in
+  `mod/arch/s390x/program.lisp`, which is in no system. Writing s390x code to
+  ELF through ASDF therefore fails, as the review below found.
+- The five test scripts pass, because they load that file themselves.
 - `compass check` reports no errors.
 
 ### Files
@@ -502,6 +530,107 @@ Table: Files added or changed in commit `50e231d`.
 
 The README, the architecture document, the glossary and the format systems
 items above are done. The rest remains:
+
+- **The s390x program model.** `mod/arch/s390x/program.lisp`, with the s390x
+  methods of the program protocol, is in no system.
+- **Packages for the format modules.** SPECOPS-DRAFT-restructure-D2 names
+  packages `specops.format.<format>`, but no format module has one.
+- **The Manifest Completion Plan** still lists putting `goff.lisp` in an ASDF
+  system as remaining.
+- **GOFF constants**, still in `mod/arch/s390x/program.lisp`.
+- **The WebAssembly format module's package**, still `specops.arch.wasm`;
+  and the architecture's prototype `*assembler-prototype-wasm*`, still
+  unbound, with `ops.lisp` outside the system.
+- **Tests behind `test-op`**, deferred by the steward.
+- **Internal names and placeholder `.asd` metadata.**
+- **Unused files**, and `z80/comber.lisp`.
+- **A finer split of `src/assembler.lisp`.**
+
+## Update 2026-10-31 — Packages for ELF and GOFF, the s390x program model, and review corrections
+
+This installment covers the commit after `50e231d`. A `compass-review` of this
+log, the architecture document and the glossary, made by an assistant
+session independent of the one that drafted them, found that the log
+misdescribed commit `0ac7223`. It also found that the documents named
+packages the format modules did not have, and that s390x code could not be
+written to ELF through ASDF. The steward chose to fix both gaps in the code
+rather than narrow the documents.
+
+### Implementation
+
+- **ELF and GOFF packages.** `elf.lisp` and `goff.lisp` each open with a
+  `defpackage` of their own, `specops.format.elf` and `specops.format.goff`,
+  in the way the map modules do. Each uses `cl` and `specops`, and imports
+  the one internal `specops` symbol either needs,
+  `src/program.lisp:%seg-bytes-as-octets@50e231d`. No code outside the two
+  files used their constants or helper functions, and the manifest directives
+  and `masque` field names inside `goff-end` are matched by symbol name, so
+  they work unchanged from the new package. The WebAssembly writer stays in
+  `specops.arch.wasm`.
+- **The s390x program model.** `mod/arch/s390x/program.lisp` joins the
+  components of `specops.arch.s390x`, after `ops`. Its methods on
+  `asm-endianness` and `asm-elf-machine` are now loaded with the
+  architecture, so the ELF writer can serve s390x through ASDF. The file
+  depends on no format module, as SPECOPS-DRAFT-restructure-D4 requires.
+- **This log.** Directory moves now says that `0ac7223` also renamed the
+  architecture modules, and records which `package.lisp` files Git follows to
+  the wrong path; Remaining renames records what `ada2d19` changed. The
+  rename count in Metrics, the Design Properties, and the record of what
+  was tested are corrected. The Alternatives of SPECOPS-DRAFT-restructure-D1
+  and SPECOPS-DRAFT-restructure-D2 are corrected: a flat `mod/` would hold
+  twelve directories, and slash names were possible but would have kept every
+  module's definition in `specops.asd`. The first Files table no longer lists
+  this log, and the first update records the gaps the review found.
+- **Architecture document.** SPECOPS-DRAFT-specops-D1 now allows the core and
+  modules to depend on SpecOps's own systems, as the dependency rule
+  requires. The scope of format modules moved into Module design and cites
+  SPECOPS-DRAFT-restructure-D7. The package rule names its one exception, the
+  WebAssembly writer. The Project structure appendix is pinned to `50e231d`,
+  and the notes on SPECOPS-DRAFT-specops-O5, Roadmap steps 2 and 4, and the
+  introduction are brought up to date.
+- **Glossary.** The module entries name the WebAssembly exception, cite
+  SPECOPS-DRAFT-restructure-D7, and distinguish a format module from an
+  instruction format and a map module from an enum. A new entry defines the
+  region map, and the opcode map entry moved beside operation table.
+- **Manifest Completion Plan.** [SPECOPS-DRAFT-manifest-complete](Plan.ManifestComplete.md)
+  records that `goff.lisp` is in an ASDF system, under Packaging and tests and
+  in step 10 of its priorities.
+
+### Verification
+
+On the working tree of this commit, in clean images:
+
+- `specops.arch.s390x`, `specops.format.elf`, `specops.format.goff` and
+  `specops.format.wasm` each load, with no full warnings and no warnings of
+  undefined functions or variables. A scan of the two files for symbols
+  internal to `specops` that name a function, variable or class found only
+  `%seg-bytes-as-octets`.
+- Each of the five test scripts passes when every system it needs is loaded
+  through ASDF and the script's own `(load …)` forms are skipped. This
+  includes the ELF output of s390x code in `test/test-emit.lisp`, which
+  failed this way at `50e231d`. Run directly, as before, the five scripts
+  also pass.
+- The manifest suites give the PNG verification and 135 passing checks.
+- `compass check` reports no errors.
+
+### Files
+
+Table: Files changed in the commit after `50e231d`.
+
+| File | Action | Description |
+|------|--------|-------------|
+| `mod/format/elf/elf.lisp` | Modified | package `specops.format.elf` |
+| `mod/format/goff/goff.lisp` | Modified | package `specops.format.goff` |
+| `mod/arch/s390x/specops.arch.s390x.asd` | Modified | `program` component |
+| `doc/Log.Restructure.md` | Modified | review corrections; this installment |
+| `doc/Arch.SpecOps.md` | Modified | review corrections; SPECOPS-DRAFT-specops-D1 amended |
+| `doc/Glossary.SpecOps.md` | Modified | review corrections; region map |
+| `doc/Plan.ManifestComplete.md` | Modified | `goff.lisp` packaging done |
+
+### Outstanding Work
+
+The s390x program model, the ELF and GOFF packages and the Plan item are
+done. The rest remains:
 
 - **GOFF constants**, still in `mod/arch/s390x/program.lisp`.
 - **The WebAssembly format module's package**, still `specops.arch.wasm`;

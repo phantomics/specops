@@ -7,7 +7,11 @@
 ;;; Supports any architecture that provides asm-endianness and
 ;;; asm-elf-machine methods.
 
-(in-package #:specops)
+(defpackage #:specops.format.elf
+  (:use #:cl #:specops)
+  (:import-from #:specops #:%seg-bytes-as-octets))
+
+(in-package #:specops.format.elf)
 
 ;; ===============================================================
 ;; ELF constants

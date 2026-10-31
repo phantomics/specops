@@ -8,7 +8,7 @@ language:      en
 status:        Draft
 provenance:
   assistant:   claude-opus (OpenCode)
-  session:     Compass adoption
+  session:     Compass adoption; Restructure
 relates-to:
   - SPECOPS-DRAFT-manifest
   - SPECOPS-DRAFT-restructure
@@ -56,9 +56,10 @@ step. The declarative binary-format layer is covered in detail by the
 [Manifest development log](Log.Manifest.md); this record places it in the
 whole. The repository was later reorganized into a core and modules of three
 kinds, and its systems renamed, as chronicled in the
-[Restructure development log, SPECOPS-DRAFT-restructure](Log.Restructure.md);
-Module design and the Project structure appendix describe that layout, while
-code references elsewhere remain pinned to `1e53ae7`. Terms are defined in the
+[Restructure development log, SPECOPS-DRAFT-restructure](Log.Restructure.md).
+Module design, the object-format and binary-format sections, the Project
+structure appendix, and notes in Open Questions and the Roadmap describe that
+layout; code references remain pinned to `1e53ae7`. Terms are defined in the
 [SpecOps glossary](Glossary.SpecOps.md).
 
 ## Canonical Terms
@@ -76,7 +77,7 @@ Table: The central terms of this design; the glossary defines the rest.
 | memory access scheme (MAS) | An object describing a memory operand, built by an `@` function |
 | program API | The closure through which encoders query their context (`of-program`) |
 | breadth | The bit width of one output unit |
-| architecture, format and map modules | The three kinds of system outside the core: one instruction set, one object or container format, or one two-way mapping such as a code table |
+| architecture, format and map modules | The three kinds of system under `mod/`: one instruction set, one object or container format, or one two-way mapping such as a code table |
 
 ## Thesis / Concerns
 
@@ -162,8 +163,9 @@ inferred while drafting this record, for the steward to confirm or correct.
 **Context:** SpecOps aims to bridge platforms, and a Lisp library dependency
 narrows the implementations and environments it can be loaded into. Some tasks
 (checksums, string codecs, LEB128) are commonly delegated to libraries.
-**Decision:** The core system `specops` and every architecture system depend
-only on Common Lisp, ASDF and `specops` itself. What a library would supply is
+**Decision:** The core system `specops` and every module depend only on
+Common Lisp, ASDF and SpecOps's own systems: the core, and the other modules
+the dependency rule of Module design allows. What a library would supply is
 implemented natively (`checksum.lisp:crc@1e53ae7`,
 `specops.lisp:encode-leb128-unsigned@1e53ae7`, `defcodetable` code pages).
 Implementation-specific code is allowed only behind a conditional with a
@@ -424,9 +426,10 @@ structure). Each writer is now a format module, `specops.format.elf`,
 `specops.format.goff` and `specops.format.wasm`, kept apart from the
 architecture modules because one instruction set may be written in several
 formats: s390x code goes into ELF on Linux and GOFF on z/OS
-(SPECOPS-DRAFT-restructure-D4). WebAssembly is split in two: its instruction
-set is an architecture module, and its binary module writer a format module
-that depends on it.
+(SPECOPS-DRAFT-restructure-D4). The ELF and GOFF writers have packages of
+their own. WebAssembly is split in two: its instruction set is an
+architecture module, and its binary module writer a format module that
+depends on it and is still in the architecture's package.
 
 ## Binary-format design
 
@@ -441,18 +444,17 @@ fields are code tables defined with `defcodetable`, in the map modules
 `specops.map.cp437` and `specops.map.ebcdic` (CP437, EBCDIC code pages 037 and
 310; SPECOPS-DRAFT-restructure-D5). The GOFF END record is the
 first object-format record written through a manifest; the design intends the
-format writers to move onto manifests generally. Format modules are for the
-object and container formats that carry programs. Image and other media
-formats are outside SpecOps's scope: the PNG manifests in `test/manifest.lisp`
-are a test case for the manifest layer, and native readers for such formats
-belong in projects of their own that depend on SpecOps.
+format writers to move onto manifests generally. The PNG manifests in
+`test/manifest.lisp` are a test case for the layer, not a format module
+(SPECOPS-DRAFT-restructure-D7).
 
 ## Module design
 
-Everything outside the core system `specops` is a module: an ASDF system in
+Every system under `mod/` is a module: an ASDF system in
 `mod/<kind>/<name>/`, named `specops.<kind>.<name>`, whose package has the
-same name (SPECOPS-DRAFT-restructure-D1, SPECOPS-DRAFT-restructure-D2). There
-are three kinds:
+same name (SPECOPS-DRAFT-restructure-D1, SPECOPS-DRAFT-restructure-D2). The
+one exception is the WebAssembly format module, whose file is still in the
+package of its architecture module. There are three kinds:
 
 - **Architecture modules** (`mod/arch/`, `specops.arch.<isa>`) each implement
   one instruction set. They are named for the instruction set, not for a
@@ -461,7 +463,10 @@ are three kinds:
   set belong to its module, as execution modes or ISA types.
 - **Format modules** (`mod/format/`, `specops.format.<format>`) each write one
   object or container format through `emit-program` methods, and in time
-  through manifests (SPECOPS-DRAFT-restructure-D4).
+  through manifests (SPECOPS-DRAFT-restructure-D4). They are for the formats
+  that carry programs. Image and other media formats are outside SpecOps's
+  scope; native readers for them belong in projects of their own that depend
+  on SpecOps (SPECOPS-DRAFT-restructure-D7).
 - **Map modules** (`mod/map/`, `specops.map.<name>`) each hold a two-way
   mapping between value spaces that belongs to no single architecture or
   format, such as a code table (SPECOPS-DRAFT-restructure-D5). An opcode map
@@ -564,9 +569,10 @@ The module contract under Module design is not checked anywhere. At
   (`m68k/base.lisp:assembler-m68k@1e53ae7`).
 - SuperH does not load: its prototype passes an initarg no class declares.
 - WebAssembly does not load: its system declares no dependency on `specops`,
-  and `*assembler-prototype-wasm*` is never bound. Since the restructure the
+  and `*assembler-prototype-wasm*` is never bound. Since `50e231d` the
   system declares the dependency and loads, but the prototype, which
   `ops.lisp` names, is still unbound, and `ops.lisp` is not in the system.
+  M68K and SuperH still fail to load as described above.
 - x86 loads with warnings, but the README example fails at run time because
   `*x86-layout*` is never defined (`x86/base.lisp:gprix@1e53ae7`).
 
@@ -594,16 +600,17 @@ separate packages?
    the README examples assemble to the vectors it shows
    (SPECOPS-DRAFT-specops-O5).
 2. **Test suites.** Per-module and core suites behind ASDF `test-op`,
-   absorbing `test-scripts/` and the manifest demos.
+   absorbing the test scripts and the manifest demos in `test/`.
 3. **Settle units and byte order** (SPECOPS-DRAFT-specops-O2,
    SPECOPS-DRAFT-specops-O3), and fix the disassembly reader protocol
    (SPECOPS-DRAFT-specops-O4) so that every duplex module disassembles.
 4. **Package the format layer.** Put `elf.lisp`, `goff.lisp` and the
    per-architecture program helpers into ASDF systems, and move record
    layouts onto manifests as the manifest layer matures. The writers are now
-   the format modules of SPECOPS-DRAFT-restructure-D4. The GOFF attribute
-   constants remain in the s390x module's `program.lisp`, beside z/OS layout
-   helpers, and are to move to the GOFF module.
+   the format modules of SPECOPS-DRAFT-restructure-D4. The s390x module's
+   `program.lisp`, with its methods of the program protocol, is now part of
+   its system, but still holds the GOFF attribute constants beside z/OS
+   layout helpers; the constants are to move to the GOFF module.
 5. **Define the public API** (SPECOPS-DRAFT-specops-O6), then document it in
    a Ref.
 6. **Complete the large instruction sets.** Finish x86 (remaining
@@ -640,7 +647,7 @@ this needs the reader protocol of SPECOPS-DRAFT-specops-O4.
 
 ### Project structure
 
-The layout after the restructure of SPECOPS-DRAFT-restructure:
+The layout at `50e231d`, after the restructure of SPECOPS-DRAFT-restructure:
 
 ```text
 specops.asd            systems specops (src/) and specops/demo.png (test/)
@@ -648,7 +655,7 @@ src/
   package.lisp         the specops package and its exports
   checksum.lisp        CRC-32 and Adler-32
   serial.lisp          serialization, defcodetable, masque and unmasque
-  manifest/            the manifest layer: scan.lisp (stop rules and
+  manifest/            the manifest layer: scan.lisp (stop rules and value
                        assemblers), manifest.lisp (defenum, defmanifest,
                        marshal, unmarshal)
   assembler.lisp       mqbase, operand and storage classes, assembler classes,

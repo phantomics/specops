@@ -13,6 +13,7 @@ provenance:
 relates-to:
   - SPECOPS-DRAFT-manifest
   - SPECOPS-DRAFT-specops
+  - SPECOPS-DRAFT-restructure
 glossary:      SPECOPS-DRAFT-glossary
 decisions:
   - SPECOPS-DRAFT-manifest-complete-D1
@@ -393,6 +394,10 @@ region map that differ per instance
   Six suites exist at `1e53ae7`, from `manifest.lisp:run-png-demo@1e53ae7` to
   `manifest.lisp:run-pad-demo@1e53ae7`: 54 checks and one structural PNG
   verification.
+  The first part is done: `goff.lisp` is in the system
+  `mod/format/goff/specops.format.goff.asd:specops.format.goff@50e231d`, a
+  format module of the repository restructure
+  ([SPECOPS-DRAFT-restructure](Log.Restructure.md)).
 - **Dead code.** `defmanifest` still keeps a compile-time `index` that nothing
   reads since the pad rework, `process-field` prints each list type spec, and
   both macros destructure an unused `ba-sym`.
@@ -541,7 +546,8 @@ order replaces it.
    (SPECOPS-DRAFT-manifest-complete-D3).
 8. **WOFF** (SPECOPS-DRAFT-manifest-complete-D6).
 9. **Floats and masque completion.**
-10. **Packaging:** `goff.lisp` in ASDF, `test-op`, then a Ref.
+10. **Packaging:** `test-op`, then a Ref. `goff.lisp` has been in an ASDF
+    system since `50e231d`.
 
 Steps 8 and 9 depend on nothing else and can be done whenever convenient.
 

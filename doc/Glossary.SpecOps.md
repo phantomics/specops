@@ -8,7 +8,7 @@ language:      en
 status:        Draft
 provenance:
   assistant:   claude-opus (OpenCode)
-  session:     Compass adoption
+  session:     Compass adoption; Restructure
 relates-to:
   - SPECOPS-DRAFT-specops
   - SPECOPS-DRAFT-manifest
@@ -46,6 +46,7 @@ sources.
 | specop | One instruction specification, which registers an encoder in the lexicon: a `specops` form, a wrapper around it such as `specop-68k` or `specops-sh`, or a System Z `specop-z` line pairing a mnemonic with a format and an opcode. | `specops.lisp:specops@1e53ae7`, `system-z/base.lisp:specop-z@1e53ae7` |
 | readop | One disassembler specification, made with `readops` or a wrapper such as `readops-sh`, which registers a decoder entry or a battery unmasker. | `specops.lisp:readops@1e53ae7` |
 | operation table | A `specops` form with `(:tabular :cross-adding …)` that lays out a whole opcode page as a grid; each cell's code is its row plus its column plus the table's prefix. | Z80, 6502, WebAssembly |
+| opcode map | A manufacturer's grid of an instruction set's opcodes, transcribed in SpecOps as an operation table. It belongs to its architecture module, not to a map module. | Z80, 6502 |
 | shadow form | A Z80 instruction derived automatically from a main-table instruction by substituting `IX` or `IY` for `HL` under the `#xDD` or `#xFD` prefix. | `z80/base.lisp:extend-clauses@1e53ae7` |
 | combined mnemonic | A family of mnemonics generated from one specop by `:combine`, such as the condition-coded branch variants of an instruction. | `specify-ops` `:combine` |
 | `determine` | A form in an instruction body that checks each operand against its permitted types and binds the derived encodings. It expands into `determine-in-context` with the architecture's qualify, derive and verbalize functions, and signals an error that describes the instruction's valid operands. | `specops.lisp:determine-in-context@1e53ae7` |
@@ -96,6 +97,7 @@ and sources.
 | span | A directive that wraps fields in a named region, so that a length, offset or checksum can describe it. | Log SPECOPS-DRAFT-manifest-D8 |
 | slot | A field whose value is computed from a region: `:length-of`, `:offset-of` or `:checksum-of`. | Log SPECOPS-DRAFT-manifest-D8 |
 | sub-manifest | A manifest included in another with the `manifest` directive and inlined into its parent's code. | Log SPECOPS-DRAFT-manifest-D10 |
+| region map | The run-time record of where each named field, span and sub-manifest was written, from which slots are resolved when their region closes. Not related to a map module. | Log SPECOPS-DRAFT-manifest-D8 |
 | sub-lexicon | The parent's generated bindings, passed to an inlined sub-manifest so that it shares the cursor, region map and serializers. | Log SPECOPS-DRAFT-manifest-D10 |
 | enum | A keyword-to-integer map defined with `defenum` and applied to a manifest field. | `specops.lisp:defenum@1e53ae7` |
 | marshal / unmarshal | Writing values into a manifest's structure, and reading them back out. | `specops.lisp:marshal@1e53ae7`, `specops.lisp:unmarshal@1e53ae7` |
@@ -105,12 +107,11 @@ sources.
 
 | Term | Definition | Notes / Source |
 |---|---|---|
-| core | The system `specops`, built from `src/`: the package, checksums, serialization, the manifest layer, the assembler classes and specification macros, and the program model. Every module depends on it. | `specops.asd:specops@13b5887` |
-| module | An ASDF system outside the core, in `mod/<kind>/<name>/`, named `specops.<kind>.<name>`, with a package of the same name. Its kind is architecture, format or map. | Log SPECOPS-DRAFT-restructure-D1, SPECOPS-DRAFT-restructure-D2 |
+| core | The system `specops`, built from `src/` except `src/manifest-original/`: the package, checksums, serialization, the manifest layer, the assembler classes and specification macros, and the program model. Every module depends on it. | `specops.asd:specops@13b5887` |
+| module | An ASDF system in `mod/<kind>/<name>/`, named `specops.<kind>.<name>`, with a package of the same name; the WebAssembly format module, still in its architecture's package, is the one exception. Its kind is architecture, format or map. | Log SPECOPS-DRAFT-restructure-D1, SPECOPS-DRAFT-restructure-D2 |
 | architecture module | A module that implements one instruction set: its assembler class and prototype, operand support, and instruction specifications. It is named for the instruction set, not a machine (`s390x`, not System Z), and never depends on a format module. | Log SPECOPS-DRAFT-restructure-D3; `mod/arch/s390x/package.lisp:specops.arch.s390x@ada2d19` |
-| format module | A module that writes one object or container format for programs, through `emit-program` methods. It depends on an architecture module only when the format exists for that one instruction set, as WebAssembly's does. Image and other media formats are not format modules. | Log SPECOPS-DRAFT-restructure-D4; `mod/format/goff/goff.lisp:emit-program@ada2d19` |
-| map module | A module that holds a two-way mapping between value spaces belonging to no single architecture or format, such as a code table. It depends only on the core. | Log SPECOPS-DRAFT-restructure-D5; `mod/map/ebcdic/ebcdic.lisp:ebcdic-code-cp037@ada2d19` |
-| opcode map | A manufacturer's grid of an instruction set's opcodes, transcribed in SpecOps as an operation table. It belongs to its architecture module, not to a map module. | Z80, 6502 |
+| format module | A module that writes one object or container format for programs, through `emit-program` methods. It depends on an architecture module only when the format exists for that one instruction set, as WebAssembly's does. Image and other media formats are not format modules. Not to be confused with an *instruction format*. | Log SPECOPS-DRAFT-restructure-D4, SPECOPS-DRAFT-restructure-D7; `mod/format/goff/specops.format.goff.asd:specops.format.goff@50e231d` |
+| map module | A module that holds a two-way mapping between value spaces belonging to no single architecture or format, such as a code table. It depends only on the core. Enums are mappings too, but are defined beside the manifests that use them. | Log SPECOPS-DRAFT-restructure-D5; `mod/map/ebcdic/ebcdic.lisp:ebcdic-code-cp037@ada2d19` |
 
 ## Backronym Registry
 

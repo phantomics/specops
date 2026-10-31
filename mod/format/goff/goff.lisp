@@ -10,7 +10,11 @@
 ;;; Hierarchy: SD (Section Definition) → ED (Element Definition)
 ;;;            → LD (Label) / PR (Part Reference)
 
-(in-package #:specops)
+(defpackage #:specops.format.goff
+  (:use #:cl #:specops)
+  (:import-from #:specops #:%seg-bytes-as-octets))
+
+(in-package #:specops.format.goff)
 
 ;; ===============================================================
 ;; GOFF record constants
