@@ -9,8 +9,12 @@
   :pathname "src/"
   :components ((:file "package")
                (:file "checksum")
-               (:file "scan")
-               (:file "specops")
+               (:file "serial")
+               (:module "manifest"
+                :serial t
+                :components ((:file "scan")
+                             (:file "manifest")))
+               (:file "assembler")
                (:file "program")))
 
 (asdf:defsystem #:specops/demo.png

@@ -1,9 +1,11 @@
-;;;; test-scripts/test-emit.lisp — Tests for ELF and WASM emitters
+;;;; test/test-emit.lisp — Tests for ELF and WASM emitters
 ;;;
 ;;; Run with: sbcl --noinform --non-interactive --load test/test-emit.lisp
 
 (load "src/package.lisp")
-(load "src/specops.lisp")
+(load "src/serial.lisp")
+(load "src/manifest/manifest.lisp")
+(load "src/assembler.lisp")
 (load "src/program.lisp")
 (load "mod/format/elf/elf.lisp")
 (load "mod/arch/s390x/package.lisp")

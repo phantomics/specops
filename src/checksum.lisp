@@ -180,3 +180,11 @@ this function will only work for 1d simple-arrays with such element-types."
     #-(or cmu sbcl)
     (update-adler32 adler32 sequence :start start :end end)
     (finalize-adler32 adler32)))
+
+(defun cs-adapt (item)
+  (if (and (vectorp item)
+           (typep item '(unsigned-byte 8)))
+      item (if (vectorp item)
+               (let ((output (make-array (length item) :element-type '(unsigned-byte 8))))
+                 (loop :for i :across item :for ix :from 0 :do (setf (aref output ix) i))
+                 output))))

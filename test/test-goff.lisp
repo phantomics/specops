@@ -1,9 +1,11 @@
-;;;; test-scripts/test-goff.lisp — Tests for the GOFF emitter
+;;;; test/test-goff.lisp — Tests for the GOFF emitter
 ;;;
 ;;; Run with: sbcl --noinform --non-interactive --load test/test-goff.lisp
 
 (load "src/package.lisp")
-(load "src/specops.lisp")
+(load "src/serial.lisp")
+(load "src/manifest/manifest.lisp")
+(load "src/assembler.lisp")
 (load "src/program.lisp")
 (load "mod/format/goff/goff.lisp")
 (load "mod/arch/s390x/package.lisp")

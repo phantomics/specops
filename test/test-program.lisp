@@ -1,9 +1,11 @@
-;;;; test-scripts/test-program.lisp — Tests for the program macro
+;;;; test/test-program.lisp — Tests for the program macro
 ;;;
 ;;; Run with: sbcl --noinform --non-interactive --load test/test-program.lisp
 
 (load "src/package.lisp")
-(load "src/specops.lisp")
+(load "src/serial.lisp")
+(load "src/manifest/manifest.lisp")
+(load "src/assembler.lisp")
 (load "src/program.lisp")
 (load "mod/arch/s390x/package.lisp")
 (load "mod/arch/s390x/base.lisp")
