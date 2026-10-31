@@ -1106,3 +1106,143 @@ Returns T if all checks pass."
       (format t "~&:case checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
               pass (count t results) (length results))
       pass)))
+
+;;; ===========================================================================
+;;; Part L — :vec fields on the scan model
+;;; ===========================================================================
+
+;; A terminated field followed by a scalar, for counting element reads.
+(defmanifest vec-scan-probe (:unit 8 :endian :big)
+  (:s     (:u 1 :vec) :end-by 0)
+  (:after :u8 :default 0))
+
+;; Characters go through the codec; integers are raw codes.
+(defmanifest vec-codec-mixed-probe (:unit 8 :endian :big)
+  (:s (:u 1 :vec) :count 3 :codec #'specops/format.ebcdic:ebcdic-code-cp037))
+
+;; Signed elements with a terminator that is negative when sign-extended.
+(defmanifest vec-signed-probe (:unit 8 :endian :big)
+  (:s     (:s 1 :vec) :end-by #xFF)
+  (:after :u8 :default 0))
+
+(defenum vec-colour nil :red 1 :green 2 :blue 3)
+
+(defmanifest vec-enum-probe (:unit 8 :endian :big)
+  (:c (:u 1 :vec) :count 3 :enumerate-by vec-colour))
+
+(defmanifest vec-plain-probe (:unit 8 :endian :big)
+  (:c (:u 1 :vec) :count 1))
+
+(defmanifest vec-unnamed-probe (:unit 8 :endian :big)
+  (_  (:u 1 :vec) :end-by 0)
+  (:k :u8 :default 0))
+
+;; A :vec branch inherits the field's :end-by.
+(defmanifest vec-case-probe (:unit 8 :endian :big)
+  (:kind  :u8 :default 0)
+  (:v     (:case :kind (0 :u8) (1 :u 1 :vec)) :end-by 0 :default 0)
+  (:after :u8 :default 0))
+
+;; A :case field's enum reaches both a scalar and a vector branch.
+(defmanifest vec-case-enum-probe (:unit 8 :endian :big)
+  (:kind :u8 :default 0)
+  (:v    (:case :kind (0 :u8) (1 :u 1 :vec)) :count 2 :default 0 :enumerate-by vec-colour))
+
+(defmanifest vec-wide-probe (:unit 8 :endian :big)
+  (:s (:u 2 :vec) :count 2 :endian :little))
+
+(defun run-vec-scan-demo ()
+  "Marshal and unmarshal :vec fields built from stop rules and assemblers.
+Returns T if all checks pass."
+  (let ((results nil))
+    (labels ((check (label got want)
+               (let ((ok (equalp got want)))
+                 (push ok results)
+                 (format t "~&  ~:[FAIL~;ok  ~]  ~a~%" ok label)
+                 (unless ok
+                   (format t "~&          got  ~s~%          want ~s~%" got want))))
+             (to-list (manifest-thunk)
+               (let ((acc nil))
+                 (funcall manifest-thunk (lambda (b) (push b acc)))
+                 (reverse acc)))
+             (count-reads (tree)
+               ;; element reads are calls of a deserializer: (funcall (aref ds …) …)
+               (if (consp tree)
+                   (+ (if (and (eq (car tree) 'funcall) (consp (second tree))
+                               (eq (car (second tree)) 'aref))
+                          1 0)
+                      (count-reads (car tree)) (count-reads (cdr tree)))
+                   0)))
+      (format t "~&vector scan checks:~%")
+
+      ;; 1. One read per element.
+      (check "vec-scan-probe, a terminated field reads each element once"
+             (count-reads (macroexpand-1 '(unmarshal vec-scan-probe s)))
+             2)
+
+      ;; 2. Element encoding: characters through the codec, integers raw.
+      (check "vec-codec-mixed-probe, integers in a codec field are raw codes"
+             (to-list (lambda (d) (marshal vec-codec-mixed-probe d :s #(64 64 64))))
+             '(#x40 #x40 #x40))
+      (check "vec-codec-mixed-probe, characters and integers mixed"
+             (to-list (lambda (d) (marshal vec-codec-mixed-probe d :s (vector #\A 64 #\B))))
+             '(#xC1 #x40 #xC2))
+
+      ;; 3. Signed elements compare and write raw codes.
+      (check "vec-signed-probe, #(1 -128) written with the #xFF terminator"
+             (to-list (lambda (d) (marshal vec-signed-probe d :s #(1 -128) :after 9)))
+             '(1 #x80 #xFF 9))
+      (check "vec-signed-probe, read back"
+             (unmarshal vec-signed-probe (->bytes #(1 #x80 #xFF 9)))
+             '(:s #(1 -128) :after 9))
+      (check "vec-signed-probe, -1 is the terminator's code and signals an error"
+             (signals-error-p (lambda () (to-list (lambda (d) (marshal vec-signed-probe d :s #(1 -1))))))
+             t)
+      (check "vec-signed-probe, -129 does not fit and signals an error"
+             (signals-error-p (lambda () (to-list (lambda (d) (marshal vec-signed-probe d :s #(-129))))))
+             t)
+
+      ;; 4. Enumerated elements.
+      (check "vec-enum-probe, keyword and integer elements written as codes"
+             (to-list (lambda (d) (marshal vec-enum-probe d :c #(:green :red 3))))
+             '(2 1 3))
+      (check "vec-enum-probe, read back as keywords"
+             (unmarshal vec-enum-probe (->bytes #(2 1 3)))
+             '(:c #(:green :red :blue)))
+      (check "vec-enum-probe, a keyword outside the enum signals an error"
+             (signals-error-p
+              (lambda () (to-list (lambda (d) (marshal vec-enum-probe d :c #(:green :mauve 3))))))
+             t)
+      (check "vec-plain-probe, a keyword element without an enum signals an error"
+             (signals-error-p (lambda () (to-list (lambda (d) (marshal vec-plain-probe d :c #(:red))))))
+             t)
+
+      ;; 5. Unnamed fields, :case branches and wide elements.
+      (check "vec-unnamed-probe, an unnamed terminated field writes its terminator"
+             (to-list (lambda (d) (marshal vec-unnamed-probe d :k 7)))
+             '(0 7))
+      (check "vec-unnamed-probe, read skips it"
+             (unmarshal vec-unnamed-probe (->bytes #(97 98 0 7)))
+             '(:k 7))
+      (check "vec-case-probe, a scalar branch and a terminated vector branch written"
+             (list (to-list (lambda (d) (marshal vec-case-probe d :kind 0 :v 5 :after 9)))
+                   (to-list (lambda (d) (marshal vec-case-probe d :kind 1 :v "ab" :after 9))))
+             '((0 5 9) (1 97 98 0 9)))
+      (check "vec-case-probe, both branches read back"
+             (list (unmarshal vec-case-probe (->bytes #(0 5 9)))
+                   (unmarshal vec-case-probe (->bytes #(1 97 98 0 9))))
+             '((:kind 0 :v 5 :after 9) (:kind 1 :v #(97 98) :after 9)))
+      (check "vec-case-enum-probe, the enum decodes a scalar branch and a vector branch"
+             (list (unmarshal vec-case-enum-probe (->bytes #(0 3)))
+                   (unmarshal vec-case-enum-probe (->bytes #(1 2 1))))
+             '((:kind 0 :v :blue) (:kind 1 :v #(:green :red))))
+      (check "vec-wide-probe, two-byte little-endian elements written"
+             (to-list (lambda (d) (marshal vec-wide-probe d :s #(#x4142 #x43))))
+             '(#x42 #x41 #x43 0))
+      (check "vec-wide-probe, read back"
+             (unmarshal vec-wide-probe (->bytes #(#x42 #x41 #x43 0)))
+             '(:s #(#x4142 #x43))))
+    (let ((pass (every #'identity results)))
+      (format t "~&vector scan checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
+              pass (count t results) (length results))
+      pass)))

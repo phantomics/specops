@@ -767,105 +767,73 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                                   (scalar-value-form name default enumerate-by slot))
                                        :write (lambda (w f) `(funcall (aref ,serializers ,swap-by)
                                                                       (cons ,w ,f) ,enter)))))
-                               ((member :leb subtypes)
-                                (unless (eql 1 length-form)
-                                  (error "Field ~s: a LEB field must be one unit wide." name))
-                                (emit-frame name (make-instance 'continuation-rule)
-                                            (make-instance 'leb-assembler :signed signed)
-                                            (or (enumerate enumerate-by (getf pairs name))
-                                                default (error "Field ~a not specified." name))
-                                            (lambda (f) `(funcall (aref ,serializers ,swap-by) (cons 1 ,f)
-                                                                  ,enter))))
-                               ((member :case subtypes)
-                                (write-effector (simplify-plan (field-plan item #'selector-form #'enum-of))
-                                                (list :name name
-                                                      :value (or (enumerate enumerate-by (getf pairs name))
-                                                                 default
-                                                                 (error "Field ~a not specified." name))
-                                                      :write (lambda (w f)
-                                                               `(funcall (aref ,serializers ,swap-by)
-                                                                         (cons ,w ,f) ,enter)))))
-                               ((member :vec subtypes)
-                                (when (and end-by count)
-                                  (error "Field ~a: :count with :end-by is not supported yet." name))
-                                (let* ((encoder (gensym "EN")) (in (gensym "I"))
-                                       (term (gensym "TM")) (e (gensym "E")) (c (gensym "C"))
-                                       ;; data and characters share one encoding path
-                                       (encode (lambda (form)
-                                                 (if codec `(funcall ,encoder ,form)
-                                                     `(let ((,in ,form))
-                                                        (if (characterp ,in) (char-code ,in)
-                                                            ,in)))))
-                                       ;; a character terminator is encoded like the data;
-                                       ;; an integer is a raw code
-                                       (term-form
-                                         (typecase end-by
-                                           (null nil)
-                                           (character (funcall encode end-by))
-                                           (integer end-by)
-                                           (t (error
-                                               "Field ~a: :end-by must be a character or an integer, not ~s."
-                                               name end-by))))
-                                       (source (cond ((getf pairs name))
-                                                     ((vectorp default) default)
-                                                     (end-by "")))
-                                       (write-element (lambda (code-form)
-                                                        `(funcall (aref ,serializers ,swap-by)
-                                                                  (cons ,length-form ,code-form) ,enter))))
-                                  `(let* ((,encoder
-                                            ,(and codec
-                                                  `(codec-for ,codec
-                                                              (lambda (,in)
-                                                                (error "Failed to encode input `~a` using ~a: ~a"
-                                                                       ,in ,(write-to-string codec)
-                                                                       "invalid input.")))))
-                                          ,@(and term-form `((,term ,term-form))))
-                                     ,(cond
-                                        (source
-                                         `(loop :for ,e :across ,source
-                                                :for ,c := ,(funcall encode e)
-                                                ,@(and term-form
-                                                       `(:when (eql ,c ,term)
-                                                          :do (error "Field ~a contains its terminator ~a."
-                                                                     ',name ,term)))
-                                                :do ,(funcall write-element c)))
-                                        ((integerp count) ;; numeric default, repeated
-                                         `(loop :repeat ,count :do ,(funcall write-element default)))
-                                        (t (error "Field ~a: no value, no default, and no integer :count."
-                                                  name)))
-                                     ,@(and term-form (list (funcall write-element term))))))
+                               ;; ((member :leb subtypes)
+                               ;;  (unless (eql 1 length-form)
+                               ;;    (error "Field ~s: a LEB field must be one unit wide." name))
+                               ;;  (emit-frame name (make-instance 'continuation-rule)
+                               ;;              (make-instance 'leb-assembler :signed signed)
+                               ;;              (or (enumerate enumerate-by (getf pairs name))
+                               ;;                  default (error "Field ~a not specified." name))
+                               ;;              (lambda (f) `(funcall (aref ,serializers ,swap-by) (cons 1 ,f)
+                               ;;                                    ,enter))))
+                               ;; ((member :case subtypes)
+                               ;;  (write-effector (simplify-plan (field-plan item #'selector-form #'enum-of))
+                               ;;                  (list :name name
+                               ;;                        :value (or (enumerate enumerate-by (getf pairs name))
+                               ;;                                   default
+                               ;;                                   (error "Field ~a not specified." name))
+                               ;;                        :write (lambda (w f)
+                               ;;                                 `(funcall (aref ,serializers ,swap-by)
+                               ;;                                           (cons ,w ,f) ,enter)))))
                                ;; ((member :vec subtypes)
                                ;;  (when (and end-by count)
                                ;;    (error "Field ~a: :count with :end-by is not supported yet." name))
-                               ;;  (let ((encoder (gensym "EN")) (in (gensym "I")) (e (gensym "E")))
-                               ;;    `(let ((,encoder
-                               ;;             ,(and codec
-                               ;;                   `(codec-for ,codec
-                               ;;                               (lambda (,in)
-                               ;;                                 (error "Failed to encode input `~a` using ~a: ~a"
-                               ;;                                        ,in ,(write-to-string codec)
-                               ;;                                        "invalid input."))))))
-                               ;;       ,(if (getf pairs name)
-                               ;;            `(loop :for ,e :across ,(getf pairs name)
-                               ;;                   :do (funcall (aref ,serializers ,swap-by)
-                               ;;                                (cons ,length-form ,(if (not codec)
-                               ;;                                                        e `(funcall ,encoder ,e)))
-                               ;;                                ,enter))
-                               ;;            (if length-form
-                               ;;                (if (vectorp default)
-                               ;;                    `(loop :for ,e :across ,default
-                               ;;                           :do (funcall (aref ,serializers ,swap-by)
-                               ;;                                        (cons ,length-form
-                               ;;                                              ,(if (not codec)
-                               ;;                                                   e `(funcall ,encoder ,e)))
-                               ;;                                        ,enter))
-                               ;;                    (if count `(loop :for ,e :below ,count
-                               ;;                                     :do (funcall (aref ,serializers ,swap-by)
-                               ;;                                                  (cons ,length-form ,default)
-                               ;;                                                  ,enter))
-                               ;;                        (error "Attempting to encode vector data without count."
-                               ;;                               )))
-                               ;;                (error "No content or default specified for vector data."))))))
+                               ;;  (let* ((encoder (gensym "EN")) (in (gensym "I"))
+                               ;;         (term (gensym "TM")) (e (gensym "E")) (c (gensym "C"))
+                               ;;         ;; data and characters share one encoding path
+                               ;;         (encode (lambda (form)
+                               ;;                   (if codec `(funcall ,encoder ,form)
+                               ;;                       `(let ((,in ,form))
+                               ;;                          (if (characterp ,in) (char-code ,in)
+                               ;;                              ,in)))))
+                               ;;         ;; a character terminator is encoded like the data;
+                               ;;         ;; an integer is a raw code
+                               ;;         (term-form
+                               ;;           (typecase end-by
+                               ;;             (null nil)
+                               ;;             (character (funcall encode end-by))
+                               ;;             (integer end-by)
+                               ;;             (t (error
+                               ;;                 "Field ~a: :end-by must be a character or an integer, not ~s."
+                               ;;                 name end-by))))
+                               ;;         (source (cond ((getf pairs name))
+                               ;;                       ((vectorp default) default)
+                               ;;                       (end-by "")))
+                               ;;         (write-element (lambda (code-form)
+                               ;;                          `(funcall (aref ,serializers ,swap-by)
+                               ;;                                    (cons ,length-form ,code-form) ,enter))))
+                               ;;    `(let* ((,encoder
+                               ;;              ,(and codec
+                               ;;                    `(codec-for ,codec
+                               ;;                                (lambda (,in)
+                               ;;                                  (error "Failed to encode input `~a` using ~a: ~a"
+                               ;;                                         ,in ,(write-to-string codec)
+                               ;;                                         "invalid input.")))))
+                               ;;            ,@(and term-form `((,term ,term-form))))
+                               ;;       ,(cond
+                               ;;          (source
+                               ;;           `(loop :for ,e :across ,source
+                               ;;                  :for ,c := ,(funcall encode e)
+                               ;;                  ,@(and term-form
+                               ;;                         `(:when (eql ,c ,term)
+                               ;;                            :do (error "Field ~a contains its terminator ~a."
+                               ;;                                       ',name ,term)))
+                               ;;                  :do ,(funcall write-element c)))
+                               ;;          ((integerp count) ;; numeric default, repeated
+                               ;;           `(loop :repeat ,count :do ,(funcall write-element default)))
+                               ;;          (t (error "Field ~a: no value, no default, and no integer :count."
+                               ;;                    name)))
+                               ;;       ,@(and term-form (list (funcall write-element term))))))
                                ((and slot (eq :checksum-of (first slot)))
                                 `(funcall (aref ,serializers ,swap-by)
                                           (cons ,length-form
@@ -1106,13 +1074,6 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                      (setf (aref dvector swap-by) `(deserializer-for ,(getf config :unit-spec) ,swap-by)))
 
                    (case type
-                     ;; (:manifest
-                     ;;  (push
-                     ;;   (list 'multiple-value-list
-                     ;;         (macroexpand (list 'unmarshal (first actual) src
-                     ;;                            (list :-+sub-lexicon+-
-                     ;;                                  (list* :pr-sym (qualify name) sub-lexicon)))))
-                     ;;   reads))
                      (:pad (push `(incf ,cursor ,(pad-count-form mode n cursor base)) reads))
                      (:manifest
                       (let* ((sub-name (first actual))
@@ -1216,76 +1177,7 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                                            :read-at (lambda (at w sg)
                                                                       `(funcall (aref ,dsym ,swap-by)
                                                                                 ,at ,w ,sg ,src))))))
-                        ;; ((member :leb subtypes)
-                        ;;  (unless (and (zerop (getf config :unit-spec)) (= 1 length))
-                        ;;    (error "unmarshal: LEB field ~s must be one 8-bit unit wide." name))
-                        ;;  (let ((form (emit-scan name (make-instance 'continuation-rule)
-                        ;;                         (make-instance 'leb-assembler :signed signed)
-                        ;;                         (lambda (at) `(funcall (aref ,dsym ,swap-by) ,at 1 nil ,src))
-                        ;;                         cursor 1 src)))
-                        ;;    (if name
-                        ;;        (let ((var (gensym (string name))))
-                        ;;          (push (cons name var) vars)
-                        ;;          (push `(setf ,var ,(interpret form enumerate-by)) reads))
-                        ;;        ;; unnamed LEBs are still scanned to move the cursor
-                        ;;        (push form reads))))
-                        ;; ((member :case subtypes)
-                        ;;  (let ((form (read-effector (field-plan item #'selector-form #'enum-of)
-                        ;;                             (list :name name :cursor cursor :src src
-                        ;;                                   :read-at (lambda (at w sg)
-                        ;;                                              `(funcall (aref ,dsym ,swap-by)
-                        ;;                                                        ,at ,w ,sg ,src))))))
-                        ;;    (if name (let ((var (gensym (string name))))
-                        ;;               (push (cons name var) vars)
-                        ;;               (push `(setf ,var ,(interpret form enumerate-by)) reads))
-                        ;;        (push form reads))))
-                        ;; ((member :vec subtypes)
-                        ;;  (let* ((var   (gensym (string (or name :vec))))
-                        ;;         (bits  (* length (ash 1 (+ 3 (getf config :unit-spec)))))
-                        ;;         (etype (cond (enumerate-by t)
-                        ;;                      (signed `(signed-byte ,bits))
-                        ;;                      (t      `(unsigned-byte ,bits))))
-                        ;;         (decoder (gensym "DE")) (in (gensym))
-                        ;;         (n (gensym "N")) (v (gensym "V")) (i (gensym "I")))
-                        ;;    (when name (push (cons name var) vars))
-                        ;;    ;; unnamed vecs are still read so the cursor advances
-                        ;;    (push `(let ((,decoder
-                        ;;                   ,(if (not codec) '#'identity
-                        ;;                        `(codec-for ,codec
-                        ;;                                    (lambda (,in)
-                        ;;                                      (error "Failed to decode input `~a` using ~a: ~a"
-                        ;;                                             ,in ,(write-to-string codec)
-                        ;;                                             "invalid input."))))))
-                        ;;             (setf ,var
-                        ;;                   (let* ((,n ,(vec-count-form name count length
-                        ;;                                               end-by swap-by codec))
-                        ;;                          (,v (make-array ,n :element-type ',etype)))
-                        ;;                     (dotimes (,i ,n ,v)
-                        ;;                       (setf (aref ,v ,i)
-                        ;;                             ,(interpret `(funcall (aref ,dsym ,swap-by)
-                        ;;                                                   (+ ,cursor (* ,i ,length))
-                        ;;                                                   ,length ,signed ,src)
-                        ;;                                         enumerate-by)))
-                        ;;                     ,(if (not codec)
-                        ;;                          v `(map 'string ,decoder ,v)))))
-                        ;;          reads)
-                        ;;    ;; (push `(incf ,cursor (* (length ,var) ,length)) reads)
-                        ;;    (push `(incf ,cursor (* ,length ,(if end-by `(1+ (length ,var)) `(length ,var))))
-                        ;;          reads)))
                         (t
-                         ;; (when name ;; (and name (or (member name keys)))
-                         ;;  (let ((var (gensym (string name))))
-                         ;;    (push (cons name var) vars)
-                         ;;    ;; (push `(setf ,var ,(interpret `(funcall (aref ,dsym ,swap-by)
-                         ;;    ;;                                         ,cursor ,length ,signed ,src)
-                         ;;    ;;                               enumerate-by))
-                         ;;    ;;       reads)
-                         ;;    (push `(setf ,var ,(interpret `(setf ,raw (funcall (aref ,dsym ,swap-by)
-                         ;;                                                       ,cursor ,length ,signed ,src))
-                         ;;                                  enumerate-by))
-                         ;;          reads)
-                         ;;    (push var raws)
-                         ;;    ))
                          (when name
                            (let ((var (gensym (string name))))
                              (push (cons name var) vars)
