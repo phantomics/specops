@@ -21,6 +21,9 @@ decisions:
   - SPECOPS-DRAFT-manifest-complete-D4
   - SPECOPS-DRAFT-manifest-complete-D5
   - SPECOPS-DRAFT-manifest-complete-D6
+  - SPECOPS-DRAFT-manifest-complete-D7
+  - SPECOPS-DRAFT-manifest-complete-D8
+  - SPECOPS-DRAFT-manifest-complete-D9
 open-questions:
   - SPECOPS-DRAFT-manifest-complete-O1
   - SPECOPS-DRAFT-manifest-complete-O2
@@ -102,6 +105,19 @@ The `:leb` write branch passes a `(width . value)` pair to
 tests `signed` when the generated code runs rather than when it is expanded.
 No test covers it.
 
+Since then, the rows below have changed. The log's update of 2026-10-30
+records the work (SPECOPS-DRAFT-manifest-D15 through
+SPECOPS-DRAFT-manifest-D21).
+
+Table: Features whose state changed between commits `1e53ae7` and `653345f`.
+
+| Feature | `marshal` | `unmarshal` |
+|---|---|---|
+| `:leb` (self-delimiting integers) | Yes | Yes |
+| `:case` width selected by an earlier field | Yes, including enumerated selectors and an `otherwise` branch | Yes |
+| Terminated fields (`:end-by` on a `:vec` field), one-element terminator | Yes | Yes |
+| Caller-supplied text, as a `:vec` field with a `:codec` | Yes | Yes, returned as a string |
+
 ## Goals
 
 The layer is complete when all of these hold, each covered by a test that
@@ -147,6 +163,11 @@ returns it as a string.
 variable-width encodings such as UTF-8 or Shift-JIS need them); declaring
 strings as `:vec` fields of codes (rejected: callers would encode by hand and
 the codec would go unused).
+
+Note: caller text was built as a `:vec` field with a `:codec` instead
+(SPECOPS-DRAFT-manifest-D16), which uses the codec, so the reason given above
+for rejecting that form no longer holds. This record may be reworded or
+withdrawn.
 
 ### SPECOPS-DRAFT-manifest-complete-D2 — Destinations that cannot be patched are buffered only when a manifest needs it
 
@@ -233,6 +254,63 @@ round-trip a minimal file.
 already covers); TrueType (deferred: its `checkSumAdjustment` is computed over
 the whole file including itself, which needs an option to treat a field as
 zero during the checksum).
+
+### SPECOPS-DRAFT-manifest-complete-D7 — Fixed buffers with a terminator are tar-style, padded with the terminator
+
+**Status:** Proposed
+**Context:** Many formats hold a terminated string in a buffer of fixed size:
+C `char[n]`, tar names, record formats. `:count` together with `:end-by`
+signals an error today (SPECOPS-DRAFT-manifest-D17). This is the terminated
+case of SPECOPS-DRAFT-manifest-complete-O5.
+**Decision:** A `:vec` field with both `:count n` and `:end-by` holds at most
+`n` elements. Reading stops at the terminator or after `n` elements, whichever
+comes first, and always moves the cursor past all `n`; a full buffer with no
+terminator is valid. Writing signals an error for data longer than `n`, writes
+data of exactly `n` elements with no terminator, and follows shorter data with
+the terminator repeated to fill the buffer. At expansion the two keys become one
+bounded stop rule (SPECOPS-DRAFT-manifest-D18) whose units consumed are known
+while its data count is not, so `known-count` and a separate `known-extent`
+report them apart and selective reads can still skip the field.
+**Alternatives:** Requiring the terminator in every buffer, as in C
+`char[n]` (rejected: tar-style fields that fill the buffer could not be read);
+a separate fill key (rejected for terminated fields: repeating the terminator
+is the common case; space-padded fields with no terminator remain open under
+SPECOPS-DRAFT-manifest-complete-O5).
+
+### SPECOPS-DRAFT-manifest-complete-D8 — Multi-element terminators are written as a vector or a string
+
+**Status:** Proposed
+**Context:** Some fields end at a sequence rather than one element, such as
+CR LF. SPECOPS-DRAFT-manifest-D17 allows one element only.
+**Decision:** `:end-by` may be a vector or a string. Each element follows the
+one-element rule: a character goes through the codec, an integer is a raw
+code. Reading keeps a window of the last elements, stops when it matches the
+pattern, and drops the pattern from the result. The write check runs the same
+matcher over the data and the terminator together and requires the first
+match to end on the terminator's last element, so a match that straddles the
+data and the terminator is caught: with the pattern `AA`, the data `xA` would
+otherwise be read back as `x`.
+**Alternatives:** Vectors only (rejected: a string is the natural form for
+text terminators); checking only the data for the pattern (rejected: misses
+straddling matches); a precomputed matching automaton (deferred: an
+optimisation when every code is a constant).
+
+### SPECOPS-DRAFT-manifest-complete-D9 — User-defined stop rules arrive with the runtime fallback, through a `:stop-by` key
+
+**Status:** Proposed
+**Context:** Formats have their own self-delimiting encodings: QUIC's
+variable-length integers, BER lengths, UTF-8 characters. Under
+SPECOPS-DRAFT-manifest-D18 a stop rule needs effector methods to take part in
+generated code, which is a high bar for a first definition.
+**Decision:** A field's `:stop-by` key names a user stop-rule class. The
+default `stop-effector` on `stop-rule` emits calls to a runtime protocol, in
+which `feed` takes each element and returns whether to continue, stop keeping
+the element, or stop dropping it, and `done-p` is asked before each read. A
+class with only the runtime methods works at once; writing effector methods
+later upgrades it to inline code without changing manifests.
+**Alternatives:** Requiring effector methods for every rule (rejected: no
+incremental path); adding `:stop-by` before the fallback exists (rejected:
+nothing could run a rule without effectors).
 
 ## Field kinds
 

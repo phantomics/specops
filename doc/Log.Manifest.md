@@ -25,6 +25,15 @@ decisions:
   - SPECOPS-DRAFT-manifest-D12
   - SPECOPS-DRAFT-manifest-D13
   - SPECOPS-DRAFT-manifest-D14
+  - SPECOPS-DRAFT-manifest-D15
+  - SPECOPS-DRAFT-manifest-D16
+  - SPECOPS-DRAFT-manifest-D17
+  - SPECOPS-DRAFT-manifest-D18
+  - SPECOPS-DRAFT-manifest-D19
+  - SPECOPS-DRAFT-manifest-D20
+  - SPECOPS-DRAFT-manifest-D21
+relates-to:
+  - SPECOPS-DRAFT-manifest-complete
 cites:
   - title:    lisp-binary (Common Lisp binary format library) wiki
     locator:  github.com/j3pic/lisp-binary/wiki — DEFBINARY structs; EVAL type specifier
@@ -35,6 +44,9 @@ cites:
   - title:    WOFF File Format
     locator:  table directory (offset tables)
     external: true
+  - title:    Faster APL with Lazy Extensions (Andrew Sengul, 2023)
+    locator:  generators and their per-element dispatch (§3.4); effectors assembled into kernels (§5.1); allocator extensions (§6.1); layered fallback (§8)
+    external: true
 ---
 
 # Manifest: Development Log
@@ -44,7 +56,8 @@ binary-format layer: `defmanifest`, which declares the structure of a binary
 record, `marshal`, which writes values into that structure, and `unmarshal`,
 which reads them back out. It covers the path from a freeform `marshal` macro to
 manifest-driven writing and reading, and the PNG test format used to exercise
-it. The chronicled state is commit `10b1568`.
+it. The chronicled state is commit `10b1568`; the update of 2026-10-30 at the
+end of this log carries the record forward to commit `653345f`.
 
 ## Problem
 
@@ -419,7 +432,7 @@ Table: Files created or changed by the manifest work, from the freeform
 
 ## Metrics
 
-- Test checks: 37 automated checks plus 1 structural PNG verification.
+- Test checks: 36 automated checks plus 1 structural PNG verification.
 - Regressions at `10b1568`: 0.
 - New source files: 2 (`checksum.lisp`, `manifest.lisp`).
 
@@ -461,3 +474,312 @@ Table: Files created or changed by the manifest work, from the freeform
   reserved `:f` class is unimplemented.
 - **Offset-table exercise.** WOFF, chosen to test `:offset-of` position
   backpatching, has not been written.
+
+## Update 2026-10-30 — Pads, codecs, terminated fields, scan effectors and :case
+
+This installment covers commits `1e53ae7` through `653345f`. Pads were
+reworked to be sized at run time. Codecs were extended from constant strings to
+caller-supplied vector fields, and fields gained `:end-by` terminators.
+Variable-length fields were then given a single model: stop rules and
+assemblers whose effector methods emit fused code at macroexpansion. LEB128
+fields now work in both directions on that model. Finally, `:case` fields,
+whose width is chosen by an earlier field, were rebuilt as a choice between
+complete field plans and now work in both directions. The test suites grew
+from 36 checks to 117.
+
+### SPECOPS-DRAFT-manifest-D15 — Pads are sized at run time, `:to` from the record's start and `:align` from the output's
+
+**Status:** Proposed
+**Context:** `defmanifest` computed each pad's size from a static `index` as it
+parsed the clauses. Once a variable-length field preceded a pad, that index
+was wrong. `pad :align` also computed the remainder already used rather than
+the padding still needed. A sub-manifest instance needs to pad to its own
+length, wherever it starts in the output.
+**Decision:** `(pad with n)` writes `n` units. `(pad with :to n)` pads up to
+`n` units from the start of the current manifest instance, whose base
+position is recorded per instance and shared through the sub-lexicon.
+`(pad with :align n)` pads to a multiple of `n` counted from the start of the
+output. A manifest's trailing `:length` is a `:to` pad. The count is computed
+when the generated code runs, by `specops.lisp:pad-count-form@653345f`, and a
+`:to` target already passed signals an error. `unmarshal` moves its cursor by
+the same count.
+**Alternatives:** Static counts at `defmanifest` (the earlier design; wrong
+after any variable-length field); `:to` counted from the start of the output
+(rejected: a sub-manifest instance could not pad to its own length); a
+separate `skip` directive for reading (rejected: reading a pad already skips
+it).
+
+### SPECOPS-DRAFT-manifest-D16 — Codecs apply to `:vec` fields, and unmapped input is an error
+
+**Status:** Proposed
+**Context:** SPECOPS-DRAFT-manifest-D6 applied codecs only to the constant
+`str` directive. Caller-supplied text, such as an EBCDIC name, had no path. A
+`defcodetable` function returned `nil` for a character or code it did not map,
+and the `nil` reached the serializer.
+**Decision:** A `:vec` field takes a `:codec`, given as `#'fn` or `'fn`.
+`marshal` encodes a string value character by character through the codec,
+and `unmarshal` decodes the elements back into a string. With no codec,
+characters are written as their Latin-1 codes. A string default goes through
+the codec; a numeric default is already a code, and is repeated `:count`
+times without it. `specops.lisp:codec-for@653345f` wraps a codec so that an
+unmapped character or code signals an error naming the input and the codec,
+on write and on read. `specops.lisp:defcodetable@653345f` marks unassigned
+entries with -1 in its `(signed-byte 16)` code table and `nil` in its reverse
+table. Caller text is therefore a `:vec` field with a codec, not the `:str`
+field type that SPECOPS-DRAFT-manifest-complete-D1 proposed.
+**Alternatives:** A dedicated `:str` field type (not built: the `:vec` field
+with a codec covers it with no new type, and
+SPECOPS-DRAFT-manifest-complete-D1 may be reworded); passing unmapped input
+through as `nil` or skipping it (rejected: corrupt output with no error).
+
+### SPECOPS-DRAFT-manifest-D17 — A character terminator goes through the codec; an integer terminator is a raw code
+
+**Status:** Proposed
+**Context:** Many fields end at a terminator rather than at a known count: C
+strings end at NUL, some EBCDIC text at a `$`. A terminator written as a
+character should match the data's encoding, but an integer passed to a
+`defcodetable` function means "decode this code", and CP037 maps none of its
+control characters, so NUL cannot be encoded through it.
+**Decision:** `:end-by` on a `:vec` field takes a character, encoded like the
+data (through the codec, or as `char-code` without one), or an integer, written
+as is. The terminator is one element of the field's width and byte order.
+Data containing its own terminator signals an error. A field with no value
+writes the terminator alone. The terminator counts as part of the field's
+region, so a `:length-of` or checksum over the field includes it. On read, the
+scan compares raw unsigned codes, before sign extension or decoding, and the
+cursor moves past the terminator; a source that ends first signals an error.
+`:count` together with `:end-by` signals an error for now.
+**Alternatives:** An explicit flag choosing whether the terminator is encoded
+(rejected: the type of the terminator already says it); always encoding it
+through the codec (rejected: NUL-terminated EBCDIC could not be written);
+allowing data that contains the terminator (rejected: a reader would stop
+early). Multi-element terminators and fixed buffers holding a terminator are
+planned in SPECOPS-DRAFT-manifest-complete-D8 and
+SPECOPS-DRAFT-manifest-complete-D7.
+
+### SPECOPS-DRAFT-manifest-D18 — Variable-length fields are built from stop rules and assemblers whose effectors emit fused code at expansion
+
+**Status:** Proposed
+**Context:** Counts, terminators and LEB128's continuation bit were each a
+separate branch in `marshal` and `unmarshal`. The `:leb` write branch was
+broken and there was no `:leb` read; the terminator read scanned every element
+twice. A runtime scanner protocol, fed one element at a time, would unify
+them but pays a generic call per element and buffers the elements. The
+paper "Faster APL with Lazy Extensions" (see `cites:`) builds one typed kernel
+from code fragments returned by effector methods on the classes involved, with
+slower layers as fallbacks. A manifest's structure is known at macroexpansion,
+so that assembly can happen there, with no run-time compilation.
+**Decision:** The variable-length part of a field is a stop rule
+(`count-rule`, `terminator-rule`, `continuation-rule`) and an assembler
+(`vector-assembler`, `leb-assembler`), built at expansion from the field's
+keys. On read, `stop-effector` and `assemble-effector` return code fragments
+(bindings, declarations, a test before each read, a test after it, whether the
+stopping element is data, the collection step and the result), and
+`scan.lisp:emit-scan@653345f` combines them into one loop that reads each
+element once and advances the cursor. On write, `frame-effector` and
+`disassemble-effector` do the same (a check on each element, a mark such as a
+continuation bit, a trailer, and the splitting of a value into elements)
+through `scan.lisp:emit-frame@653345f`. Elements are read as raw unsigned
+codes; sign extension and enum decoding belong to the assembler. Analysis
+methods such as `scan.lisp:known-count@653345f` give facts about a field before
+any code is emitted. Rule classes without effector methods are to run through a
+runtime protocol (SPECOPS-DRAFT-manifest-complete-D9).
+**Alternatives:** A branch per field kind (the earlier design); the runtime
+scanner protocol as the only path (rejected as the primary path: dispatch and a
+buffer per element; kept as the planned fallback); closures returned by
+factories, like `serializer-for` (rejected: harder for users to extend);
+run-time code generation as in April (unnecessary: the facts it waits for are
+known at expansion).
+
+### SPECOPS-DRAFT-manifest-D19 — A `:case` field is a choice between complete field plans
+
+**Status:** Proposed
+**Context:** `(:case field …)` (SPECOPS-DRAFT-manifest-D5) stored its branches
+unparsed. `marshal` looked up a width at run time from a plist of the values
+the caller passed, so each branch was reduced to a width, its signedness and
+modifiers were lost, and a selector left at its default had no value.
+`unmarshal` ignored `:case` and read a one-unit scalar.
+**Decision:** `defmanifest` parses each branch, `(keys . type)` with `type` a
+width spec or a bit-named keyword, into a plist with its length, signedness
+and modifiers, through the same type parser fields use. At expansion,
+`scan.lisp:field-plan@653345f` turns a stored field into a `scalar-plan`, a
+`scan-plan` (a stop rule and an assembler) or a `case-plan` whose branches are
+plans in turn. `read-effector` and `write-effector` emit each plan; a case plan
+emits one `case` on the selector, whose clauses are the branches' code with
+constant widths, so the run-time dispatch happens once.
+`scan.lisp:simplify-plan@653345f` reduces a case plan whose selector is a
+constant to its branch at expansion, and `scan.lisp:known-extent@653345f`
+gives the width when every branch agrees.
+**Alternatives:** Computing a width at run time and passing it to generic code
+(the earlier write path; loses per-branch types); storing whole field
+descriptors as objects in `defmanifest` (deferred: plans are built from the
+stored plists at expansion, and the stored form is unchanged).
+
+### SPECOPS-DRAFT-manifest-D20 — `:case` keys compare integer codes, and `otherwise` is the default branch
+
+**Status:** Proposed
+**Context:** A selector field may be enumerated, so a caller can give it as a
+keyword or an integer, and `unmarshal` returns it decoded. Branch keys need
+one domain to compare in. `marshal` also needs the selector's value when the
+`:case` field is written, including a default the caller did not pass.
+**Decision:** Branch keys are compared as integer codes. Keyword keys are
+translated through the selector's enum at expansion by
+`scan.lisp:translate-keys@653345f`; a keyword outside the enum is an expansion
+error. A key may be a single value or a list, and `otherwise` names the default
+branch; with no default, an unmatched selector signals an error, at expansion
+when the selector is a constant. The selector must come before the `:case`
+field, on both sides, or expansion signals an error.
+`specops.lisp:case-selectors@653345f` finds the selectors. `marshal` binds a
+variable for each, set to the code actually written (the value or the default,
+after enum mapping), and uses a constant instead when the call gives one or
+omits the selector. These variables replace the run-time `values` plist, whose
+pushes evaluated every value form a second time. `unmarshal` binds a raw-code
+variable beside the decoded one for an enumerated selector.
+**Alternatives:** Comparing decoded values (rejected: a run-time selector
+given as an integer would miss keyword keys, and reads would need to re-encode);
+accepting `t` as a default as in `cl:case` (rejected: `otherwise` alone keeps
+`t` usable as a key, written `(t)`); a separate `:default-type` key on the
+field (rejected: the default reads more clearly as a branch).
+
+### SPECOPS-DRAFT-manifest-D21 — Directives dispatch by symbol name, and `_` names an unnamed field
+
+**Status:** Proposed
+**Context:** SPECOPS-DRAFT-manifest-D4 dispatched directives by symbol
+identity. A manifest written in a package that does not import SpecOps's
+internal `span`, `pad`, `str` and `manifest` lost those clauses without a
+message, as it did a clause led by `_` and a misspelt directive.
+**Decision:** `defmanifest` dispatches a clause led by a non-keyword symbol on
+the symbol's name, so directives work from any package. A clause led by `_`
+from any package, or by `:_`, is an unnamed field: it is written with its
+default and skipped on read. An unknown directive signals an error. This
+amends SPECOPS-DRAFT-manifest-D4, which rejected dispatch by name.
+**Alternatives:** Keeping identity and exporting the directive symbols
+(rejected: `_` would have to be exported, and misspellings would still be
+dropped); accepting only `:_` for unnamed fields (rejected: `_` is the
+conventional placeholder).
+
+### Implementation
+
+- **`specops.lisp`.**
+  - `specops.lisp:pad-count-form@653345f` sizes pads per
+    SPECOPS-DRAFT-manifest-D15.
+  - `specops.lisp:codec-for@653345f` and `specops.lisp:defcodetable@653345f`
+    implement the codec errors of SPECOPS-DRAFT-manifest-D16.
+  - `specops.lisp:defmanifest@653345f` parses types through a local
+    `parse-type` shared by fields and `:case` branches, and dispatches
+    directives by name.
+  - `specops.lisp:marshal@653345f` writes `:vec` fields with codecs and
+    terminators, `:leb` fields through `emit-frame`, and `:case` fields
+    through `write-effector` with selector variables. Run-time enum values
+    are mapped, and each value form is evaluated once.
+  - `specops.lisp:unmarshal@653345f` reads `:vec` fields with codecs and
+    terminators (a local `term-code-form` computes the terminator's code, and
+    `vec-count-form` scans for it), `:leb` fields through `emit-scan`, and
+    `:case` fields through `read-effector` with raw-code variables for
+    enumerated selectors.
+  - `defmanifest`, `defenum` and `unmarshal` are exported from
+    `package.lisp` since `371f0b2`.
+- **`scan.lisp`** (new). The stop-rule, assembler and field-plan classes; the
+  read and write effectors; `scan.lisp:emit-scan@653345f` and
+  `scan.lisp:emit-frame@653345f`; `scan.lisp:field-plan@653345f`,
+  `scan.lisp:translate-keys@653345f` and `scan.lisp:simplify-plan@653345f`.
+- **`manifest.lisp`.** Four suites were added:
+  `manifest.lisp:run-pad-demo@653345f`,
+  `manifest.lisp:run-terminated-demo@653345f` (codecs and terminators),
+  `manifest.lisp:run-leb-demo@653345f` and
+  `manifest.lisp:run-case-demo@653345f`.
+- **`specops.asd`.** The `scan` component loads before `specops`.
+
+Fixes made along the way:
+
+- `defcodetable` read an unbound gensym in its encoder, filled its reverse
+  table with NUL characters so unassigned codes decoded silently, and for a
+  time passed a malformed argument list to `make-array`.
+- `unmarshal`'s `vec-count-form` was called with the terminator arguments
+  before its lambda list accepted them.
+- The old `:leb` write passed a `(width . value)` pair to an encoder that takes
+  an integer, and chose signed or unsigned when the code ran.
+- A clause led by `_` was dropped without a message.
+- A defaulted `:case` selector failed on write, and `unmarshal` ignored
+  `:case`.
+- `marshal` evaluated every value form twice: once to write it, once to record
+  it in `values`.
+
+### Verification
+
+Run via:
+
+```
+sbcl --non-interactive --eval '(asdf:load-system :specops/demo.png)' \
+  --eval '(specops::run-png-demo)' --eval '(specops::run-unmarshal-demo)' \
+  --eval '(specops::run-chunk-unmarshal-demo)' --eval '(specops::run-masque-demo)' \
+  --eval '(specops::run-string-demo)' --eval '(specops::run-pad-demo)' \
+  --eval '(specops::run-terminated-demo)' --eval '(specops::run-leb-demo)' \
+  --eval '(specops::run-case-demo)'
+```
+
+Table: Test suites in `manifest.lisp` and their results at commit `653345f`.
+
+| Suite | Function | Checks | Result |
+|---|---|---|---|
+| PNG write and structural verify | `run-png-demo` | 1 (72-byte file) | Pass |
+| Flat unmarshal | `run-unmarshal-demo` | 8 | 8 pass |
+| Chunks, spans, nesting | `run-chunk-unmarshal-demo` | 9 | 9 pass |
+| Masque fields | `run-masque-demo` | 10 | 10 pass |
+| Constant strings and codecs | `run-string-demo` | 9 | 9 pass |
+| Pads | `run-pad-demo` | 18 | 18 pass |
+| Codecs on vectors, terminated fields | `run-terminated-demo` | 19 | 19 pass |
+| LEB128 | `run-leb-demo` | 17 | 17 pass |
+| `:case` | `run-case-demo` | 27 | 27 pass |
+
+The LEB128 checks compare the new writer against the earlier
+`encode-leb128-*` functions on values up to 2⁷⁰ and round-trip each value. The
+`:case` checks include a sub-manifest with a run-time selector, a constant
+selector that leaves no `case` in the expansion, and a check that each value
+form is evaluated once.
+
+### Files
+
+Table: Files created or changed from commit `1e53ae7` through `653345f`.
+
+| File | Action | Description |
+|------|--------|-------------|
+| `scan.lisp` | **New** | Stop rules, assemblers, field plans, their effectors, `emit-scan` and `emit-frame` |
+| `specops.lisp` | Modified | Pads sized at run time, codec errors, terminators, `parse-type`, dispatch by name, `:leb` and `:case` on both sides |
+| `manifest.lisp` | Modified | Pad, codec and terminator, LEB128 and `:case` suites |
+| `specops.asd` | Modified | `scan` component |
+| `package.lisp` | Modified | Exports `defmanifest`, `defenum` and `unmarshal` |
+| `doc/Log.Manifest.md` | Modified | This update |
+
+### Metrics
+
+- Test checks: 117 automated checks plus 1 structural PNG verification, up
+  from 36.
+- Regressions at `653345f`: 0.
+- New source files: 1 (`scan.lisp`).
+
+### Outstanding Work
+
+Items from the outstanding work above that are now done: run-time enum values
+on write, `pad :align`, caller-supplied text (as `:vec` fields with a codec,
+SPECOPS-DRAFT-manifest-D16), and `:case` widths. The exports are done, but
+`goff.lisp` is still in no ASDF system and the suites are not behind `test-op`.
+The other earlier items remain open.
+
+New items:
+
+- **`:vec` on the scan model.** `:vec` fields still use their own branches; the
+  terminator scan reads each element twice.
+- **Agreed but not built.** Fixed buffers holding a terminator
+  (SPECOPS-DRAFT-manifest-complete-D7), multi-element terminators
+  (SPECOPS-DRAFT-manifest-complete-D8), and user-defined stop rules with the
+  runtime fallback (SPECOPS-DRAFT-manifest-complete-D9).
+- **Vectors of LEB elements**, which the modifier set allows.
+- **Keyword defaults on enumerated fields.** A `:default` given as a keyword is
+  not mapped through the enum, so it fails to marshal.
+- **Unknown enum codes.** `unmarshal` decodes a code missing from the enum as
+  `nil`.
+- **Error wording.** A selector placed after its `:case` field is reported
+  against the manifest's name rather than the field's.
+- **Dead code.** `encode-leb128-unsigned` and `encode-leb128-signed` have no
+  callers.
