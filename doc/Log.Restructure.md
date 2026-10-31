@@ -20,6 +20,7 @@ decisions:
   - SPECOPS-DRAFT-restructure-D4
   - SPECOPS-DRAFT-restructure-D5
   - SPECOPS-DRAFT-restructure-D6
+  - SPECOPS-DRAFT-restructure-D7
 cites:
   - title:    IBM's next-gen mainframe chip is the first to run Arm and Z workloads on the same cores (VentureBeat)
     locator:  venturebeat.com/infrastructure/ibms-next-gen-mainframe-chip-is-the-first-to-run-arm-and-z-workloads-on-the-same-cores
@@ -39,6 +40,9 @@ file per subsystem. No behavior was changed. The work starts from commit
 (moves), `ada2d19` (renames and new map systems) and `13b5887` (the split).
 Commit `0ac7223` does not load by itself, because its `specops.asd` still
 names the core files at the repository root; bisect over `ada2d19` instead.
+The update of 2026-10-31 at the end of this log carries the record forward to
+commit `50e231d`, which adds the format systems and updates the README and
+the other documents.
 
 ## Problem
 
@@ -405,3 +409,105 @@ Table: Files moved, added or changed from commit `738105a` to commit
   move to a `tools/` directory.
 - **A finer split of `src/assembler.lisp`**, deferred by
   SPECOPS-DRAFT-restructure-D6.
+
+## Update 2026-10-31 — Format systems, README and documents
+
+This installment covers commit `50e231d`, which completes four items of the
+Outstanding Work above. It gives the format modules ASDF systems, lets the
+WebAssembly architecture system load, updates the README to the new system
+names, and brings the architecture document and the glossary up to date with
+the new layout. It also records the steward's decision on the scope of format
+modules.
+
+### SPECOPS-DRAFT-restructure-D7 — Image and media formats are outside SpecOps; PNG is a test case
+
+**Status:** Proposed
+**Context:** The manifest layer was built and tested on PNG, and the PNG
+manifests in `test/manifest.lisp` describe a real file format. With format
+modules in place, PNG could have become one. But SpecOps is a framework for
+assemblers and the files that carry programs, and image formats bring
+concerns of their own, such as compression and pixel layouts.
+**Decision:** Format modules are for the object and container formats that
+carry programs. The PNG manifests stay in `test/` as a test case for the
+manifest layer and are not a module. Native readers for image formats such as
+PNG, JPEG and GIF belong in a project of their own that depends on SpecOps.
+**Alternatives:** A PNG format module, `specops.format.png` (rejected by the
+steward: an image format is outside SpecOps's scope, and adding it would be
+major scope creep). Removing the PNG manifests (rejected: they are the
+manifest layer's main test case).
+
+### Implementation
+
+- **Format systems.** Each format module has a system that depends on
+  `specops`: `mod/format/elf/specops.format.elf.asd:specops.format.elf@50e231d`
+  and `mod/format/goff/specops.format.goff.asd:specops.format.goff@50e231d`.
+  The GOFF writer carries its own EBCDIC table, so it does not depend on
+  `specops.map.ebcdic`.
+  `mod/format/wasm/specops.format.wasm.asd:specops.format.wasm@50e231d` also
+  depends on `specops.arch.wasm`, the one case
+  SPECOPS-DRAFT-restructure-D4 permits. Its file is still in the package
+  `specops.arch.wasm`.
+- **WebAssembly architecture system.**
+  `mod/arch/wasm/specops.arch.wasm.asd:specops.arch.wasm@50e231d` now depends
+  on `specops`, the cause of its load failure in
+  [SPECOPS-DRAFT-specops-O5](Arch.SpecOps.md#specops-draft-specops-o5--how-is-a-modules-conformance-verified).
+  Its placeholder description and author are unchanged.
+- **README.** The `load-system` and `in-package` examples name
+  `specops.arch.m68k`, `specops.arch.x86` and `specops.arch.s390x`, and the
+  System Z section explains that the module is named `s390x` for its
+  instruction set. Mentions of System Z as a platform are unchanged.
+- **Architecture document.** [SPECOPS-DRAFT-specops](Arch.SpecOps.md) now
+  describes, in Module design, the three module kinds, the naming rule and
+  the dependency rule, citing SPECOPS-DRAFT-restructure-D1 through
+  SPECOPS-DRAFT-restructure-D5 rather than restating them. Its
+  object-format and binary-format sections name the format and map modules
+  and state SPECOPS-DRAFT-restructure-D7. Its Project structure appendix shows
+  the new layout, and notes on SPECOPS-DRAFT-specops-O5, Roadmap step 4 and
+  the module table record what has changed since `1e53ae7`.
+- **Glossary.** [SPECOPS-DRAFT-glossary](Glossary.SpecOps.md) has a new
+  table defining core, module, architecture module, format module, map
+  module and opcode map, and its entry for code tables names map modules.
+
+### Verification
+
+At `50e231d`, in clean images:
+
+- The manifest suites, run with the command under Verification above, give
+  the PNG verification and 135 passing checks, with output identical to the
+  run at `738105a`.
+- `specops.arch.wasm`, `specops.format.elf`, `specops.format.goff` and
+  `specops.format.wasm` each load with `asdf:load-system` and no full
+  warnings. `specops.arch.wasm` failed to load before this commit.
+- With `specops.arch.s390x` and the three format systems loaded through ASDF,
+  `emit-program` has its `:elf`, `:goff` and `:wasm` methods.
+- The five test scripts pass.
+- `compass check` reports no errors.
+
+### Files
+
+Table: Files added or changed in commit `50e231d`.
+
+| File | Action | Description |
+|------|--------|-------------|
+| `mod/format/elf/specops.format.elf.asd` | **New** | the ELF format system |
+| `mod/format/goff/specops.format.goff.asd` | **New** | the GOFF format system |
+| `mod/format/wasm/specops.format.wasm.asd` | **New** | the WebAssembly format system |
+| `mod/arch/wasm/specops.arch.wasm.asd` | Modified | depends on `specops` |
+| `README.md` | Modified | system and package names; why the System Z module is `s390x` |
+| `doc/Arch.SpecOps.md` | Modified | module kinds and rules, format and map modules, scope of formats, layout |
+| `doc/Glossary.SpecOps.md` | Modified | terms for the core and the module kinds |
+| `doc/Log.Restructure.md` | **New** | this log |
+
+### Outstanding Work
+
+The README, the architecture document, the glossary and the format systems
+items above are done. The rest remains:
+
+- **GOFF constants**, still in `mod/arch/s390x/program.lisp`.
+- **The WebAssembly format module's package**, still `specops.arch.wasm`;
+  and the architecture's prototype `*assembler-prototype-wasm*`, still
+  unbound, with `ops.lisp` outside the system.
+- **Tests behind `test-op`**, deferred by the steward.
+- **Internal names and placeholder `.asd` metadata.**
+- **Unused files**, and `z80/comber.lisp`.
+- **A finer split of `src/assembler.lisp`.**
