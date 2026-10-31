@@ -17,7 +17,7 @@ Let's see how this looks in practice and assemble some code for the Motorola 680
 ```lisp
 ;; load the SpecOps M68K module
 
-* (asdf:load-system 'specops.m68k) (in-package :specops.m68k)
+* (asdf:load-system 'specops.arch.m68k) (in-package :specops.arch.m68k)
 ...system loads...
 
 * (assemble *assembler-prototype-m68k*
@@ -80,7 +80,7 @@ Let's take a look at assembly for a complex, contemporary hardware platform: the
 ```lisp
 ;; load the SpecOps X86 module
 
-* (asdf:load-system 'specops.x86) (in-package :specops.x86)
+* (asdf:load-system 'specops.arch.x86) (in-package :specops.arch.x86)
 ...system loads...
 
 * (write (assemble *assembler-prototype-x86*
@@ -160,12 +160,12 @@ Not all complex instruction sets are as challenging to implement as X86. IBM's S
 
 System Z instructions are structured according to a set of formats. Each format specifies not only the layout of the bit fields (which are always nibble-aligned) but their specific purposes. Thus, an instruction where the latter byte is an immediate integer value and an instruction where the latter byte is a memory offset are considered to belong to two different formats, even if their structure is otherwise identical.
 
-Following is an example of assembly for a very simple System Z program:
+SpecOps modules are named for the instruction sets they implement, so the System Z module is named `s390x`, the common name for the 64-bit z/Architecture instruction set. Following is an example of assembly for a very simple System Z program:
 
 ```lisp
-;; load the SpecOps System Z module
+;; load the SpecOps s390x module
 
-* (asdf:load-system 'specops.system-z) (in-package :specops.system-z)
+* (asdf:load-system 'specops.arch.s390x) (in-package :specops.arch.s390x)
 ...system loads...
 
 * (assemble *assembler-prototype-z*
@@ -180,7 +180,7 @@ Following is an example of assembly for a very simple System Z program:
 #(42776 10 42792 20 42808 3 6209 6722 7235 35136 1 20552 28762)
 ```
 
-This program loads some numbers into registers, performs arithmetic operations on them and stores the result in memory. The output is a vector of 16-bit numbers -- because all Z instructions are either 2, 4 or 6 bytes, dividing the output into 16-bit blocks makes the most sense. Below are the above instructions' specifications from the SpecOps System Z module:
+This program loads some numbers into registers, performs arithmetic operations on them and stores the result in memory. The output is a vector of 16-bit numbers -- because all Z instructions are either 2, 4 or 6 bytes, dividing the output into 16-bit blocks makes the most sense. Below are the above instructions' specifications from the SpecOps s390x module:
 
 ```lisp
 (specop-z ar      zformat-rr    #x001A) 
@@ -237,7 +237,7 @@ Let's take a closer look at the macros above - these aren't the `(masque)` seen 
 
 The `:static` forms in the fifth argument express static fields within the bitfield that will be the same regardless of the specific operands given to an instruction of a given format, those those fields are fixed for a given instruction and they don't need to be evaluated during the assembly process. The `:determine-by` fields above populate `(determine)` macro forms in the output code. As for M68K, this macro both validates and encodes operands passed as input to instructions, as well as formatting error messages explaining the accepted types of input for invalid instructions.
 
-Also of note in the above assembly code is the presence of `(@)` and `(@%)` forms. Functions with names including `@` are a convention in SpecOps assemblers to express different ways of addressing memory. Generally, these functions produce instances of classes collectively known as "memory access schemes" or MASes. This is a catch-all category to describe any way a given architecture offers programmers to interact with memory. In the SpecOps System Z module, the `(@)` function takes as arguments a base register and optionally an index register and displacement value. The `(@%)` function takes a base register and optionally a displacement value as arguments, and in the absence of a second argument it expresses only a displacement value. This is useful for operations like `SLL`, which performs a left shift on a register using that displacement value as the number of bits by which to shift. The `ST` instruction stores a register value to memory using a standard memory access scheme with base, index and displacement.
+Also of note in the above assembly code is the presence of `(@)` and `(@%)` forms. Functions with names including `@` are a convention in SpecOps assemblers to express different ways of addressing memory. Generally, these functions produce instances of classes collectively known as "memory access schemes" or MASes. This is a catch-all category to describe any way a given architecture offers programmers to interact with memory. In the SpecOps s390x module, the `(@)` function takes as arguments a base register and optionally an index register and displacement value. The `(@%)` function takes a base register and optionally a displacement value as arguments, and in the absence of a second argument it expresses only a displacement value. This is useful for operations like `SLL`, which performs a left shift on a register using that displacement value as the number of bits by which to shift. The `ST` instruction stores a register value to memory using a standard memory access scheme with base, index and displacement.
 
 ### Duplex Operation
 

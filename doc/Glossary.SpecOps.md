@@ -12,6 +12,7 @@ provenance:
 relates-to:
   - SPECOPS-DRAFT-specops
   - SPECOPS-DRAFT-manifest
+  - SPECOPS-DRAFT-restructure
 ---
 
 # SpecOps: Glossary
@@ -19,11 +20,12 @@ relates-to:
 This glossary fixes the vocabulary of the SpecOps assembler framework for the
 SpecOps corpus: the terms used for assemblers and their tables, instruction
 specifications, operands and storage, encoding and disassembly, programs and
-object formats, and the manifest layer for binary records. Other documents
-name it in their `glossary:` field. The Notes column names the Lisp symbol
-behind a term, pinned to commit `1e53ae7` where it is a definition, or as a
-bare accessor name. Terms are grouped by subsystem rather than sorted
-alphabetically.
+object formats, the manifest layer for binary records, and the kinds of module
+the repository is divided into. Other documents name it in their `glossary:`
+field. The Notes column names the Lisp symbol behind a term, pinned to commit
+`1e53ae7` where it is a definition, or as a bare accessor name; terms added
+later are pinned to the commit of their source. Terms are grouped by subsystem
+rather than sorted alphabetically.
 
 ## Canonical Terms
 
@@ -86,7 +88,7 @@ and sources.
 | item | One element of a segment: instructions, raw bytes, label definitions and references, alignment, functions and data words. | `program.lisp:segment-item@1e53ae7` |
 | relocation | A record that a field at an offset must be patched with a symbol's address by a linker, of an architecture-specific type. | `program.lisp:relocation@1e53ae7` |
 | emit | Writing an assembled program in an object format, selected by a keyword (`:elf`, `:goff`, `:wasm`). | `program.lisp:emit-program@1e53ae7` |
-| code table | A character-to-code mapping, defined with `defcodetable`, that works in both directions; used as a string codec. | `specops.lisp:defcodetable@1e53ae7`; CP437, EBCDIC |
+| code table | A character-to-code mapping, defined with `defcodetable`, that works in both directions; used as a string codec. Code tables are packaged as map modules. | `specops.lisp:defcodetable@1e53ae7`; CP437, EBCDIC |
 | codec | A per-character function used by a manifest string: a character to its code, and a code to its character. | Log SPECOPS-DRAFT-manifest-D6 |
 | manifest | A declarative description of a binary record, made with `defmanifest`, from which `marshal` and `unmarshal` generate a writer and a reader. | [Manifest log](Log.Manifest.md) |
 | field | A named, typed clause of a manifest that takes or yields a value. | |
@@ -97,6 +99,18 @@ and sources.
 | sub-lexicon | The parent's generated bindings, passed to an inlined sub-manifest so that it shares the cursor, region map and serializers. | Log SPECOPS-DRAFT-manifest-D10 |
 | enum | A keyword-to-integer map defined with `defenum` and applied to a manifest field. | `specops.lisp:defenum@1e53ae7` |
 | marshal / unmarshal | Writing values into a manifest's structure, and reading them back out. | `specops.lisp:marshal@1e53ae7`, `specops.lisp:unmarshal@1e53ae7` |
+
+Table: The repository's core and kinds of module, with their definitions and
+sources.
+
+| Term | Definition | Notes / Source |
+|---|---|---|
+| core | The system `specops`, built from `src/`: the package, checksums, serialization, the manifest layer, the assembler classes and specification macros, and the program model. Every module depends on it. | `specops.asd:specops@13b5887` |
+| module | An ASDF system outside the core, in `mod/<kind>/<name>/`, named `specops.<kind>.<name>`, with a package of the same name. Its kind is architecture, format or map. | Log SPECOPS-DRAFT-restructure-D1, SPECOPS-DRAFT-restructure-D2 |
+| architecture module | A module that implements one instruction set: its assembler class and prototype, operand support, and instruction specifications. It is named for the instruction set, not a machine (`s390x`, not System Z), and never depends on a format module. | Log SPECOPS-DRAFT-restructure-D3; `mod/arch/s390x/package.lisp:specops.arch.s390x@ada2d19` |
+| format module | A module that writes one object or container format for programs, through `emit-program` methods. It depends on an architecture module only when the format exists for that one instruction set, as WebAssembly's does. Image and other media formats are not format modules. | Log SPECOPS-DRAFT-restructure-D4; `mod/format/goff/goff.lisp:emit-program@ada2d19` |
+| map module | A module that holds a two-way mapping between value spaces belonging to no single architecture or format, such as a code table. It depends only on the core. | Log SPECOPS-DRAFT-restructure-D5; `mod/map/ebcdic/ebcdic.lisp:ebcdic-code-cp037@ada2d19` |
+| opcode map | A manufacturer's grid of an instruction set's opcodes, transcribed in SpecOps as an operation table. It belongs to its architecture module, not to a map module. | Z80, 6502 |
 
 ## Backronym Registry
 

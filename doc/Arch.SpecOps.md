@@ -11,6 +11,7 @@ provenance:
   session:     Compass adoption
 relates-to:
   - SPECOPS-DRAFT-manifest
+  - SPECOPS-DRAFT-restructure
 decisions:
   - SPECOPS-DRAFT-specops-D1
   - SPECOPS-DRAFT-specops-D2
@@ -53,7 +54,12 @@ different stages of completion. Where the design and the code differ, the
 design is the target, and the difference is an open question or a Roadmap
 step. The declarative binary-format layer is covered in detail by the
 [Manifest development log](Log.Manifest.md); this record places it in the
-whole. Terms are defined in the [SpecOps glossary](Glossary.SpecOps.md).
+whole. The repository was later reorganized into a core and modules of three
+kinds, and its systems renamed, as chronicled in the
+[Restructure development log, SPECOPS-DRAFT-restructure](Log.Restructure.md);
+Module design and the Project structure appendix describe that layout, while
+code references elsewhere remain pinned to `1e53ae7`. Terms are defined in the
+[SpecOps glossary](Glossary.SpecOps.md).
 
 ## Canonical Terms
 
@@ -70,6 +76,7 @@ Table: The central terms of this design; the glossary defines the rest.
 | memory access scheme (MAS) | An object describing a memory operand, built by an `@` function |
 | program API | The closure through which encoders query their context (`of-program`) |
 | breadth | The bit width of one output unit |
+| architecture, format and map modules | The three kinds of system outside the core: one instruction set, one object or container format, or one two-way mapping such as a code table |
 
 ## Thesis / Concerns
 
@@ -413,7 +420,13 @@ and converted to octets with the architecture's endianness on output.
 `emit-program` has methods for `:elf` (`elf.lisp`, an ELF64 executable
 writer), `:goff` (`goff.lisp`, z/OS object records) and `:wasm`
 (`wasm/program.lisp`, which also provides a `wasm-program` macro for module
-structure).
+structure). Each writer is now a format module, `specops.format.elf`,
+`specops.format.goff` and `specops.format.wasm`, kept apart from the
+architecture modules because one instruction set may be written in several
+formats: s390x code goes into ELF on Linux and GOFF on z/OS
+(SPECOPS-DRAFT-restructure-D4). WebAssembly is split in two: its instruction
+set is an architecture module, and its binary module writer a format module
+that depends on it.
 
 ## Binary-format design
 
@@ -424,15 +437,46 @@ reader (`unmarshal`). Manifests contain no logic, regions nest, and
 sub-manifests inline into their parent. Its decisions are recorded as
 SPECOPS-DRAFT-manifest-D1 through SPECOPS-DRAFT-manifest-D14 in the
 [Manifest development log](Log.Manifest.md). Character codecs for string
-fields are code tables defined with `defcodetable`, in the `specops/format.*`
-systems (CP437, EBCDIC code pages 037 and 310). The GOFF END record is the
+fields are code tables defined with `defcodetable`, in the map modules
+`specops.map.cp437` and `specops.map.ebcdic` (CP437, EBCDIC code pages 037 and
+310; SPECOPS-DRAFT-restructure-D5). The GOFF END record is the
 first object-format record written through a manifest; the design intends the
-format writers to move onto manifests generally.
+format writers to move onto manifests generally. Format modules are for the
+object and container formats that carry programs. Image and other media
+formats are outside SpecOps's scope: the PNG manifests in `test/manifest.lisp`
+are a test case for the manifest layer, and native readers for such formats
+belong in projects of their own that depend on SpecOps.
 
 ## Module design
 
-An architecture module is an ASDF system `specops.<arch>` depending on
-`specops`, with its own package using `specops`. It must provide:
+Everything outside the core system `specops` is a module: an ASDF system in
+`mod/<kind>/<name>/`, named `specops.<kind>.<name>`, whose package has the
+same name (SPECOPS-DRAFT-restructure-D1, SPECOPS-DRAFT-restructure-D2). There
+are three kinds:
+
+- **Architecture modules** (`mod/arch/`, `specops.arch.<isa>`) each implement
+  one instruction set. They are named for the instruction set, not for a
+  machine or product family: the System Z module is `s390x`
+  (SPECOPS-DRAFT-restructure-D3). Variants and older modes of an instruction
+  set belong to its module, as execution modes or ISA types.
+- **Format modules** (`mod/format/`, `specops.format.<format>`) each write one
+  object or container format through `emit-program` methods, and in time
+  through manifests (SPECOPS-DRAFT-restructure-D4).
+- **Map modules** (`mod/map/`, `specops.map.<name>`) each hold a two-way
+  mapping between value spaces that belongs to no single architecture or
+  format, such as a code table (SPECOPS-DRAFT-restructure-D5). An opcode map
+  is not a map module; it belongs to its architecture.
+
+Dependencies run one way. Map modules depend only on the core. Format modules
+depend on the core and on map modules, and on an architecture module only
+when the format exists for that one instruction set, as WebAssembly's module
+format does. Architecture modules depend on the core and on map modules, never
+on format modules; they give formats the facts they need through generic
+functions of the core's program protocol, such as `asm-endianness` and
+`asm-elf-machine`.
+
+An architecture module depends on `specops` and has its own package using
+`specops`. It must provide:
 
 1. an assembler subclass of `assembler-encoding`, `assembler-masking` or both,
    with class-allocated instruction tables (lexicon, decoder or battery),
@@ -451,7 +495,10 @@ An architecture module is an ASDF system `specops.<arch>` depending on
    `asm-elf-machine`.
 
 The table below is evidence of the state at `1e53ae7`, not part of the
-design; it will go stale, and belongs in a Ref once one exists.
+design; it will go stale, and belongs in a Ref once one exists. Its systems
+have since been renamed `specops.arch.<isa>`, with `specops.system-z` now
+`specops.arch.s390x`, and `wasm/program.lisp` is now the format module
+`specops.format.wasm`.
 
 Table: Architecture modules at commit 1e53ae7: assembler class, how
 instructions are specified, and how they are disassembled.
@@ -517,7 +564,9 @@ The module contract under Module design is not checked anywhere. At
   (`m68k/base.lisp:assembler-m68k@1e53ae7`).
 - SuperH does not load: its prototype passes an initarg no class declares.
 - WebAssembly does not load: its system declares no dependency on `specops`,
-  and `*assembler-prototype-wasm*` is never bound.
+  and `*assembler-prototype-wasm*` is never bound. Since the restructure the
+  system declares the dependency and loads, but the prototype, which
+  `ops.lisp` names, is still unbound, and `ops.lisp` is not in the system.
 - x86 loads with warnings, but the README example fails at run time because
   `*x86-layout*` is never defined (`x86/base.lisp:gprix@1e53ae7`).
 
@@ -551,7 +600,10 @@ separate packages?
    (SPECOPS-DRAFT-specops-O4) so that every duplex module disassembles.
 4. **Package the format layer.** Put `elf.lisp`, `goff.lisp` and the
    per-architecture program helpers into ASDF systems, and move record
-   layouts onto manifests as the manifest layer matures.
+   layouts onto manifests as the manifest layer matures. The writers are now
+   the format modules of SPECOPS-DRAFT-restructure-D4. The GOFF attribute
+   constants remain in the s390x module's `program.lisp`, beside z/OS layout
+   helpers, and are to move to the GOFF module.
 5. **Define the public API** (SPECOPS-DRAFT-specops-O6), then document it in
    a Ref.
 6. **Complete the large instruction sets.** Finish x86 (remaining
@@ -588,26 +640,35 @@ this needs the reader protocol of SPECOPS-DRAFT-specops-O4.
 
 ### Project structure
 
-The layout at `1e53ae7`:
+The layout after the restructure of SPECOPS-DRAFT-restructure:
 
 ```text
-specops.asd          systems specops, specops/demo.png, specops/format.*
-package.lisp         the specops package and its exports
-specops.lisp         core: serialization, masque, manifests, assembler
-                     classes, specification macros, assemble, interpret
-checksum.lisp        CRC-32 and Adler-32
-program.lisp         program model, build-program, emit-program protocol
-elf.lisp goff.lisp   object-format writers (not yet in a system)
-manifest.lisp        PNG manifests and manifest test suites
-formats/             code tables: CP437, EBCDIC
-m68k/ x86/ system-z/ superh/ z80/ 6502/ wasm/
-                     architecture modules, one ASDF system each
-test-scripts/        program, ELF, GOFF and WebAssembly checks
-doc/                 Compass documents
+specops.asd            systems specops (src/) and specops/demo.png (test/)
+src/
+  package.lisp         the specops package and its exports
+  checksum.lisp        CRC-32 and Adler-32
+  serial.lisp          serialization, defcodetable, masque and unmasque
+  manifest/            the manifest layer: scan.lisp (stop rules and
+                       assemblers), manifest.lisp (defenum, defmanifest,
+                       marshal, unmarshal)
+  assembler.lisp       mqbase, operand and storage classes, assembler classes,
+                       specification macros, assemble, interpret
+  program.lisp         program model, build-program, emit-program protocol
+  manifest-original/   a copy of the manifest layer for a coming stage of
+                       work; not loaded by any system
+mod/
+  arch/                architecture modules specops.arch.<isa>:
+                       6502 m68k s390x superh wasm x86 z80
+  format/              format modules specops.format.<format>:
+                       elf goff wasm
+  map/                 map modules specops.map.<name>: cp437 ebcdic
+test/                  manifest.lisp (PNG manifests and manifest suites);
+                       program, ELF, GOFF and WebAssembly test scripts
+doc/                   Compass documents
 ```
 
-Description: The tree lists the repository's top-level files and directories
-with a one-line purpose for each. The core system consists of
-`package.lisp`, `checksum.lisp`, `specops.lisp` and `program.lisp`. The
-object-format writers sit beside it but are not yet part of an ASDF system.
-Each architecture module is a subdirectory with its own system.
+Description: The tree lists the repository's directories and the core's
+files, with a one-line purpose for each. The core system `specops` is built
+from the files in `src/`, in the order shown, except `manifest-original/`.
+Every module is a subdirectory of `mod/arch/`, `mod/format/` or `mod/map/`
+with its own `.asd` file, named for its system. Tests are in `test/`.
