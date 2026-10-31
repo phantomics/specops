@@ -563,8 +563,10 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
   (let* ((spec (gethash name *manifests*))
          (params (first spec))
          (base (gensym "BA"))
+         (selvars (mapcar (lambda (s) (cons s (gensym (string s))))
+                          (case-selectors (rest spec))))
          regions slots slots-of swap-specs offset access enter index tell write prefix
-         values length serializers map b i olength sub-lexicon)
+         values length serializers map b i olength sub-lexicon written)
          ;; (access (gensym "AC")) (enter (gensym "EN")) (index (gensym "IN"))
          ;; (tell (gensym "TL")) (write (gensym "WR")) (bindings-sym (gensym "BN"))
          ;; (values (gensym "VL")) (length (gensym "LN")) (serializers (gensym "SR"))
@@ -582,11 +584,9 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                 sub-lexicon (getf pairs :-+sub-lexicon+-)))
         (setf access (gensym "AC")
               enter (gensym "EN")
-              ;; base  (gensym "BA")
               index (gensym "IN")
               tell (gensym "TL")
               write (gensym "WR")
-              ;; bindings-sym (gensym "BN")
               values (gensym "VL")
               length (gensym "LN")
               serializers (gensym "SR")
@@ -594,7 +594,7 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
               b (gensym "BB")
               i (gensym "II")
               sub-lexicon (list :ac-sym access :en-sym enter :ba-sym base :in-sym index
-                                :tl-sym tell :wr-sym write ;; :bn-sym bindings-sym
+                                :tl-sym tell :wr-sym write
                                 :vl-sym values :ln-sym length
                                 :sr-sym serializers :mp-sym map :b-sym b :i-sym i)))
 
@@ -644,14 +644,26 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                (error "Masque field ~a not specified." name))))))
              (enumerate (table-name value)
                (cond ((not table-name) value)
-                     ((keywordp value)                      ; literal, resolve now
+                     ((keywordp value)                             ;; literal, resolve now
                       (or (getf (rest (gethash table-name *enums*)) value)
                           (error "~a is not a member of enum ~a." value table-name)))
-                     ((or (null value) (constantp value)) value)   ; nil or a literal number
-                     (t (let ((v (gensym "V")))             ; runtime form, resolve when it runs
+                     ((or (null value) (constantp value)) value)   ;; nil or a literal number
+                     (t (let ((v (gensym "V")))                    ;; runtime form, resolve when it runs
                           `(let ((,v ,value))
                              (if (keywordp ,v) (getf (rest (gethash ',table-name *enums*)) ,v) ,v))))))
-             
+             ;; (selector-form (sel)
+             ;;   (or (rest (assoc sel raws)) (var-of sel name)))
+             (selector-item (sel)
+               (or (find-in-manifest (rest spec) (lambda (i) (and (eq sel (getf i :name)) i)))
+                   (error "marshal: :case selector ~s is not a field of ~a." sel name)))
+             (selector-form (sel)
+               (let* ((item (selector-item sel))
+                      (v (or (getf pairs sel) (getf item :default))))
+                 (cond ((not (member sel written))
+                        (error "marshal: :case selector ~s must come before the field it selects for." sel))
+                       ((null v) (error "marshal: :case selector ~s has no value and no default." sel))
+                       ((constantp v) (enumerate (getf item :enumerate-by) v)) ;; code known now
+                       (t (rest (assoc sel selvars))))))                       ;; set when it was written
              (enum-of (sel)
                (let ((e (getf (find-in-manifest (rest spec) (lambda (i) (and (eq sel (getf i :name)) i)))
                               :enumerate-by)))
@@ -718,9 +730,10 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                               (loop :for slot-of :in (getf slots-of qname)
                                     :when (not (eq :checksum-of (second slot-of)))
                                       :collect (apply #'resolve-region qname slot-of))))
-                     (t (let ((length-form (if (not type-indicator)
-                                               length `(caddr (assoc (getf ,values ,(qualify type-indicator))
-                                                                     ',type-conditions)))))
+                     (t (let (;; (length-form (if (not type-indicator)
+                              ;;                  length `(caddr (assoc (getf ,values ,(qualify type-indicator))
+                              ;;                                        ',type-conditions))))
+                              (length-form length))
                           ;; (print (list :oo name type-indicator type-conditions))
                           `(,qname
                             (push (list ,qname ,index ,index) ,map)
@@ -742,8 +755,8 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                 (write-effector (simplify-plan (field-plan item #'selector-form #'enum-of))
                                                 (list :name name
                                                       :value (or (enumerate enumerate-by (getf pairs name))
-                                                                 default (error "Field ~a not specified."
-                                                                                name))
+                                                                 default
+                                                                 (error "Field ~a not specified." name))
                                                       :write (lambda (w f)
                                                                `(funcall (aref ,serializers ,swap-by)
                                                                          (cons ,w ,f) ,enter)))))
@@ -835,16 +848,13 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                                     (rest (assoc ,(qualify (second slot)) ,map))
                                                   (funcall ,(getf slot :by) ,access start end)))
                                           ,enter))
-                               (t `(funcall (aref ,serializers ,swap-by)
-                                            (cons ,length-form
-                                                  ,(or (enumerate enumerate-by (getf pairs name))
-                                                       default
-                                                       (and slot 0)
-                                                       ;; slot values do not need a default since they 
-                                                       ;; will be populated according to other slots' values
-                                                       (error "Field ~a not specified." name))
-                                                  )
-                                            ,enter)))
+                               (t (let ((value (or (enumerate enumerate-by (getf pairs name))
+                                                   default (and slot 0) (error "Field ~a not specified." name)))
+                                        (selvar (rest (assoc name selvars))))
+                                    (push name written)
+                                    `(funcall (aref ,serializers ,swap-by)
+                                              (cons ,length-form ,(if selvar `(setf ,selvar ,value) value))
+                                              ,enter))))
 
                             (setf (third (assoc ,qname ,map)) ,index)
                             ,@(and (getf slots-of qname)
@@ -853,8 +863,8 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                            :collect (apply #'resolve-region qname slot-of)))
                             ,@(loop :for closure :in context
                                     :collect `(setf (third (assoc ,closure ,map)) ,index))
-                            (push ,(getf pairs name) ,values)
-                            (push ,qname ,values)
+                            ;; (push ,(getf pairs name) ,values)
+                            ;; (push ,qname ,values)
                             ;; (print (list :bi ,name ,index ,length))
 
                             ))))))))
@@ -865,12 +875,16 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
             :unless (member key regions)
               :do (error "Slot reference found with no matching region."))
       
-      (append (if (getf pairs :-+sub-lexicon+-) `(let ((,base ,index)))
+      (append (if (getf pairs :-+sub-lexicon+-)
+                  `(let ((,base ,index) ,@(mapcar (lambda (p) (list (rest p) nil)) selvars)))
+                  ;; bind selector variables in sub-manifest's expression
                   `(let* ((,access ,destination)
                           (,index ,(or offset 0))
                           (,base ,index)
                           (,values) ;; (,bindings-sym)
                           ,@(if (getf params :length) `((,length ,(getf params :length))))
+                          ;; ,@(loop :for c :in (case-selectors (rest spec)) :collect (list c '(gensym)))
+                          ,@(mapcar (lambda (p) (list (rest p) nil)) selvars)
                           (,enter) (,tell) (,write) (,map)
                            (,serializers (make-array ,(1+ (reduce #'max swap-specs :initial-value 0)) :initial-element nil)))
 
@@ -1214,19 +1228,33 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                            (push `(incf ,cursor (* ,length ,(if end-by `(1+ (length ,var)) `(length ,var))))
                                  reads)))
                         (t
-                         (when name ;; (and name (or (member name keys)))
-                          (let ((var (gensym (string name))))
-                            (push (cons name var) vars)
-                            ;; (push `(setf ,var ,(interpret `(funcall (aref ,dsym ,swap-by)
-                            ;;                                         ,cursor ,length ,signed ,src)
-                            ;;                               enumerate-by))
-                            ;;       reads)
-                            (push `(setf ,var ,(interpret `(setf ,raw (funcall (aref ,dsym ,swap-by)
-                                                                               ,cursor ,length ,signed ,src))
-                                                          enumerate-by))
-                                  reads)
-                            (push var raws)
-                            ))
+                         ;; (when name ;; (and name (or (member name keys)))
+                         ;;  (let ((var (gensym (string name))))
+                         ;;    (push (cons name var) vars)
+                         ;;    ;; (push `(setf ,var ,(interpret `(funcall (aref ,dsym ,swap-by)
+                         ;;    ;;                                         ,cursor ,length ,signed ,src)
+                         ;;    ;;                               enumerate-by))
+                         ;;    ;;       reads)
+                         ;;    (push `(setf ,var ,(interpret `(setf ,raw (funcall (aref ,dsym ,swap-by)
+                         ;;                                                       ,cursor ,length ,signed ,src))
+                         ;;                                  enumerate-by))
+                         ;;          reads)
+                         ;;    (push var raws)
+                         ;;    ))
+                         (when name
+                           (let ((var (gensym (string name))))
+                             (push (cons name var) vars)
+                             (if (and enumerate-by (member name (case-selectors (rest spec))))
+                                 (let ((raw (gensym (format nil "~a-RAW" name))))
+                                   (push (cons name raw) raws)
+                                   (push `(setf ,var ,(interpret `(setf ,raw (funcall (aref ,dsym ,swap-by)
+                                                                                      ,cursor ,length ,signed ,src))
+                                                                 enumerate-by))
+                                         reads))
+                                 (push `(setf ,var ,(interpret `(funcall (aref ,dsym ,swap-by)
+                                                                         ,cursor ,length ,signed ,src)
+                                                               enumerate-by))
+                                       reads))))
                          (push (list 'incf cursor length) reads))))))))
         
         (dolist (item (rest spec)) (process-item item))
@@ -1239,7 +1267,8 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                 (,dsym (vector ,@(coerce dvector 'list)))
                 ,@(and (not (getf params :-+sub-lexicon+-))
                        (list (list cursor 0)))
-                ,@(mapcar #'rest vars))
+                ,@(mapcar #'rest vars)
+                ,@(mapcar #'rest raws))
            ,@(reverse reads)
            ,(cons (if in-keys 'values 'list)
                   (if in-keys (mapcar (lambda (k) (rest (assoc k vars))) keys)

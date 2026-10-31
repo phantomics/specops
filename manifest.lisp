@@ -909,3 +909,200 @@ Returns T if all checks pass."
       (format t "~&LEB128 checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
               pass (count t results) (length results))
       pass)))
+
+;;; ===========================================================================
+;;; Part K — :case widths selected by an earlier field
+;;; ===========================================================================
+
+(defmanifest case-probe (:unit 8 :endian :big)
+  (:kind  :u8 :default 0)
+  (:v     (:case :kind (0 :u8) ((1 3) :u 2) (2 :s 4) (4 :u 1 :leb)) :default 0)
+  (:after :u8 :default 0))
+
+(defmanifest case-otherwise-probe (:unit 8 :endian :big)
+  (:kind  :u8 :default 0)
+  (:v     (:case :kind (0 :u8) (otherwise :u16)) :default 0)
+  (:after :u8 :default 0))
+
+(defenum case-size nil :byte 0 :word 1 :long 2 :varint 3)
+
+;; Keyword branch keys are translated through the selector's enum.
+(defmanifest case-enum-probe (:unit 8 :endian :big)
+  (:kind  :u8 :default 1 :enumerate-by case-size)
+  (:v     (:case :kind (:byte :u8) (:word :u16) ((:long) :s32) (:varint :u 1 :leb)) :default 0)
+  (:after :u8 :default 0))
+
+;; The selector sits outside the span; the length slot counts the chosen width.
+(defmanifest case-span-probe (:unit 8 :endian :big)
+  (:kind :u8 :default 0)
+  (:len  :u8 :slot (:length-of :body))
+  (span :body
+    (:v (:case :kind (0 :u8) (1 :u32)) :default 0)
+    (:k :u8 :default 0)))
+
+(defmanifest case-unnamed-probe (:unit 8 :endian :big)
+  (:kind  :u8 :default 0)
+  (_      (:case :kind (0 :u8) (1 :u32)) :default 0)
+  (:after :u8 :default 0))
+
+;; The :case field's own value is enumerated.
+(defmanifest case-value-enum-probe (:unit 8 :endian :big)
+  (:kind :u8 :default 0)
+  (:op   (:case :kind (0 :u8) (1 :u16)) :default 0 :enumerate-by case-size))
+
+;; The selector comes after the field it selects for.
+(defmanifest case-late-probe (:unit 8 :endian :big)
+  (:v    (:case :kind (0 :u8)) :default 0)
+  (:kind :u8 :default 0))
+
+;; A :case key that isn't in the selector's enum.
+(defmanifest case-badkey-probe (:unit 8 :endian :big)
+  (:kind :u8 :default 0 :enumerate-by case-size)
+  (:v    (:case :kind (:quad :u64)) :default 0))
+
+;; A :case field inside a sub-manifest, whose marshal expansion is nested.
+(defmanifest case-nest-probe (:unit 8 :endian :big)
+  (:head :u8 :default 0)
+  (manifest :inner case-enum-probe))
+
+;; Two plain fields, for checking each value form is evaluated once.
+(defmanifest eval-once-probe (:unit 8 :endian :big)
+  (:a :u8 :default 0)
+  (:b :u8 :default 0))
+
+(defun run-case-demo ()
+  "Marshal and unmarshal :case fields whose width is chosen by an earlier field.
+Returns T if all checks pass."
+  (let ((results nil))
+    (labels ((check (label got want)
+               (let ((ok (equalp got want)))
+                 (push ok results)
+                 (format t "~&  ~:[FAIL~;ok  ~]  ~a~%" ok label)
+                 (unless ok
+                   (format t "~&          got  ~s~%          want ~s~%" got want))))
+             (to-list (manifest-thunk)
+               (let ((acc nil))
+                 (funcall manifest-thunk (lambda (b) (push b acc)))
+                 (reverse acc)))
+             (has-case-p (tree)
+               (or (eq tree 'case)
+                   (and (consp tree) (or (has-case-p (car tree)) (has-case-p (cdr tree)))))))
+      (format t "~&:case checks:~%")
+
+      ;; 1. Each branch, with a constant selector.
+      (check "case-probe, kind 0 writes one byte"
+             (to-list (lambda (d) (marshal case-probe d :kind 0 :v 5 :after 9)))
+             '(0 5 9))
+      (check "case-probe, kind 1 writes two bytes"
+             (to-list (lambda (d) (marshal case-probe d :kind 1 :v #x102 :after 9)))
+             '(1 1 2 9))
+      (check "case-probe, kind 3 shares the (1 3) branch"
+             (to-list (lambda (d) (marshal case-probe d :kind 3 :v #x102 :after 9)))
+             '(3 1 2 9))
+      (check "case-probe, kind 2 writes a signed four-byte value"
+             (to-list (lambda (d) (marshal case-probe d :kind 2 :v -2 :after 9)))
+             '(2 #xFF #xFF #xFF #xFE 9))
+      (check "case-probe, kind 4 writes a LEB"
+             (to-list (lambda (d) (marshal case-probe d :kind 4 :v 300 :after 9)))
+             '(4 #xAC #x02 9))
+
+      ;; 2. A selector known only at run time.
+      (check "case-probe, a run-time selector picks each branch"
+             (loop :for (k v) :in '((0 5) (1 #x102) (2 -2) (3 #x102) (4 300))
+                   :collect (to-list (lambda (d) (marshal case-probe d :kind k :v v :after 9))))
+             '((0 5 9) (1 1 2 9) (2 #xFF #xFF #xFF #xFE 9) (3 1 2 9) (4 #xAC #x02 9)))
+      (check "case-probe, a constant selector is resolved at expansion, a run-time one is not"
+             (list (has-case-p (macroexpand-1 '(marshal case-probe d :kind 1 :v 5)))
+                   (has-case-p (macroexpand-1 '(marshal case-probe d :kind k :v 5))))
+             '(nil t))
+      (check "case-probe, an unmatched run-time selector signals an error"
+             (signals-error-p
+              (lambda () (let ((k 7)) (to-list (lambda (d) (marshal case-probe d :kind k :v 1))))))
+             t)
+      (check "case-probe, an unmatched constant selector is an expansion error"
+             (signals-error-p (lambda () (macroexpand-1 '(marshal case-probe d :kind 7 :v 1))))
+             t)
+
+      ;; 3. Enumerated selectors.
+      (check "case-enum-probe, defaulted selector (:word) picks the two-byte branch"
+             (to-list (lambda (d) (marshal case-enum-probe d :v #x102 :after 9)))
+             '(1 1 2 9))
+      (check "case-enum-probe, a keyword selector picks the signed branch"
+             (to-list (lambda (d) (marshal case-enum-probe d :kind :long :v -2 :after 9)))
+             '(2 #xFF #xFF #xFF #xFE 9))
+      (check "case-enum-probe, a run-time keyword selector picks the LEB branch"
+             (let ((k :varint))
+               (to-list (lambda (d) (marshal case-enum-probe d :kind k :v 300 :after 9))))
+             '(3 #xAC #x02 9))
+      (check "case-enum-probe, read back with the selector decoded"
+             (list (unmarshal case-enum-probe (->bytes #(1 1 2 9)))
+                   (unmarshal case-enum-probe (->bytes #(2 #xFF #xFF #xFF #xFE 9)))
+                   (unmarshal case-enum-probe (->bytes #(3 #xAC #x02 9))))
+             '((:kind :word :v #x102 :after 9)
+               (:kind :long :v -2 :after 9)
+               (:kind :varint :v 300 :after 9)))
+      (check "case-badkey-probe, a key outside the enum is an expansion error on both sides"
+             (list (signals-error-p (lambda () (macroexpand-1 '(marshal case-badkey-probe d :v 1))))
+                   (signals-error-p (lambda () (macroexpand-1 '(unmarshal case-badkey-probe s)))))
+             '(t t))
+
+      ;; 4. Default branch, order, and reading.
+      (check "case-otherwise-probe, an unlisted selector takes the otherwise branch"
+             (to-list (lambda (d) (marshal case-otherwise-probe d :kind 9 :v #x102 :after 9)))
+             '(9 1 2 9))
+      (check "case-otherwise-probe, read back"
+             (unmarshal case-otherwise-probe (->bytes #(9 1 2 9)))
+             '(:kind 9 :v #x102 :after 9))
+      (check "case-late-probe, a selector after its field is an expansion error on both sides"
+             (list (signals-error-p (lambda () (macroexpand-1 '(marshal case-late-probe d :kind 0))))
+                   (signals-error-p (lambda () (macroexpand-1 '(unmarshal case-late-probe s)))))
+             '(t t))
+      (check "case-probe, every branch round-trips"
+             (loop :for (k v) :in '((0 5) (1 #x102) (2 -2) (3 #x102) (4 300))
+                   :collect (unmarshal case-probe
+                                       (->bytes (to-list (lambda (d)
+                                                           (marshal case-probe d
+                                                                    :kind k :v v :after 9))))))
+             '((:kind 0 :v 5 :after 9) (:kind 1 :v #x102 :after 9) (:kind 2 :v -2 :after 9)
+               (:kind 3 :v #x102 :after 9) (:kind 4 :v 300 :after 9)))
+      (check "case-probe, an unmatched selector on read signals an error"
+             (signals-error-p (lambda () (unmarshal case-probe (->bytes #(7 0 0)))))
+             t)
+
+      ;; 5. Spans, unnamed and enumerated :case fields.
+      (let ((buf (ub8 7)))
+        (marshal case-span-probe buf :kind 1 :v 7 :k 9)
+        (check "case-span-probe, length counts the chosen four-byte width"
+               (coerce buf 'list) '(1 5 0 0 0 7 9))
+        (check "case-span-probe, read back"
+               (unmarshal case-span-probe buf)
+               '(:kind 1 :len 5 :v 7 :k 9)))
+      (check "case-unnamed-probe, the default is written at the chosen width"
+             (to-list (lambda (d) (marshal case-unnamed-probe d :kind 1 :after 9)))
+             '(1 0 0 0 0 9))
+      (check "case-unnamed-probe, read skips the chosen width"
+             (unmarshal case-unnamed-probe (->bytes #(1 0 0 0 0 9)))
+             '(:kind 1 :after 9))
+      (check "case-value-enum-probe, an enumerated :case value written and read back"
+             (let ((bytes (to-list (lambda (d) (marshal case-value-enum-probe d :kind 1 :op :long)))))
+               (list bytes (unmarshal case-value-enum-probe (->bytes bytes))))
+             '((1 0 2) (:kind 1 :op :long)))
+      (check "case-nest-probe, a run-time selector inside a sub-manifest"
+             (let ((k :long))
+               (to-list (lambda (d) (marshal case-nest-probe d :head 7
+                                             :inner (:kind k :v -2 :after 9)))))
+             '(7 2 #xFF #xFF #xFF #xFE 9))
+      (check "case-nest-probe, read back"
+             (unmarshal case-nest-probe (->bytes #(7 2 #xFF #xFF #xFF #xFE 9)))
+             '(:head 7 :inner (:kind :long :v -2 :after 9)))
+
+      ;; 6. Value forms are evaluated once.
+      (check "eval-once-probe, each value form is evaluated once"
+             (let ((n 0))
+               (list (to-list (lambda (d) (marshal eval-once-probe d :a (incf n) :b (incf n))))
+                     n))
+             '((1 2) 2)))
+    (let ((pass (every #'identity results)))
+      (format t "~&:case checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
+              pass (count t results) (length results))
+      pass)))
