@@ -21,6 +21,7 @@
 
 (defmacro defmanifest (name params &body fields)
   (destructuring-bind (&key unit endian index vextend-by count-from length pad offset) params
+    (declare (ignore index vextend-by count-from)) ; accepted, but not yet used
     (let* ((unit-spec (typecase unit
                         (integer (if (< unit 4)
                                      ;; the unit may be an exponent of 2 + 3
@@ -28,10 +29,11 @@
                                             (if (zerop remainder) (- root 3)
                                                 (error "Invalid unit.")))))
                         (symbol (case unit (:byte 0) (:word 1) (:doubleword 2) (:quadword 3)))))
-           (swap-by (case endian (:big 0) (:little 1) (:middle 2) (:pdp 2)))
+           ;; the manifest's byte order applies to every field that gives none; big-endian
+           ;; when the manifest gives none either
+           (swap-by (case endian ((nil :big) 0) (:little 1) (:middle 2) (:pdp 2) (t endian)))
            (field-specs (list (list 'list :type :config :unit-spec unit-spec
-                                    :pad pad :length length)))
-           (index 0))
+                                    :pad pad :length length))))
 
       (labels ((format-slot-spec (spec)
                  ;; quote functions mentioned in slot specs for proper marshal macroexpansion
@@ -83,8 +85,8 @@
                              ;; (print (list :sty subtypes))
                              (when (eq :s is-signed) (setf signed t)))))
                    (values width signed subtype-list type-indicator type-conditions)))
-               (process-field (field-spec &optional unincrementing)
-                 (destructuring-bind (symbol predicate &key (endian 0) length enumerate-by end-by
+               (process-field (field-spec)
+                 (destructuring-bind (symbol predicate &key endian enumerate-by end-by
                                                          count default slot codec stop-by
                                                          &allow-other-keys)
                      field-spec
@@ -92,9 +94,8 @@
                        (parse-type predicate)
                    (let (;; (width) (signed) (subtype-list) (type-indicator) (type-conditions)
                          (this-swap-by (case endian
-                                         (:big 0) (:little 1) (:middle 2) (:pdp 2)
+                                         ((nil) nil) (:big 0) (:little 1) (:middle 2) (:pdp 2)
                                          (t endian))))
-                     (unless unincrementing (incf index (ash width (- unit-spec))))
                      ;; a :case field passes :stop-by to its branches, for its vector branches
                      (when (and stop-by (not (intersection '(:vec :case) subtype-list)))
                        (error "Field ~s: :stop-by applies to :vec fields only." symbol))
@@ -130,18 +131,19 @@
                              (:str (destructuring-bind (actual &key codec encode-by length end-by)
                                        (rest f)
                                      (let ((count (* (length actual) (or length 1))))
-                                       (push (list 'list :type :string :actual actual :swap-by swap-by
+                                       ;; strings are read and written in stream order, through
+                                       ;; serializer 0; any byte order belongs to the codec
+                                       (push (list 'list :type :string :actual actual :swap-by 0
                                                          :end-by end-by :length count
                                                          ;; :index (+ (length actual) (if end-by 1 0))
                                                          :encode-by (list 'quote encode-by)
                                                          :codec (list 'quote codec))
-                                             accumulator)
-                                       (incf index (+ count (if end-by 1 0))))))
+                                             accumulator))))
                              (:masque (destructuring-bind (spec-string &rest bindings) (rest f)
                                         (let ((bindings-out))
                                           (dolist (b bindings)
                                             (push (if (keywordp (second b))
-                                                      (let ((field-out (process-field (rest b) t)))
+                                                      (let ((field-out (process-field (rest b))))
                                                         (setf (getf (rest field-out) :bind-to)
                                                               (list 'quote (first b)))
                                                         field-out)
@@ -155,11 +157,6 @@
                                                       (if (zerop (logand masque-width
                                                                          (1- (ash 1 (+ 3 unit-spec)))))
                                                           0 1))))
-                                            ;; increment the index from the actual masque field width;
-                                            ;; in the case of an unaligned masque field the output gets
-                                            ;; padded, but this would be a mistake, in pracice masques
-                                            ;; should always line up with the output unit
-                                            (incf index unit-width)
                                             (push (list 'list :type :masque :length unit-width
                                                               :actual spec-string :swap-by swap-by
                                                               :bindings (cons 'list (reverse bindings-out)))
@@ -179,6 +176,17 @@
         `(eval-when (:compile-toplevel :load-toplevel :execute)
            (setf (gethash ',name *manifests*)
                  ,(cons 'list (reverse field-specs))))))))
+
+(defun manifest-swap-specs (items)
+  "The byte orders used by ITEMS, a manifest's stored fields, including those inside spans
+and nested manifests, whose code shares the top-level manifest's serializers."
+  (remove-duplicates
+   (loop :for item :in items
+         :append (case (getf item :type)
+                   (:span (manifest-swap-specs (getf item :items)))
+                   (:manifest (let ((child (gethash (first (getf item :actual)) *manifests*)))
+                                (and child (manifest-swap-specs (rest child)))))
+                   (t (let ((s (getf item :swap-by))) (and s (list s))))))))
 
 (defun find-in-manifest (spec handler)
   (let ((output))
@@ -211,7 +219,7 @@
          (selvars (mapcar (lambda (s) (cons s (gensym (string s))))
                           (case-selectors (rest spec))))
          regions slots slots-of swap-specs offset access enter index tell write prefix
-         values length serializers map b i olength sub-lexicon written)
+         values length serializers map b i sub-lexicon written)
 
     ;; populate the symbol lexicon or import it from an enclosing marshal macro
     (if (getf pairs :-+sub-lexicon+-)
@@ -239,27 +247,19 @@
                                 :vl-sym values :ln-sym length
                                 :sr-sym serializers :mp-sym map :b-sym b :i-sym i)))
 
-    (setf olength length)
 
-    (setf swap-specs (remove-duplicates swap-specs))
     
     (labels ((preprocess-spec (spec-items)
                (dolist (item spec-items)
                  (destructuring-bind (&key length name swap-by type slot items &allow-other-keys) item
-                   ;; build list of swap specs for endian conversion
-                   (when swap-by (push swap-by swap-specs))
                    (setf offset (getf item :offset))
-                   ;; strings always use the 0-mode swap because they use no endian conversion;
-                   ;; endian handling is done within the string codec if necessary
-                   ;; since there are many string formats with different endian properties
                    (push (qualify name) regions)
                    (when slot
                      (push item slots)
                      (push (list (qualify name) (first slot) length swap-by)
                            (getf slots-of (qualify (second slot)))))
                    (case type
-                     (:span (preprocess-spec items)))
-                   (when (eq type :string) (push 0 swap-specs)))))
+                     (:span (preprocess-spec items))))))
              (qualify (name)
                (if (not (and prefix name))
                    name (intern (format nil "~a/~a" prefix name) :keyword)))
@@ -280,8 +280,8 @@
                    (second b)
                    (destructuring-bind (&key name bind-to default enumerate-by &allow-other-keys) b
                      (list bind-to
-                           (or (enumerate enumerate-by (getf pairs name))
-                               default
+                           ;; a default goes through the enum like a given value
+                           (or (enumerate enumerate-by (or (getf pairs name) default))
                                (error "Masque field ~a not specified." name))))))
              (enumerate (table-name value)
                (cond ((not table-name) value)
@@ -297,11 +297,12 @@
              (selector-item (sel)
                (or (find-in-manifest (rest spec) (lambda (i) (and (eq sel (getf i :name)) i)))
                    (error "marshal: :case selector ~s is not a field of ~a." sel name)))
-             (selector-form (sel)
+             (selector-form (sel field)
                (let* ((item (selector-item sel))
                       (v (or (getf pairs sel) (getf item :default))))
                  (cond ((not (member sel written))
-                        (error "marshal: :case selector ~s must come before the field it selects for." sel))
+                        (error "marshal: field ~s needs its :case selector ~s, which must come before it."
+                               field sel))
                        ((null v) (error "marshal: :case selector ~s has no value and no default." sel))
                        ((constantp v) (enumerate (getf item :enumerate-by) v)) ;; code known now
                        (t (rest (assoc sel selvars))))))                       ;; set when it was written
@@ -317,17 +318,16 @@
                       (make-array count :initial-element default))   ; built now, a literal in the code
                      (t (error "Field ~a: no value, no default, and no integer :count." name))))
              (scalar-value-form (name default enumerate-by slot)
-               (let ((value (or (enumerate enumerate-by (getf pairs name))
-                                default (and slot 0) (error "Field ~a not specified." name)))
+               ;; a default goes through the enum like a given value; a slot is backpatched
+               (let ((value (or (enumerate enumerate-by (or (getf pairs name) default))
+                                (and slot 0) (error "Field ~a not specified." name)))
                      (selvar (rest (assoc name selvars))))
                  (push name written)
                  (if selvar `(setf ,selvar ,value) value)))
              (generate (item &optional context)
-               (destructuring-bind (&key name type kind signed (swap-by 0) upto default offset
-                                      count actual bindings with length encode-by end-by
-                                      type-indicator type-conditions codec
-                                      slot enumerate-by subtypes items mode n
-                                      &allow-other-keys) ;; keys only field plans read, as :stop-by
+               (destructuring-bind (&key name type (swap-by 0) default count actual bindings with
+                                      length end-by codec slot enumerate-by subtypes items mode n
+                                      &allow-other-keys) ;; keys only field plans read
                    item
                  (let ((qname (qualify name)))
                    ;; (when context (setf name (intern (format nil "~a/~a" (first context) name)
@@ -486,13 +486,10 @@
                                                     (rest (assoc ,(qualify (second slot)) ,map))
                                                   (funcall ,(getf slot :by) ,access start end)))
                                           ,enter))
-                               (t (let ((value (or (enumerate enumerate-by (getf pairs name))
-                                                   default (and slot 0) (error "Field ~a not specified." name)))
-                                        (selvar (rest (assoc name selvars))))
-                                    (push name written)
-                                    `(funcall (aref ,serializers ,swap-by)
-                                              (cons ,length-form ,(if selvar `(setf ,selvar ,value) value))
-                                              ,enter))))
+                               (t `(funcall (aref ,serializers ,swap-by)
+                                            (cons ,length-form
+                                                  ,(scalar-value-form name default enumerate-by slot))
+                                            ,enter)))
 
                             (setf (third (assoc ,qname ,map)) ,index)
                             ,@(and (getf slots-of qname)
@@ -508,6 +505,7 @@
                             ))))))))
 
       (preprocess-spec (rest spec))
+      (setf swap-specs (manifest-swap-specs (rest spec)))
 
       (loop :for (key _) :on slots-of :by #'cddr
             :unless (member key regions)
@@ -558,7 +556,10 @@
               ))))
 
 (defun enumerated (value form)
-  (loop :for (key val) :on (rest form) :by #'cddr :when (equalp val value) :return key))
+  "The keyword that stands for VALUE in the enum FORM, or VALUE itself when the enum names
+no such code, so that a record holding a code the enum lacks can be read and written back."
+  (loop :for (key val) :on (rest form) :by #'cddr :when (equalp val value) :return key
+        :finally (return value)))
 
 (defmacro unmarshal (name source &optional params &rest keys)
   (let* ((spec (gethash name *manifests*))
@@ -609,8 +610,9 @@
                  (if (not (and prefix name))
                      name (intern (format nil "~a/~a" prefix name) :keyword)))
                (var-of (field what)
+                 ;; WHAT is the name of the field that needs FIELD
                  (or (rest (assoc field vars))
-                     (error "unmarshal: ~a needs field ~a, which isn't read before it." what field)))
+                     (error "unmarshal: field ~s needs field ~s, which isn't read before it." what field)))
                (vec-count-form (name count length)
                  (cond ((integerp count) count)                    ;; :count 4
                        ((keywordp count) (var-of count name))      ;; :count :n-items
@@ -623,15 +625,15 @@
                             (push (cons name var) vars)
                             (push `(setf ,var ,form) reads))
                      (push form reads)))
-               (selector-form (sel)
-                 (or (rest (assoc sel raws)) (var-of sel name)))
+               (selector-form (sel field)
+                 (or (rest (assoc sel raws)) (var-of sel field)))
                (enum-of (sel)
                  (let ((e (getf (find-in-manifest (rest spec) (lambda (i) (and (eq sel (getf i :name)) i)))
                                 :enumerate-by)))
                    (and e (gethash e *enums*))))
                (process-item (item)
                  (destructuring-bind (&key name type subtypes length signed (swap-by 0)
-                                        count items enumerate-by actual codec end-by
+                                        items enumerate-by actual codec end-by
                                         bindings mode n &allow-other-keys)
                      item
                    (when nil ;; (member type '(:span)) ;; :manifest))

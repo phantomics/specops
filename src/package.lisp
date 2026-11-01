@@ -72,6 +72,16 @@
    #:defenum
    #:marshal
    #:unmarshal
+
+   ;; -- Stop rules for :stop-by fields: the runtime protocol and the effectors
+   #:stop-rule
+   #:done-p
+   #:feed
+   #:trailer
+   #:frame-element
+   #:frame-trailer
+   #:stop-effector
+   #:frame-effector
    
    ;; -- Main utility functions and macros
    #:extns-of

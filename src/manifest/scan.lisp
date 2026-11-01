@@ -497,7 +497,7 @@ initargs. The class must be defined when the field's code is expanded."
     (cond ((member :case subtypes)
            (let ((enum (funcall enum-of type-indicator)))
              (make-instance 'case-plan
-               :selector (funcall selector-form type-indicator)
+               :selector (funcall selector-form type-indicator name)
                :branches (loop :for b :in type-conditions
                                :collect (cons (translate-keys (getf b :keys) enum name)
                                               ;; a branch inherits the field's :count, :end-by, :codec

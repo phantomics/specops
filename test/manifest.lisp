@@ -194,6 +194,16 @@ prints a report."
   (:c (:s 4) :default 0 :endian :little)  ; signed, little-endian
   (:d :u8    :default 0))                 ; trailing byte, checks the cursor advanced
 
+;; The manifest's byte order applies to every field that gives none of its own.
+(defmanifest little-endian-probe (:unit 8 :endian :little)
+  (:a :u16 :default 0)                    ; little-endian, from the manifest
+  (:b (:s 4) :default 0)                  ; little-endian, from the manifest
+  (:c :u16 :default 0 :endian :big))      ; the field's own byte order wins
+
+;; An enumerated field whose default is a keyword. png-color-type has no code 1.
+(defmanifest enum-default-probe (:unit 8 :endian :big)
+  (:color :u8 :default :rgba :enumerate-by png-color-type))
+
 (defun ub8 (n)
   (make-array n :element-type '(unsigned-byte 8) :initial-element 0))
 
@@ -244,7 +254,29 @@ by unmarshal with the values that were marshalled. Returns T if all pass."
                '(:a -2 :b #x0102 :c -300 :d 7))
         (check "unmarshal-probe, :d alone (cursor passes three fields)"
                (multiple-value-list (unmarshal unmarshal-probe buf nil :d))
-               '(7))))
+               '(7)))
+
+      ;; 4. A byte order given once, by the manifest.
+      (let ((buf (ub8 8)))
+        (marshal little-endian-probe buf :a #x0102 :b -300 :c #x0304)
+        (check "little-endian-probe, fields follow the manifest's :endian unless they give one"
+               (coerce buf 'list)
+               '(#x02 #x01  #xD4 #xFE #xFF #xFF  #x03 #x04))
+        (check "little-endian-probe, read back"
+               (unmarshal little-endian-probe buf)
+               '(:a #x0102 :b -300 :c #x0304)))
+
+      ;; 5. Enums: a keyword default, and a code the enum lacks.
+      (let ((buf (ub8 1)))
+        (marshal enum-default-probe buf)
+        (check "enum-default-probe, a keyword default written as its code"
+               (list (coerce buf 'list) (unmarshal enum-default-probe buf))
+               '((6) (:color :rgba))))
+      (let ((buf (ub8 1)))
+        (marshal enum-default-probe buf :color 1)
+        (check "enum-default-probe, a code the enum lacks reads as itself and writes back"
+               (list (unmarshal enum-default-probe (->bytes #(1))) (coerce buf 'list))
+               '((:color 1) (1)))))
     (let ((pass (every #'identity results)))
       (format t "~&unmarshal checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
               pass (count t results) (length results))
@@ -264,6 +296,22 @@ by unmarshal with the values that were marshalled. Returns T if all pass."
 (defmanifest nest-probe2 (:unit 8 :endian :big)
   (:head :u8 :default 0)
   (manifest :inner nest-probe))
+
+;; Children whose byte order differs from their parent's.
+(defmanifest le-child-probe (:unit 8 :endian :little)
+  (:x :u16 :default 0))
+
+(defmanifest be-child-probe (:unit 8 :endian :big)
+  (:x :u16 :default 0))
+
+(defmanifest mixed-order-probe (:unit 8 :endian :big)
+  (:a :u16 :default 0)
+  (manifest :le le-child-probe)
+  (:b :u16 :default 0))
+
+(defmanifest mixed-order-probe2 (:unit 8 :endian :little)
+  (:a :u16 :default 0)
+  (manifest :be be-child-probe))
 
 (defun run-chunk-unmarshal-demo ()
   "Unmarshal PNG chunks out of the marshalled 1x1 PNG, plus nested probes.
@@ -333,7 +381,23 @@ Returns T if all checks pass."
                                 :compression 0 :filter 0 :interlace :none)
                          :trailer 170))))
 
-      ;; 5. IHDR chunk: span containing a sub-manifest.
+      ;; 5. Children with a byte order of their own.
+      (let ((buf (ub8 6)))
+        (marshal mixed-order-probe buf :a #x0102 :le (:x #x0304) :b #x0506)
+        (check "mixed-order-probe, a little-endian child inside a big-endian parent"
+               (coerce buf 'list) '(#x01 #x02 #x04 #x03 #x05 #x06))
+        (check "mixed-order-probe, read back"
+               (unmarshal mixed-order-probe buf)
+               '(:a #x0102 :le (:x #x0304) :b #x0506)))
+      (let ((buf (ub8 4)))
+        (marshal mixed-order-probe2 buf :a #x0102 :be (:x #x0304))
+        (check "mixed-order-probe2, a big-endian child inside a little-endian parent"
+               (coerce buf 'list) '(#x02 #x01 #x03 #x04))
+        (check "mixed-order-probe2, read back"
+               (unmarshal mixed-order-probe2 buf)
+               '(:a #x0102 :be (:x #x0304))))
+
+      ;; 6. IHDR chunk: span containing a sub-manifest.
       (check "IHDR chunk, all fields (span + sub-manifest)"
              (unmarshal png-ihdr-chunk ihdr-chunk)
              (list :length 13
@@ -364,6 +428,12 @@ Returns T if all checks pass."
 ;; An enum group and a signed group.
 (defmanifest masque-probe-typed (:unit 8 :endian :big)
   (masque "h:aabb" (a :mode  :u8 :default 0 :enumerate-by png-color-type)
+                   (b :delta (:s 1) :default 0))
+  (:tail :u8 :default 0))
+
+;; An enumerated masque group whose default is a keyword.
+(defmanifest masque-default-probe (:unit 8 :endian :big)
+  (masque "h:aabb" (a :mode  :u8 :default :rgb :enumerate-by png-color-type)
                    (b :delta (:s 1) :default 0))
   (:tail :u8 :default 0))
 
@@ -421,7 +491,14 @@ Returns T if all checks pass."
                (coerce buf 'list) '(6 #xFD 7))
         (check "masque-probe-typed, all fields (enum decoded, sign extended)"
                (unmarshal masque-probe-typed buf)
-               '(:mode :rgba :delta -3 :tail 7))))
+               '(:mode :rgba :delta -3 :tail 7)))
+
+      ;; 5. A keyword default in a masque group.
+      (let ((buf (ub8 3)))
+        (marshal masque-default-probe buf :tail 7)
+        (check "masque-default-probe, the default :rgb written as 2, and read back"
+               (list (coerce buf 'list) (unmarshal masque-default-probe buf))
+               '((2 0 7) (:mode :rgb :delta 0 :tail 7)))))
     (let ((pass (every #'identity results)))
       (format t "~&masque checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
               pass (count t results) (length results))
@@ -440,6 +517,11 @@ Returns T if all checks pass."
 (defmanifest terminated-probe (:unit 8 :endian :big)
   (str "AB" :end-by 0)
   (:n :u8 :default 0))
+
+;; A constant string in a manifest whose fields are all little-endian.
+(defmanifest le-string-probe (:unit 8 :endian :little)
+  (str "AB")
+  (:x :u16 :default 0))
 
 (defun signals-error-p (thunk)
   (handler-case (progn (funcall thunk) nil)
@@ -505,7 +587,16 @@ Returns T if all checks pass."
           (setf (aref bad 2) 1)
           (check "terminated-probe, missing terminator signals an error"
                  (signals-error-p (lambda () (unmarshal terminated-probe bad)))
-                 t))))
+                 t)))
+
+      ;; 4. A string where no field is big-endian.
+      (let ((buf (ub8 4)))
+        (marshal le-string-probe buf :x #x0102)
+        (check "le-string-probe, the string in stream order, the field little-endian"
+               (coerce buf 'list) '(#x41 #x42 #x02 #x01))
+        (check "le-string-probe, read back"
+               (unmarshal le-string-probe buf)
+               '(:x #x0102))))
     (let ((pass (every #'identity results)))
       (format t "~&string checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
               pass (count t results) (length results))
@@ -813,6 +904,9 @@ Returns T if all checks pass."
 (defmanifest leb-enum-probe (:unit 8 :endian :big)
   (:op (:u 1 :leb) :default 0 :enumerate-by leb-opcode))
 
+(defmanifest leb-enum-default-probe (:unit 8 :endian :big)
+  (:op (:u 1 :leb) :default :jump :enumerate-by leb-opcode))
+
 ;; An unnamed LEB is still read through, so the field after it lines up.
 (defmanifest leb-unnamed-probe (:unit 8 :endian :big)
   (_ (:u 1 :leb) :default 300)
@@ -899,6 +993,10 @@ Returns T if all checks pass."
       (check "leb-enum-probe, read back as :call"
              (unmarshal leb-enum-probe (->bytes #(#xC8 #x01)))
              '(:op :call))
+      (check "leb-enum-default-probe, the default :jump written as LEB 300, and read back"
+             (let ((bytes (to-list (lambda (d) (marshal leb-enum-default-probe d)))))
+               (list bytes (unmarshal leb-enum-default-probe (->bytes bytes))))
+             '((#xAC #x02) (:op :jump)))
       (check "leb-unnamed-probe, default 300 written"
              (to-list (lambda (d) (marshal leb-unnamed-probe d :k 7)))
              '(#xAC #x02 7))
@@ -928,7 +1026,7 @@ Returns T if all checks pass."
 
 ;; Keyword branch keys are translated through the selector's enum.
 (defmanifest case-enum-probe (:unit 8 :endian :big)
-  (:kind  :u8 :default 1 :enumerate-by case-size)
+  (:kind  :u8 :default :word :enumerate-by case-size)
   (:v     (:case :kind (:byte :u8) (:word :u16) ((:long) :s32) (:varint :u 1 :leb)) :default 0)
   (:after :u8 :default 0))
 
@@ -949,6 +1047,10 @@ Returns T if all checks pass."
 (defmanifest case-value-enum-probe (:unit 8 :endian :big)
   (:kind :u8 :default 0)
   (:op   (:case :kind (0 :u8) (1 :u16)) :default 0 :enumerate-by case-size))
+
+(defmanifest case-value-default-probe (:unit 8 :endian :big)
+  (:kind :u8 :default 0)
+  (:op   (:case :kind (0 :u8) (1 :u16)) :default :long :enumerate-by case-size))
 
 ;; The selector comes after the field it selects for.
 (defmanifest case-late-probe (:unit 8 :endian :big)
@@ -1053,9 +1155,14 @@ Returns T if all checks pass."
       (check "case-otherwise-probe, read back"
              (unmarshal case-otherwise-probe (->bytes #(9 1 2 9)))
              '(:kind 9 :v #x102 :after 9))
-      (check "case-late-probe, a selector after its field is an expansion error on both sides"
-             (list (signals-error-p (lambda () (macroexpand-1 '(marshal case-late-probe d :kind 0))))
-                   (signals-error-p (lambda () (macroexpand-1 '(unmarshal case-late-probe s)))))
+      (check "case-late-probe, a selector after its field is an expansion error on both sides, naming both"
+             (flet ((names-both-p (form)
+                      ;; the message names the field (:V) and the selector it needs (:KIND)
+                      (handler-case (progn (macroexpand-1 form) nil)
+                        (error (e) (let ((message (princ-to-string e)))
+                                     (and (search ":V " message) (search ":KIND" message) t))))))
+               (list (names-both-p '(marshal case-late-probe d :kind 0))
+                     (names-both-p '(unmarshal case-late-probe s))))
              '(t t))
       (check "case-probe, every branch round-trips"
              (loop :for (k v) :in '((0 5) (1 #x102) (2 -2) (3 #x102) (4 300))
@@ -1086,6 +1193,10 @@ Returns T if all checks pass."
       (check "case-value-enum-probe, an enumerated :case value written and read back"
              (let ((bytes (to-list (lambda (d) (marshal case-value-enum-probe d :kind 1 :op :long)))))
                (list bytes (unmarshal case-value-enum-probe (->bytes bytes))))
+             '((1 0 2) (:kind 1 :op :long)))
+      (check "case-value-default-probe, a keyword default for the :case value"
+             (let ((bytes (to-list (lambda (d) (marshal case-value-default-probe d :kind 1)))))
+               (list bytes (unmarshal case-value-default-probe (->bytes bytes))))
              '((1 0 2) (:kind 1 :op :long)))
       (check "case-nest-probe, a run-time selector inside a sub-manifest"
              (let ((k :long))
@@ -1209,6 +1320,10 @@ Returns T if all checks pass."
       (check "vec-enum-probe, read back as keywords"
              (unmarshal vec-enum-probe (->bytes #(2 1 3)))
              '(:c #(:green :red :blue)))
+      (check "vec-enum-probe, a code the enum lacks reads as itself and writes back"
+             (let ((value (getf (unmarshal vec-enum-probe (->bytes #(2 9 3))) :c)))
+               (list value (to-list (lambda (d) (marshal vec-enum-probe d :c value)))))
+             '(#(:green 9 :blue) (2 9 3)))
       (check "vec-enum-probe, a keyword outside the enum signals an error"
              (signals-error-p
               (lambda () (to-list (lambda (d) (marshal vec-enum-probe d :c #(:green :mauve 3))))))
@@ -1704,6 +1819,29 @@ Returns T if all checks pass."
   (:v     (:u 1 :vec) :stop-by (stop-at-inline :code 255))
   (:after :u8 :default 0))
 
+;; A rule defined in another package, through the names specops exports.
+(defpackage #:specops.test.rules
+  (:use #:cl #:specops)
+  (:export #:until-code))
+
+(in-package #:specops.test.rules)
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defclass until-code (stop-rule)
+    ((code :initarg :code :reader code-of))))
+
+(defmethod feed ((r until-code) element)
+  (and (eql element (code-of r)) :drop))
+
+(defmethod frame-trailer ((r until-code))
+  (list (code-of r)))
+
+(in-package #:specops)
+
+(defmanifest foreign-rule-probe (:unit 8 :endian :big)
+  (:v     (:u 1 :vec) :stop-by (specops.test.rules:until-code :code 254))
+  (:after :u8 :default 0))
+
 (defmanifest stop-by-unknown-probe (:unit 8 :endian :big)
   (:v (:u 1 :vec) :stop-by no-such-rule))
 
@@ -1774,6 +1912,11 @@ Returns T if all checks pass."
                    (mentions-p (macroexpand-1 '(marshal stop-at-inline-probe d :v #(1)))
                                '(frame-element frame-trailer make-instance)))
              '(t t nil nil))
+
+      (check "foreign-rule-probe, a rule from another package, written and read back"
+             (let ((bytes (to-list (lambda (d) (marshal foreign-rule-probe d :v #(1 2) :after 9)))))
+               (list bytes (unmarshal foreign-rule-probe (->bytes bytes))))
+             '((1 2 254 9) (:v #(1 2) :after 9)))
 
       ;; 5. Fields that cannot use :stop-by.
       (check "stop-by-unknown-probe, a class that does not exist is an expansion error"
