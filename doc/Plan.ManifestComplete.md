@@ -60,8 +60,8 @@ a struct interface, destinations that cannot be patched, and packaging. It
 assumes the decisions recorded in the
 [Manifest development log, SPECOPS-DRAFT-manifest](Log.Manifest.md) and the
 architecture in [SPECOPS-DRAFT-specops](Arch.SpecOps.md). Progress is charted
-in dated updates at the end of this plan; the latest is the update of
-2026-10-31, at commit `6660c7f`.
+in dated updates at the end of this plan; the latest is the second update of
+2026-10-31, at commit `d030f5c`.
 
 ## Problem
 
@@ -641,3 +641,61 @@ them, `:vec` on the scan model before
 SPECOPS-DRAFT-manifest-complete-D7, SPECOPS-DRAFT-manifest-complete-D8,
 SPECOPS-DRAFT-manifest-complete-D9 and vectors of LEB elements, is now met.
 `test-op` still follows SPECOPS-DRAFT-specops-O5.
+
+## Update 2026-10-31 — Progress: the scan model completed
+
+This installment charts the plan's progress at commit `d030f5c`. The first
+priority of the previous update is done: fixed buffers holding a terminator
+(SPECOPS-DRAFT-manifest-complete-D7), terminators of several elements
+(SPECOPS-DRAFT-manifest-complete-D8), vectors of LEB elements, and
+user-defined stop rules with the runtime fallback
+(SPECOPS-DRAFT-manifest-complete-D9). The log's update of the same date
+records the work, with SPECOPS-DRAFT-manifest-D25 through
+SPECOPS-DRAFT-manifest-D28. All fourteen suites pass: 202 checks and the PNG
+verification.
+
+### Progress
+
+Table: State of each Roadmap milestone at commit `d030f5c`. Entries new since
+the previous update are marked "new".
+
+| Milestone | State | Done | Remaining |
+|---|---|---|---|
+| 1. Corrections and records | Partly done | As before; new: `unmarshal`'s unused `term-code-form` and the `:end-by` branch of `vec-count-form`, the commented-out encoders and the unused `ba-sym` removed | Byte orders across nesting; the static `index` and other unused variables of `defmanifest`; keyword defaults on enumerated fields; unknown enum codes read as `nil`; the selector-order error names the manifest; new: exports for user stop rules |
+| 2. Field kinds on read | Partly done | As before; new: SPECOPS-DRAFT-manifest-complete-D7, SPECOPS-DRAFT-manifest-complete-D8 and SPECOPS-DRAFT-manifest-complete-D9; vectors of LEB elements | SPECOPS-DRAFT-manifest-complete-O5 for fields without a terminator; new: writing a buffer sized by another field; a units rule for `:length-of` over variable-width elements; fixed buffers of LEB elements |
+| 3. Checked reads | Open | — | Read-side region map; the policy of SPECOPS-DRAFT-manifest-complete-O1 |
+| 4. Structs and run-time nested values | Open | — | SPECOPS-DRAFT-manifest-complete-D4, SPECOPS-DRAFT-manifest-complete-O2, SPECOPS-DRAFT-manifest-complete-O3; round-trip tests |
+| 5. Variable structure | Open | The field-plan level; new: plans nest, as a sub-manifest branch would | Repeated sub-manifests; `:case` choosing a sub-manifest; SPECOPS-DRAFT-manifest-complete-O4 |
+| 6. Destinations | Open | — | Buffering (SPECOPS-DRAFT-manifest-complete-D2); checksums on streams; overrun checks |
+| 7. Selective reads and stream sources | Open | `known-count` and `known-extent`; new: `known-extent` for rules, separate from the count | Dependency closure and skip mode (SPECOPS-DRAFT-manifest-complete-D3); stream sources |
+| 8. WOFF | Open | — | SPECOPS-DRAFT-manifest-complete-D6, the first test of `:offset-of` |
+| 9. Floats and masque completion | Partly done | New: decimal (`d:`) masques in `masque` and `unmasque` | The `:f` class; decimal masques in `unmarshal`; range checks; keyword groups registered for `:case` and `:count` |
+| 10. Packaging | Partly done | As before | Suites behind `test-op`; a Ref |
+
+### Priorities
+
+1. **Corrections.** With the scan model complete, the small items of
+   milestone 1 come next: byte orders across nesting, the unused variables of
+   `defmanifest`, keyword defaults on enumerated fields, unknown enum codes,
+   the selector-order error, and the exports for user stop rules.
+2. **Structs and round trips.**
+3. **Variable structure.**
+4. **Checked reads.**
+5. **Destinations.**
+6. **Selective reads and stream sources.**
+7. **WOFF.**
+8. **Floats and masque completion**, including decimal masques in
+   `unmarshal`.
+9. **Packaging:** `test-op`, then a Ref.
+
+The remaining field-kind items of milestone 2 wait on demand: a buffer sized
+by another field on write, and the units rule, which would also serve
+"the rest of the region" fields in variable structure.
+
+### Dependencies
+
+The dependencies of the update of 2026-10-30 hold, and the scan model's are
+met. Two are new: the units rule, if built, comes before fixed buffers of LEB
+elements and before reading a vector of LEB elements counted by a length
+slot; and writing a buffer sized by another field uses the same variables as
+`:case` selectors (SPECOPS-DRAFT-manifest-D20).

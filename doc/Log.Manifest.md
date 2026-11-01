@@ -35,6 +35,10 @@ decisions:
   - SPECOPS-DRAFT-manifest-D22
   - SPECOPS-DRAFT-manifest-D23
   - SPECOPS-DRAFT-manifest-D24
+  - SPECOPS-DRAFT-manifest-D25
+  - SPECOPS-DRAFT-manifest-D26
+  - SPECOPS-DRAFT-manifest-D27
+  - SPECOPS-DRAFT-manifest-D28
 relates-to:
   - SPECOPS-DRAFT-manifest-complete
   - SPECOPS-DRAFT-restructure
@@ -61,8 +65,8 @@ record, `marshal`, which writes values into that structure, and `unmarshal`,
 which reads them back out. It covers the path from a freeform `marshal` macro to
 manifest-driven writing and reading, and the PNG test format used to exercise
 it. The chronicled state is commit `10b1568`; the updates at the end of this
-log carry the record forward, that of 2026-10-30 to commit `653345f` and that
-of 2026-10-31 to commit `738105a`. The repository restructure that followed
+log carry the record forward: that of 2026-10-30 to commit `653345f`, and two
+of 2026-10-31, to commits `738105a` and `d030f5c`. The repository restructure that followed
 moved the files this log names (see
 [SPECOPS-DRAFT-restructure](Log.Restructure.md)); code references stay pinned
 to the commits that held the work.
@@ -969,3 +973,231 @@ done. Remaining:
 - **Unknown enum codes**, still read as `nil`.
 - **Error wording.** A selector placed after its `:case` field is still
   reported against the manifest's name.
+
+## Update 2026-10-31 — The scan model completed: fixed buffers, multi-element terminators, LEB vectors and user stop rules
+
+This installment covers commits `f7713c5` through `d030f5c`, which complete
+the scan model of SPECOPS-DRAFT-manifest-D18 as the Manifest Completion Plan
+laid out. It builds three of that plan's decisions:
+SPECOPS-DRAFT-manifest-complete-D7 (fixed buffers holding a terminator),
+SPECOPS-DRAFT-manifest-complete-D8 (terminators of several elements) and
+SPECOPS-DRAFT-manifest-complete-D9 (user-defined stop rules with a runtime
+fallback). It also adds vectors of LEB128 elements. The groundwork for all
+four came first, in a commit that changed no behavior. Four suites bring the
+checks from 135 to 202. The code is now in `src/manifest/`, and references
+are pinned to `d030f5c`.
+
+Between this update and the last, commits `5e0976e` and `d524c3c` taught
+`masque` and `unmasque` decimal mask strings:
+`src/serial.lisp:quantify-mask-string@d524c3c` now also returns the
+decimal factor. The manifest layer's two callers were adapted, but
+`unmarshal` still rejects decimal masques.
+
+### SPECOPS-DRAFT-manifest-D25 — A scan keeps a position, and rules report their extent apart from their count
+
+**Status:** Proposed
+**Context:** `emit-scan` computed each element's offset as the cursor plus
+the element index times a fixed width, and moved the cursor by the number of
+elements read. Vectors of LEB elements have no fixed width. A fixed buffer
+holding a terminator consumes its whole size while yielding fewer elements.
+A terminator of several elements leaves its first elements among the data,
+and a user rule decides at run time whether the element that stops it is
+data.
+**Decision:** `src/manifest/scan.lisp:emit-scan@d030f5c` keeps a position
+variable and takes a function that reads one element at it and advances it.
+Rules report two facts: `known-count`, the data elements, and
+`src/manifest/scan.lisp:known-extent@d030f5c`, the elements consumed when that
+is fixed. When the extent is known and the elements have a fixed width, the
+source is checked once before the loop and the cursor moves by the whole
+extent; otherwise each read is checked and the cursor ends at the position. A
+rule may return a `:trailer` form, the number of collected elements to drop
+at the end, and `:keep :dynamic`, for an `:after` form that returns `nil`,
+`:keep` or `:drop`. `src/manifest/scan.lisp:emit-frame@d030f5c` counts the
+elements it writes and passes the counter to rules, which may also add a
+prelude.
+**Alternatives:** A separate expander for each kind of field (rejected: the
+reason for SPECOPS-DRAFT-manifest-D18); collecting every element into a buffer
+and trimming afterwards (rejected: the trailer drops elements only when a
+rule asks).
+
+### SPECOPS-DRAFT-manifest-D26 — Element plans nest, and a vector of LEB elements is a scan over an LEB scan
+
+**Status:** Proposed
+**Context:** The modifier set allows `(:u 1 :vec :leb)`
+(SPECOPS-DRAFT-manifest-D5). Each element is itself a variable-length
+field, so it needs its own stop rule and assembler.
+**Decision:** A scan plan may hold an element plan. Reading, each element is
+read by the element plan with the outer scan's position as its cursor;
+writing, each element is written by the element plan. For a vector of LEB
+elements, `src/manifest/scan.lisp:field-plan@d030f5c` builds an inner LEB scan
+that carries the sign and an outer vector with no bit width, which compares
+element values with a terminator, decodes the enum and builds an integer
+vector. Two forms are expansion errors for now. A vector of LEB elements
+cannot be a fixed buffer, since skipping the rest of the buffer means reading
+elements of unknown width. And `unmarshal` cannot count such a vector from a
+`:length-of` slot, which gives bytes rather than elements; `marshal` still
+fills that slot with the byte length.
+**Alternatives:** A dedicated LEB-vector assembler (rejected: nesting plans
+serves any element kind); counting a `:length-of` vector by reading until the
+bytes are consumed (deferred: a units rule, noted under Outstanding Work).
+
+### SPECOPS-DRAFT-manifest-D27 — A fixed buffer must leave room for a whole terminator
+
+**Status:** Proposed
+**Context:** SPECOPS-DRAFT-manifest-complete-D7 pads a short buffer with the
+terminator repeated, and SPECOPS-DRAFT-manifest-complete-D8 allows terminators
+of several elements. Data may leave fewer places in a buffer than such a
+terminator needs.
+**Decision:** On write, data that neither fills the buffer exactly nor leaves
+room for the whole terminator signals an error. Otherwise the terminator is
+written once and the rest of the buffer is filled by repeating it, cut off at
+the buffer's end. On read, the pattern is matched by
+`src/manifest/scan.lisp:pattern-matcher@d030f5c`, a ring buffer of the last
+elements read, and the elements of a matched terminator collected as data are
+dropped; a buffer that ends at its count without a match keeps all its
+elements. On write, the data and then the terminator are fed through the same
+matcher, so a pattern that straddles the two is caught as well as one within
+the data. A buffer can be written only with an integer `:count` for now;
+reading a buffer sized by an earlier field works.
+**Alternatives:** Writing a partial terminator (rejected by the steward: a
+reader would take it as data); requiring a terminator in every buffer
+(rejected in SPECOPS-DRAFT-manifest-complete-D7).
+
+### SPECOPS-DRAFT-manifest-D28 — User stop rules run through a five-function protocol until they define effectors
+
+**Status:** Proposed
+**Context:** SPECOPS-DRAFT-manifest-complete-D9 lets a field name a user's
+stop rule with `:stop-by`, to run through a runtime protocol until the rule
+has effector methods. The protocol's shape, and how a rule gets its
+parameters and state, remained to be settled.
+**Decision:** The protocol is five generic functions, each with a default on
+`stop-rule`: `src/manifest/scan.lisp:done-p@d030f5c`, asked before each read;
+`src/manifest/scan.lisp:feed@d030f5c`, which returns `nil`, `:keep` or
+`:drop` after each; `trailer`; and, for writing, `frame-element`, given each
+element and whether it is the last, and `frame-trailer`, the codes to append.
+`:stop-by` names a class or a class with constant initargs.
+`src/manifest/scan.lisp:user-rule@d030f5c` makes an instance at expansion,
+for dispatch, so the class, and any effector methods, must be defined at
+compile time. The default effectors make a fresh instance per field read or
+written, through `runtime-rule-form`, and call the protocol on it. A class
+that defines `stop-effector` or `frame-effector` gets inline code instead,
+with no change to its manifests. `:stop-by` applies to `:vec` fields, not
+with `:end-by` or `:count`; `defmanifest` rejects it on other fields. The
+protocol does not check written data against the rule; that is the rule's
+own concern.
+**Alternatives:** A read-only fallback (rejected by the steward: a rule with
+only runtime methods should work both ways); a closure-based protocol like
+`serializer-for` (rejected in SPECOPS-DRAFT-manifest-D18); one instance per
+manifest (rejected: two fields with the same rule would share state).
+
+### Implementation
+
+- **Groundwork, `f7713c5`.** `emit-scan`, `emit-frame` and `known-extent` per
+  SPECOPS-DRAFT-manifest-D25; the vector assembler trims its fill pointer by a
+  trailer. Dead code went: `unmarshal`'s `term-code-form` and the `:end-by`
+  branch of its `vec-count-form`, and the commented-out LEB128 encoders, old
+  `field-plan` and old vector assembler. All ten suites passed unchanged.
+- **Fixed buffers, `b7d4f13`.** `bounded-terminator-rule`, a subclass of
+  `terminator-rule` with a size: it stops before a read at its size, after one
+  at the terminator, and on write checks the size and pads.
+  `src/manifest/scan.lisp:field-plan@d030f5c` builds it for `:count` with
+  `:end-by`, where it signalled "not supported yet". `marshal` passes the size
+  when `:count` is an integer.
+- **Multi-element terminators, `f60ca9f`.** The terminator rule holds a list
+  of codes, from `src/manifest/scan.lisp:terminator-code-forms@d030f5c`.
+  Reading and writing share `pattern-matcher` and
+  `src/manifest/scan.lisp:terminator-frame@d030f5c`; a one-element terminator
+  keeps its plain comparison. The fixed buffer reuses the terminator rule's
+  read fragments through `call-next-method`.
+- **LEB vectors, `96b4e8b`.** The scan plan's element slot, the outer
+  vector's integer element type, and `check-leb-width`, now shared by scalar
+  LEBs and LEB vectors. `unmarshal` rejects a LEB vector with neither
+  `:count` nor `:end-by`.
+- **User stop rules, `d030f5c`.** The protocol, the default effectors and
+  `user-rule`. `stop-rule` remembers its constant initargs.
+  `src/manifest/manifest.lisp:defmanifest@d030f5c` stores `:stop-by` and
+  rejects it on fields that are neither `:vec` nor `:case`.
+  `src/manifest/manifest.lisp:marshal@d030f5c` now accepts stored keys it
+  does not read, which a new key had made fail.
+
+### Verification
+
+Run via:
+
+```
+sbcl --non-interactive --eval '(asdf:load-system :specops/demo.png :force t)' \
+  --eval '(specops::run-png-demo)' --eval '(specops::run-unmarshal-demo)' \
+  --eval '(specops::run-chunk-unmarshal-demo)' --eval '(specops::run-masque-demo)' \
+  --eval '(specops::run-string-demo)' --eval '(specops::run-pad-demo)' \
+  --eval '(specops::run-terminated-demo)' --eval '(specops::run-leb-demo)' \
+  --eval '(specops::run-case-demo)' --eval '(specops::run-vec-scan-demo)' \
+  --eval '(specops::run-bounded-demo)' --eval '(specops::run-multi-terminator-demo)' \
+  --eval '(specops::run-leb-vector-demo)' --eval '(specops::run-stop-by-demo)'
+```
+
+Table: The suites added in this installment, and the totals at commit `d030f5c`.
+
+| Suite | Function | Checks | Result |
+|---|---|---|---|
+| Fixed buffers holding a terminator | `run-bounded-demo` | 19 | 19 pass |
+| Terminators of several elements | `run-multi-terminator-demo` | 19 | 19 pass |
+| Vectors of LEB elements | `run-leb-vector-demo` | 16 | 16 pass |
+| User stop rules | `run-stop-by-demo` | 13 | 13 pass |
+| All fourteen suites | from `run-png-demo` to `run-stop-by-demo` | 202 and the PNG verification | All pass |
+
+The new suites check, among other things:
+
+- **Fixed buffers:** short, full and empty buffers; bytes after the terminator
+  skipped on read; a codec and two-byte elements; a length slot over a
+  buffer; and the facts `known-count` and `known-extent`.
+- **Terminators of several elements:** CR LF as a vector and as a string; a
+  lone CR and data ending in CR kept as data; the straddling case of `xA`
+  with `AA`; and buffers ended by CR LF, including one without room for it.
+- **LEB vectors:** counted, signed, counted from an earlier field,
+  terminated, enumerated and in a `:case` branch, with a bignum element.
+- **User stop rules:** a QUIC-style length rule using `done-p`, with fresh
+  state per field; rules using `:keep` with `frame-element`, and `:drop` with
+  `trailer` and `frame-trailer`; initargs; and an upgraded rule whose
+  expansions call no protocol function but give the same bytes.
+
+Each step was run against all suites before the next, and the text of each
+expected error was checked to be the intended one. The style warnings in the
+manifest layer number 26 before and after.
+
+### Files
+
+Table: Files changed in commits `f7713c5` through `d030f5c`.
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/manifest/scan.lisp` | Modified | Scan groundwork, fixed buffers, multi-element terminators, element plans, the runtime protocol |
+| `src/manifest/manifest.lisp` | Modified | `:stop-by` stored and checked; sizes passed on write; dead code removed |
+| `test/manifest.lisp` | Modified | Four suites |
+| `doc/Log.Manifest.md` | Modified | This update |
+
+### Metrics
+
+- Test checks: 202 automated checks plus 1 structural PNG verification, up
+  from 135.
+- Regressions at `d030f5c`: 0.
+
+### Outstanding Work
+
+The dead code and the three agreed decisions listed in the previous update are
+done, as are vectors of LEB elements. Remaining from that list: keyword
+defaults on enumerated fields, unknown enum codes read as `nil`, and the
+wording of the selector-order error. New:
+
+- **Exports.** A stop rule defined outside the `specops` package needs
+  `stop-rule`, the five protocol functions, and `stop-effector` and
+  `frame-effector` exported from `src/package.lisp`.
+- **Buffers sized by another field, on write.** Writing a fixed buffer needs
+  an integer `:count`; the earlier field's value could come through variables
+  like the selector variables of SPECOPS-DRAFT-manifest-D20.
+- **A units rule.** A rule that stops when the bytes read reach a length,
+  and signals an error on overrun, would let `unmarshal` read a vector of LEB
+  elements counted by a `:length-of` slot, and later read fields that fill
+  the rest of a region.
+- **Fixed buffers of LEB elements**, which need the units rule or a way to
+  skip unread elements.
+- **Decimal masques in `unmarshal`**, now that `unmasque` reads them.
