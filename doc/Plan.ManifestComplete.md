@@ -61,8 +61,8 @@ a struct interface, destinations that cannot be patched, and packaging. It
 assumes the decisions recorded in the
 [Manifest development log, SPECOPS-DRAFT-manifest](Log.Manifest.md) and the
 architecture in [SPECOPS-DRAFT-specops](Arch.SpecOps.md). Progress is charted
-in dated updates at the end of this plan; the latest is the third update of
-2026-11-01, at commit `1cc7600`.
+in dated updates at the end of this plan; the latest is the fourth update of
+2026-11-01, at commit `b63b7d2`.
 
 ## Problem
 
@@ -192,6 +192,12 @@ pay for a feature they do not use); refusing such destinations (rejected:
 writing object files to a stream is the common case); seeking a file stream to
 read back checksummed bytes (rejected: needs the stream opened for reading as
 well).
+
+Note: built as SPECOPS-DRAFT-manifest-D46 in the log. Every stream is buffered
+when a manifest has slots, whether or not it could be sought, and so is every
+vector that is not a simple array of the manifest's units, which checksum
+functions need. The buffer may be one the caller keeps
+(SPECOPS-DRAFT-manifest-D47).
 
 ### SPECOPS-DRAFT-manifest-complete-D3 — Selective reads use a dependency closure computed at expansion
 
@@ -504,6 +510,11 @@ option to `marshal` and `unmarshal`, or a special variable, which raises
 reentrancy and threads. Whether one buffer serves both directions, how large it
 grows (the largest checksummed region, or the whole record), and who owns it
 are open.
+
+Answered for writing in the log by SPECOPS-DRAFT-manifest-D47: the caller owns
+a `manifest-buffer`, passed as `(:buffer b)`, which grows to the largest record
+written through it; stream sources are to accept the same object, and whether
+one instance serves both directions is the caller's choice.
 
 ## Prior Art
 
@@ -944,3 +955,54 @@ buffering (SPECOPS-DRAFT-manifest-complete-D2) keeps them for stream
 destinations; whether one reusable buffer serves both is
 SPECOPS-DRAFT-manifest-complete-O6, which buffering, the first priority, meets
 first. The rest are as in the update of 2026-10-30.
+
+## Update 2026-11-01 — Progress: destinations
+
+This installment charts the plan's progress at commit `b63b7d2`. The first
+priority of the previous update, destinations, is done: a manifest with slots
+or checksums is written to functions, streams and any vector through a buffer
+(SPECOPS-DRAFT-manifest-complete-D2), which a caller may keep across calls
+(SPECOPS-DRAFT-manifest-complete-O6, answered for writing), and a vector too
+small signals a condition. The correction listed in the previous update, the
+byte orders of sub-manifests chosen by `:case`, is made. The log's update of
+the same date records the work, with SPECOPS-DRAFT-manifest-D46 through
+SPECOPS-DRAFT-manifest-D49. All eighteen suites pass: 335 checks and the PNG
+verification.
+
+### Progress
+
+Table: State of each Roadmap milestone at commit `b63b7d2`. Entries new since
+the previous update are marked "new".
+
+| Milestone | State | Done | Remaining |
+|---|---|---|---|
+| 1. Corrections and records | Partly done | As before; new: the byte orders of sub-manifests chosen by `:case` (SPECOPS-DRAFT-manifest-D49) | New: checksums over `unmarshal` sources that are not simple byte arrays |
+| 2. Field kinds on read | Partly done | As before | SPECOPS-DRAFT-manifest-complete-O5 for fields without a terminator; writing a buffer sized by another field; fixed buffers of LEB elements; trailing `:length-of` and `:count-of` slots |
+| 3. Checked reads | Done | As before | — |
+| 4. Structs and run-time nested values | Done | As before | — |
+| 5. Variable structure | Done | As before | Instances addressed from outside a repeat, should a format need it |
+| 6. Destinations | Done | New: functions, streams and vectors other than simple arrays of units written through a buffer when a manifest has slots (SPECOPS-DRAFT-manifest-D46); a reusable `manifest-buffer` (SPECOPS-DRAFT-manifest-D47); `manifest-overrun` (SPECOPS-DRAFT-manifest-D48); a fault in writing slots to streams removed | Writing a buffer out in pieces, should a record grow too large to hold whole |
+| 7. Selective reads and stream sources | Open | `known-count` and `known-extent`; the region table built at expansion | Dependency closure and skip mode (SPECOPS-DRAFT-manifest-complete-D3); stream sources, with checksums over them through a `manifest-buffer` |
+| 8. WOFF | Open | `:count-of` slots; `:offset-of` written and read back by a probe | SPECOPS-DRAFT-manifest-complete-D6 |
+| 9. Floats and masque completion | Partly done | Decimal masques in `masque` and `unmasque` | The `:f` class; decimal masques in `unmarshal`; range checks; keyword groups registered for `:case` and `:count` |
+| 10. Packaging | Partly done | As before; new: the buffer and the overrun condition exported | Suites behind `test-op`; a Ref; the checksum functions exported |
+
+### Priorities
+
+1. **Selective reads and stream sources**
+   (SPECOPS-DRAFT-manifest-complete-D3).
+2. **WOFF** (SPECOPS-DRAFT-manifest-complete-D6).
+3. **Floats and masque completion.**
+4. **Packaging:** `test-op`, then a Ref.
+
+Checksums over sources that are not simple byte arrays are a small
+correction, to be taken between larger steps; it may fall out of stream
+sources, which need the same conversion.
+
+### Dependencies
+
+Stream sources keep the bytes of checksummed regions in a `manifest-buffer`,
+as SPECOPS-DRAFT-manifest-D47 intends, so the read side of
+SPECOPS-DRAFT-manifest-complete-O6 is settled when they are built. Selective
+reads extend the region table of SPECOPS-DRAFT-manifest-D43. The rest are as
+in the update of 2026-10-30.

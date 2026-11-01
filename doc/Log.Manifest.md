@@ -56,6 +56,10 @@ decisions:
   - SPECOPS-DRAFT-manifest-D43
   - SPECOPS-DRAFT-manifest-D44
   - SPECOPS-DRAFT-manifest-D45
+  - SPECOPS-DRAFT-manifest-D46
+  - SPECOPS-DRAFT-manifest-D47
+  - SPECOPS-DRAFT-manifest-D48
+  - SPECOPS-DRAFT-manifest-D49
 relates-to:
   - SPECOPS-DRAFT-manifest-complete
   - SPECOPS-DRAFT-restructure
@@ -83,8 +87,9 @@ which reads them back out. It covers the path from a freeform `marshal` macro to
 manifest-driven writing and reading, and the PNG test format used to exercise
 it. The chronicled state is commit `10b1568`; the updates at the end of this
 log carry the record forward: that of 2026-10-30 to commit `653345f`, three
-of 2026-10-31, to commits `738105a`, `d030f5c` and `2e1af03`, and three of
-2026-11-01, to commits `4f9c6d4`, `d7ba27f` and `1cc7600`. The repository restructure that followed
+of 2026-10-31, to commits `738105a`, `d030f5c` and `2e1af03`, and four of
+2026-11-01, to commits `4f9c6d4`, `d7ba27f`, `1cc7600` and `b63b7d2`. The
+repository restructure that followed
 moved the files this log names (see
 [SPECOPS-DRAFT-restructure](Log.Restructure.md)); code references stay pinned
 to the commits that held the work.
@@ -1963,3 +1968,217 @@ Validation inside `unmarshal`, outstanding since this log began, is done. New:
   read back, so the bytes of a checksummed region must be kept, perhaps in a
   buffer reused across reads.
 - The other items of the previous updates remain.
+
+## Update 2026-11-01 — Destinations
+
+This installment covers commit `b63b7d2`, which builds the Manifest Completion
+Plan's sixth milestone, destinations. A manifest with slots or checksums can
+now be written to a function, a stream or any vector, since `marshal` writes
+it through a buffer wherever it cannot be patched in place. The buffer may be
+one the caller keeps across calls, which answers the plan's open question
+SPECOPS-DRAFT-manifest-complete-O6 for writing. A vector too small signals a
+condition of its own. One walker over nested manifests now serves the code
+that needs them all, which fixes the byte orders of sub-manifests chosen by
+`:case`. A fault in writing to streams was found and removed on the way. The
+checks went from 315 to 335.
+
+### SPECOPS-DRAFT-manifest-D46 — A manifest with slots is written through a buffer to any destination it cannot patch in place
+
+**Status:** Proposed
+**Context:** Slots are backpatched through the destination's `write`, and
+checksums read the destination itself (SPECOPS-DRAFT-manifest-D7,
+SPECOPS-DRAFT-manifest-D9). In `src/manifest/manifest.lisp:marshal@1cc7600` a
+function had no `write`, so any slot failed by calling `nil`, and a checksum
+was handed the function or stream it was to read. A stream was patched by
+seeking to a recorded position, which counts from where `marshal` began,
+while `file-position` counts from the start of the file, and after each patch
+the position was set to the stream's absolute one. A record written after
+anything else in a stream therefore had its slots written over earlier bytes:
+a length slot written after a 2-byte header gave `#(3 7 0 1 0 5 9)` for
+`#(7 7 3 1 0 5 9)`. The GOFF writer writes records partway into a stream, and
+was spared only because its END record has no slots.
+SPECOPS-DRAFT-manifest-complete-D2 planned a buffer for destinations that
+cannot be patched and read.
+**Decision:** At expansion,
+`src/manifest/manifest.lisp:manifest-slots-p@b63b7d2` decides whether the
+manifest, or a manifest nested in it, has a slot of any kind. A manifest with
+none is written directly, as before. A manifest with one is written in place
+only to a simple array of its unit type, which checksum functions such as
+`crc` can read. A function, a stream, or any other vector is written into a
+buffer, a simple array grown by doubling, in which slots are resolved and
+checksums computed; when the record is complete the buffer is passed on, to a
+stream by one `write-sequence`, to a function by one call per unit, and to a
+vector by `aref`. Streams are never sought or read back. This amends
+SPECOPS-DRAFT-manifest-D7, whose streams were patched by seeking.
+**Alternatives:** Patching streams that can seek, after fixing the positions
+(rejected by the steward: deciding at run time whether a stream can seek has
+many pitfalls, and pipes and sockets cannot); buffering every manifest
+(rejected in SPECOPS-DRAFT-manifest-complete-D2: manifests without slots would
+pay for it); patching every vector in place (rejected: `crc` declares a simple
+byte array, so a checksum failed on a vector with a fill pointer or of general
+elements, as the new suite showed).
+
+### SPECOPS-DRAFT-manifest-D47 — A caller may keep the buffer across calls in a `manifest-buffer`
+
+**Status:** Proposed
+**Context:** A buffer made for every call puts pressure on the garbage
+collector when many records are written. A buffer kept across calls needs an
+owner, and SPECOPS-DRAFT-manifest-complete-O6 asked who owns it, how large it
+grows, and whether writing and reading share one.
+**Decision:** By default `marshal` makes a fresh buffer of 256 units for each
+call that needs one. Given `(:buffer b)` in its options, it takes the array
+that `b`, a `src/manifest/manifest.lisp:manifest-buffer@b63b7d2` made by
+`make-manifest-buffer`, holds, when its elements are of the manifest's unit
+type, and stores the array back when the record is complete, grown to the
+largest record written through it. The caller owns the buffer, so no special
+variable is involved and reentrancy and threads are the caller's concern, as
+for any object it passes. Stream sources, when built, are to accept the same
+object, so that one type serves both directions; whether one instance serves
+both is the caller's choice.
+**Alternatives:** A fresh buffer only (rejected by the steward: the pressure
+above); a special variable holding a buffer (rejected: a nested or concurrent
+call would share it); passing the array itself (rejected: an array replaced as
+it grows would be lost to the caller).
+
+### SPECOPS-DRAFT-manifest-D48 — A vector too small signals `manifest-overrun`, and a fill pointer is neither read nor set
+
+**Status:** Proposed
+**Context:** A vector destination too small for its record failed inside
+`aref`, with a message that named neither the manifest nor the vector's size.
+Adjustable vectors and vectors with fill pointers raised the question of
+whether `marshal` should grow them.
+**Decision:** `src/manifest/manifest.lisp:manifest-overrun@b63b7d2`, a subclass
+of `error`, holds the manifest, the vector's size and the position of the
+unit that did not fit, with exported readers. A vector is bounded by its
+allocated size: a vector written in place checks each unit and signals at the
+first that does not fit, leaving the units before it written; a vector
+written through a buffer is checked before the copy, so nothing is written. A
+fill pointer is neither read nor set. Growing a vector is the caller's
+concern, which the condition's position serves. There is no restart, since a
+record cannot be resumed in another vector.
+**Alternatives:** A plain error with a clear message (rejected by the steward:
+a caller could not catch it apart from other errors and retry); growing an
+adjustable vector with `vector-push-extend` (rejected by the steward: the
+caller's concern, and such a vector would still need the buffer for
+checksums); bounding a vector by its fill pointer (rejected: it would differ
+from `aref`, and a vector with a fill pointer of 0 could hold nothing).
+
+### SPECOPS-DRAFT-manifest-D49 — One walker visits every manifest nested in another, `:case` branches included
+
+**Status:** Proposed
+**Context:** `marshal` sizes its serializers from the byte orders of every
+manifest it expands (SPECOPS-DRAFT-manifest-D29), but
+`src/manifest/manifest.lisp:manifest-swap-specs@1cc7600` walked spans and
+sub-manifest fields and not sub-manifests chosen by `:case`. A branch whose
+manifest used a byte order its parent lacked indexed past the serializers.
+`manifest-checksums-p` had its own walk, and buffering needed a third.
+**Decision:** `src/manifest/manifest.lisp:walk-manifest@b63b7d2` calls a
+function on each stored field of a manifest and of every manifest nested in
+it, inside spans, as fields and repeats, and as `:case` branches, each once.
+`manifest-swap-specs` and `manifest-slots-p` are built on it; the latter,
+given `:checksum-of`, replaces `manifest-checksums-p`.
+**Alternatives:** Adding `:case` branches to `manifest-swap-specs` alone
+(rejected: three walks would drift apart again).
+
+### Implementation
+
+- **`src/manifest/manifest.lisp`.**
+  - `walk-manifest`, `manifest-swap-specs` and `manifest-slots-p`, per
+    SPECOPS-DRAFT-manifest-D49.
+  - `manifest-overrun` and `signal-overrun`, per SPECOPS-DRAFT-manifest-D48;
+    `manifest-buffer`, `reusable-buffer` and
+    `src/manifest/manifest.lisp:grow-buffer@b63b7d2`, per
+    SPECOPS-DRAFT-manifest-D46 and SPECOPS-DRAFT-manifest-D47.
+  - In `src/manifest/manifest.lisp:marshal@b63b7d2`: the `:buffer` option; a
+    local `in-place` function that sets the vector's checked `enter` and its
+    `write`; the dispatch on the destination, chosen at expansion by
+    `manifest-slots-p`; the copy of the buffer to its destination at the end;
+    and an error for a destination that is not a vector, a stream or a
+    function. The stream `write` that sought, and the `tell` function that
+    nothing called, are gone.
+  - `src/manifest/manifest.lisp:unmarshal@b63b7d2` asks `manifest-slots-p`
+    for checksums.
+- **`src/package.lisp`.** Exports `make-manifest-buffer`, `manifest-buffer`,
+  `manifest-overrun` and its readers `overrun-manifest`, `overrun-size` and
+  `overrun-position`.
+- **`test/manifest.lisp`.** `test/manifest.lisp:run-destination-demo@b63b7d2`
+  and its helper `test/manifest.lisp:collect-units@b63b7d2`; the probe
+  `test/manifest.lisp:case-le-branch-probe@b63b7d2`.
+
+### Verification
+
+The run command is that of the update of 2026-10-31 for the scan model, with
+`(specops::run-record-demo)`, `(specops::run-variable-demo)`,
+`(specops::run-checked-read-demo)` and `(specops::run-destination-demo)`
+added.
+
+Table: Suites added or extended in commit `b63b7d2`, and the totals there.
+
+| Suite | Checks | Added |
+|---|---|---|
+| `run-destination-demo` | 19 | New. Functions, file streams, buffers and overruns, as listed below |
+| `run-case-demo` | 28 → 29 | A little-endian sub-manifest chosen by `:case` in a big-endian parent, written and read back |
+| All eighteen suites | 315 → 335 | All pass, with the PNG verification |
+
+The new suite checks, among other things:
+
+- **Functions:** `png-file`, `png-any` with ancillary chunks, a `:count-of`
+  slot and an `:offset-of` slot, each giving the bytes written to a vector; a
+  312-byte IDAT chunk, which grows the buffer past its first 256 units.
+- **Streams:** files opened for output only, at their start and after a
+  header, for a manifest with checksums and for one with a length slot alone;
+  the PNG with ancillary chunks read back from such a file with no failed
+  check; a manifest without slots written directly.
+- **Expansion:** only manifests with a slot, here or nested, are written
+  through a buffer.
+- **Reusable buffers:** a `manifest-buffer` keeping its array across two
+  calls, keeping the array it grew, and left alone by a vector destination.
+- **Vectors:** `manifest-overrun` with its size and position, for a manifest
+  with slots and one without; a vector with a fill pointer and a vector of
+  general elements receiving a PNG through the buffer, the fill pointer left
+  alone; an overrun through the buffer writing nothing; a vector with a fill
+  pointer written in place by a manifest without slots.
+- **Errors:** a destination that is not a vector, a stream or a function, and
+  an unknown option.
+
+The faults these checks guard against were reproduced by hand on a checkout of
+`1cc7600`: a length slot written to a stream after a header, `png-file` written
+to a function, `png-file` written to a 50-byte vector, and the `:case` branch,
+each failing as the contexts of SPECOPS-DRAFT-manifest-D46,
+SPECOPS-DRAFT-manifest-D48 and SPECOPS-DRAFT-manifest-D49 describe. The manifest layer has no style warnings, and
+the five test scripts in `test/` pass, among them the GOFF writer's, which
+writes to a stream through `marshal`. The architecture systems
+`specops.arch.6502`, `.s390x`, `.x86`, `.z80` and `.wasm`, and the three
+format systems, load with the new exports.
+
+### Files
+
+Table: Files changed in commit `b63b7d2`, and the documents updated after it.
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/manifest/manifest.lisp` | Modified | The walker, buffering, the reusable buffer, overruns |
+| `src/package.lisp` | Modified | Exports the buffer and the overrun condition |
+| `test/manifest.lisp` | Modified | The destinations suite; the `:case` byte-order check |
+| `doc/Log.Manifest.md` | Modified | This update |
+| `doc/Plan.ManifestComplete.md` | Modified | Progress installment for destinations; SPECOPS-DRAFT-manifest-complete-O6 answered for writing; a note under SPECOPS-DRAFT-manifest-complete-D2 |
+
+### Metrics
+
+- Test checks: 335 automated checks plus 1 structural PNG verification, up
+  from 315.
+- Regressions at `b63b7d2`: 0.
+
+### Outstanding Work
+
+Auto-buffering and stream checksums, outstanding since this log began, are
+done, as are the byte orders of `:case` branches. New:
+
+- **Checksums over sources that are not simple byte arrays.** `unmarshal`
+  hands a vector source to the checksum function as it is, so `crc` fails on
+  a vector with a fill pointer or of general elements; `source-units`
+  converts only integers.
+- **Writing a buffer out in pieces**, once nothing before a point can still be
+  patched, should a record grow too large to hold whole.
+- The other items of the previous updates remain, among them the checksum
+  functions, which are not exported.
