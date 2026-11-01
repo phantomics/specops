@@ -72,15 +72,22 @@ fields from when it is given (:from RECORD); NIL when RECORD holds no value for 
                                        type-conditions
                                        (cons 'list
                                              (loop :for (keys . type) :in subtypes
-                                                   :collect (multiple-value-bind (w s st)
-                                                                ;; (0 :u8) and (0 :u 1 :leb) are both allowed
-                                                                (parse-type (if (and (null (rest type))
-                                                                                     (keywordp (first type)))
-                                                                                (first type) type))
-                                                              (list 'list :keys (list 'quote keys)
-                                                                          :length (ash w (- unit-spec))
-                                                                          :signed s
-                                                                          :subtypes (list 'quote st))))))
+                                                   :collect
+                                                   (if (manifest-branch-p type)
+                                                       ;; (key (manifest name)): a sub-manifest,
+                                                       ;; stored like the manifest directive
+                                                       (list 'list :keys (list 'quote keys)
+                                                                   :type :manifest
+                                                                   :actual (list 'quote (rest (first type))))
+                                                       (multiple-value-bind (w s st)
+                                                           ;; (0 :u8) and (0 :u 1 :leb) are both allowed
+                                                           (parse-type (if (and (null (rest type))
+                                                                                (keywordp (first type)))
+                                                                           (first type) type))
+                                                         (list 'list :keys (list 'quote keys)
+                                                                     :length (ash w (- unit-spec))
+                                                                     :signed s
+                                                                     :subtypes (list 'quote st)))))))
                                  (setf width        count
                                        subtype-list subtypes))
                              ;; (if (eq :case is-signed)
@@ -187,6 +194,11 @@ fields from when it is given (:from RECORD); NIL when RECORD holds no value for 
              (setf (gethash ',name *manifests*)
                    ,(cons 'list (reverse field-specs))))
            ,@(and record-class `((define-manifest-record ,name ,record-class))))))))
+
+(defun manifest-branch-p (type)
+  "True when TYPE, the type of a :case branch, is (manifest name), naming a sub-manifest."
+  (and (consp type) (null (rest type)) (consp (first type))
+       (symbolp (first (first type))) (string= "MANIFEST" (symbol-name (first (first type))))))
 
 (defun manifest-field-names (items)
   "The names of the fields among ITEMS, a manifest's stored fields: span children at the
@@ -357,6 +369,25 @@ in PAIRS from RECORD, a plist or a manifest's record, when the code runs."
                                                   (list* :pr-sym (qualify name) sub-lexicon))
                                             literal))))
                    (if child-record `(let ((,child-record ,record)) ,expansion) expansion))))
+             (case-value-context (name default enumerate-by slot plan)
+               ;; a :case field's value, for each kind of branch: a sub-manifest branch takes
+               ;; literal nested values or a record form; other branches take a value form
+               (let* ((given (getf pairs name))
+                      (nested (and (consp given) (keywordp (first given)))))
+                 (when (and nested (not (typep plan '(or case-plan manifest-plan))))
+                   (error "marshal: field ~s was given nested values, but its selector chooses a ~
+                           branch that is not a sub-manifest." name))
+                 (list :literal (and nested given)
+                       :record (cond (nested nil)
+                                     (given given)
+                                     (from `(field-value ,from ',name)))
+                       :value (cond (nested
+                                     `(error "marshal: field ~s was given nested values, but its ~
+                                              selector chose a branch that is not a sub-manifest." ',name))
+                                    ((or given default from)
+                                     (scalar-value-form name default enumerate-by slot))
+                                    (t `(error "marshal: field ~s has no value for a branch that ~
+                                                is not a sub-manifest." ',name))))))
              (masque-binder (b)
                (if (eq :binding (first b))
                    (second b)
@@ -483,23 +514,29 @@ in PAIRS from RECORD, a plist or a manifest's record, when the code runs."
 
                             ,(cond
                                ((intersection '(:vec :leb :case) subtypes)
-                                (write-effector
-                                 (simplify-plan (field-plan item :selector-form #'selector-form
-                                                                 :enum-of #'enum-of
-                                                                 ;; on write, a buffer's size is an
-                                                                 ;; integer :count; a counted vector
-                                                                 ;; takes its length from its value
-                                                                 :count-form (lambda (i)
-                                                                               (let ((c (getf i :count)))
-                                                                                 (and (integerp c) c)))
-                                                                 :unit-bits (ash 1 (+ 3 (getf params
-                                                                                              :unit-spec)))))
-                                 (list :name name
-                                       :value (if (member :vec subtypes)
-                                                  (vec-source-form name default count end-by)
-                                                  (scalar-value-form name default enumerate-by slot))
-                                       :write (lambda (w f) `(funcall (aref ,serializers ,swap-by)
-                                                                      (cons ,w ,f) ,enter)))))
+                                (let ((plan (simplify-plan
+                                             (field-plan item :selector-form #'selector-form
+                                                              :enum-of #'enum-of
+                                                              ;; on write, a buffer's size is an
+                                                              ;; integer :count; a counted vector
+                                                              ;; takes its length from its value
+                                                              :count-form (lambda (i)
+                                                                            (let ((c (getf i :count)))
+                                                                              (and (integerp c) c)))
+                                                              :unit-bits (ash 1 (+ 3 (getf params
+                                                                                           :unit-spec)))))))
+                                  (write-effector
+                                   plan
+                                   (list* :name name
+                                          :write (lambda (w f) `(funcall (aref ,serializers ,swap-by)
+                                                                         (cons ,w ,f) ,enter))
+                                          :write-manifest #'write-manifest
+                                          (cond ((member :case subtypes)
+                                                 (case-value-context name default enumerate-by slot plan))
+                                                ((member :vec subtypes)
+                                                 (list :value (vec-source-form name default count end-by)))
+                                                (t (list :value (scalar-value-form name default
+                                                                                   enumerate-by slot))))))))
                                ;; ((member :leb subtypes)
                                ;;  (unless (eql 1 length-form)
                                ;;    (error "Field ~s: a LEB field must be one unit wide." name))
@@ -855,6 +892,7 @@ as an instance of the manifest's record class."
                                                                       :unit-bits (ash 1 (+ 3 (getf config
                                                                                                    :unit-spec))))
                                                      (list :name name :cursor cursor :src src
+                                                           :read-manifest #'read-manifest
                                                            :read-at (lambda (at w sg)
                                                                       `(funcall (aref ,dsym ,swap-by)
                                                                                 ,at ,w ,sg ,src))))))

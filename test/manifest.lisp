@@ -1356,7 +1356,11 @@ Returns T if all checks pass."
              '(#x42 #x41 #x43 0))
       (check "vec-wide-probe, read back"
              (unmarshal vec-wide-probe (->bytes #(#x42 #x41 #x43 0)))
-             '(:s #(#x4142 #x43))))
+             '(:s #(#x4142 #x43)))
+      (check "vec-wide-probe, a list is accepted as a vector's value"
+             (let ((value (list #x4142 #x43)))
+               (to-list (lambda (d) (marshal vec-wide-probe d :s value))))
+             '(#x42 #x41 #x43 0)))
     (let ((pass (every #'identity results)))
       (format t "~&vector scan checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
               pass (count t results) (length results))
@@ -2258,5 +2262,99 @@ Returns T if all checks pass."
              '(1 0 0 0 0 9)))
     (let ((pass (every #'identity results)))
       (format t "~&record checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
+              pass (count t results) (length results))
+      pass)))
+
+;;; ===========================================================================
+;;; Part R — variable structure: sub-manifests chosen by :case, and repeated
+;;; ===========================================================================
+
+;; Chunk types as codes: "IHDR", "IDAT" and "IEND" read as big-endian 32-bit integers.
+(defenum png-chunk-type nil :ihdr #x49484452 :idat #x49444154 :iend #x49454E44)
+
+;; Any PNG chunk: IHDR's body is a sub-manifest; every other chunk's data is raw bytes,
+;; whose count comes from the length slot. A type the enum lacks reads as its code.
+(defmanifest png-chunk (:unit 8 :endian :big :record t)
+  (:length (:u 4) :slot (:length-of :data))
+  (span :type+data
+    (:type (:u 4) :enumerate-by png-chunk-type)
+    (:data (:case :type (:ihdr (manifest png-ihdr)) (otherwise :u 1 :vec))))
+  (:crc (:u 4) :default 0 :slot (:checksum-of :type+data :by #'crc)))
+
+(defun run-variable-demo ()
+  "Marshal and unmarshal sub-manifests chosen by :case, and repeated sub-manifests.
+Returns T if all checks pass."
+  (let ((results nil))
+    (flet ((check (label got want)
+             (let ((ok (equalp got want)))
+               (push ok results)
+               (format t "~&  ~:[FAIL~;ok  ~]  ~a~%" ok label)
+               (unless ok
+                 (format t "~&          got  ~s~%          want ~s~%" got want)))))
+      (format t "~&variable structure checks:~%")
+
+      ;; 1. A :case field whose branch is a sub-manifest.
+      (let* ((png (make-1x1-png))
+             (ihdr (subseq png 8 33)) (idat (subseq png 33 60)) (iend (subseq png 60 72)))
+        (check "png-chunk, an IHDR chunk written with a constant selector and nested values"
+               (let ((buf (ub8 25)))
+                 (marshal png-chunk buf :type :ihdr :data (:width 1 :height 1 :color-type :rgb))
+                 buf)
+               ihdr)
+        (check "png-chunk, an IDAT chunk takes the raw branch"
+               (let ((buf (ub8 27)))
+                 (marshal png-chunk buf :type :idat :data (subseq idat 8 23))
+                 buf)
+               idat)
+        (check "png-chunk, the IHDR chunk read back: its data read by the sub-manifest"
+               (unmarshal png-chunk ihdr)
+               (list :length 13 :type :ihdr
+                     :data '(:width 1 :height 1 :bit-depth 8 :color-type :rgb
+                             :compression 0 :filter 0 :interlace :none)
+                     :crc (rd-u32-be ihdr 21)))
+        (check "png-chunk, the IDAT and IEND chunks read back as raw data"
+               (list (getf (unmarshal png-chunk idat) :data)
+                     (unmarshal png-chunk iend))
+               (list (subseq idat 8 23)
+                     (list :length 0 :type :iend :data #() :crc (rd-u32-be iend 8))))
+        (check "png-chunk, a selector known only at run time chooses the sub-manifest"
+               (let ((buf (ub8 25)) (type :ihdr)
+                     (data (list :width 1 :height 1 :color-type :rgb)))
+                 (marshal png-chunk buf :type type :data data)
+                 buf)
+               ihdr)
+        (check "png-chunk, read as a record holding a png-ihdr record, and written back"
+               (let* ((r (unmarshal png-chunk ihdr (:as :record))) (buf (ub8 25)))
+                 (marshal png-chunk buf (:from r))
+                 (list (class-name (class-of (png-chunk-data r)))
+                       (png-ihdr-width (png-chunk-data r))
+                       (equalp buf ihdr)))
+               '(png-ihdr 1 t)))
+
+      ;; 2. A chunk type the enum lacks: raw data, and its code read and written back.
+      (let ((text (ub8 21)))
+        ;; tEXt, "Title" NUL "png": a PNG ancillary chunk
+        (marshal png-chunk text :type #x74455874
+                                :data (->bytes (map 'vector #'char-code
+                                                    (concatenate 'string "Title" (string (code-char 0))
+                                                                 "png"))))
+        (let ((plist (unmarshal png-chunk text)))
+          (check "png-chunk, a tEXt chunk reads with its type's code and raw data"
+                 (list (getf plist :length) (getf plist :type) (length (getf plist :data))
+                       (= (getf plist :crc) (crc text 4 17)))
+                 '(9 #x74455874 9 t))
+          (check "png-chunk, the tEXt chunk read and written back"
+                 (let ((buf (ub8 21)))
+                   (marshal png-chunk buf (:from plist))
+                   buf)
+                 text)))
+
+      ;; 3. Nested values for a branch that is not a sub-manifest.
+      (check "png-chunk, nested values with a constant selector choosing raw data: an expansion error"
+             (signals-error-p (lambda () (macroexpand-1 '(marshal png-chunk d :type :idat
+                                                          :data (:width 1)))))
+             t))
+    (let ((pass (every #'identity results)))
+      (format t "~&variable structure checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
               pass (count t results) (length results))
       pass)))

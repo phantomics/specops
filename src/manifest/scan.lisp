@@ -389,7 +389,9 @@ and :last (true when the element just yielded was the final one)."))
   (with-slots (bits signed enum codec) a
     (destructuring-bind (&key name value &allow-other-keys) ctx
       (let ((src (gensym "SRC")) (j (gensym "J")) (enc (gensym "ENC")) (x (gensym "X")))
-        (list :bindings `((,src ,value) (,j 0) ,@(and codec `((,enc ,(codec-form codec "encode")))))
+        ;; any sequence is accepted; a vector or a string is used as it is
+        (list :bindings `((,src (coerce ,value 'vector)) (,j 0)
+                          ,@(and codec `((,enc ,(codec-form codec "encode")))))
               :declare `((type fixnum ,j))
               :more `(< ,j (length ,src))
               :next `(let ((,x (aref ,src ,j)))
