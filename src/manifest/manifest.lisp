@@ -25,7 +25,7 @@ fields from when it is given (:from RECORD); NIL when RECORD holds no value for 
                     map))))
 
 (defmacro defmanifest (name params &body fields)
-  (destructuring-bind (&key unit endian index vextend-by count-from length pad offset) params
+  (destructuring-bind (&key unit endian index vextend-by count-from length pad offset record) params
     (declare (ignore index vextend-by count-from)) ; accepted, but not yet used
     (let* ((unit-spec (typecase unit
                         (integer (if (< unit 4)
@@ -37,8 +37,11 @@ fields from when it is given (:from RECORD); NIL when RECORD holds no value for 
            ;; the manifest's byte order applies to every field that gives none; big-endian
            ;; when the manifest gives none either
            (swap-by (case endian ((nil :big) 0) (:little 1) (:middle 2) (:pdp 2) (t endian)))
+           ;; (:record t) names the record class after the manifest; a symbol names it
+           (record-class (if (eq t record) name record))
            (field-specs (list (list 'list :type :config :unit-spec unit-spec
-                                    :pad pad :length length))))
+                                    :pad pad :length length
+                                    :record (list 'quote record-class)))))
 
       (labels ((format-slot-spec (spec)
                  ;; quote functions mentioned in slot specs for proper marshal macroexpansion
@@ -178,9 +181,49 @@ fields from when it is given (:from RECORD); NIL when RECORD holds no value for 
                                        :mode :to :n length :swap-by swap-by)
                            field-specs))
         
-        `(eval-when (:compile-toplevel :load-toplevel :execute)
-           (setf (gethash ',name *manifests*)
-                 ,(cons 'list (reverse field-specs))))))))
+        ;; the record class is defined from the stored fields, so it follows their registration
+        `(progn
+           (eval-when (:compile-toplevel :load-toplevel :execute)
+             (setf (gethash ',name *manifests*)
+                   ,(cons 'list (reverse field-specs))))
+           ,@(and record-class `((define-manifest-record ,name ,record-class))))))))
+
+(defun manifest-field-names (items)
+  "The names of the fields among ITEMS, a manifest's stored fields: span children at the
+span's level, keyword groups of masques, and sub-manifest fields; not unnamed fields."
+  (loop :for it :in items
+        :append (case (getf it :type)
+                  (:span   (manifest-field-names (getf it :items)))
+                  (:masque (loop :for b :in (getf it :bindings)
+                                 :when (getf b :name) :collect (getf b :name)))
+                  (t (and (getf it :name) (list (getf it :name)))))))
+
+(defmacro define-manifest-record (manifest class)
+  "Define CLASS, the record of the registered MANIFEST: a slot per named field, with an
+initarg of the field's keyword and an accessor CLASS-FIELD, a constructor MAKE-CLASS, and a
+field-value method. The derived names are interned in CLASS's package."
+  (let* ((names (remove-duplicates (manifest-field-names (rest (gethash manifest *manifests*)))))
+         (package (symbol-package class))
+         (record (gensym "RECORD")) (field (gensym "FIELD")) (stream (gensym "STREAM"))
+         (accessors (mapcar (lambda (n) (intern (format nil "~a-~a" (symbol-name class) (symbol-name n))
+                                                package))
+                            names)))
+    `(progn
+       (defclass ,class ()
+         ,(loop :for n :in names :for a :in accessors
+                :collect `(,(intern (symbol-name n) package) :initarg ,n :initform nil :accessor ,a)))
+       (defun ,(intern (format nil "MAKE-~a" (symbol-name class)) package) (&rest initargs)
+         (apply #'make-instance ',class initargs))
+       (defmethod field-value ((,record ,class) ,field)
+         (case ,field
+           ,@(loop :for n :in names :for a :in accessors :collect `(,n (,a ,record)))
+           (t nil)))
+       (defmethod print-object ((,record ,class) ,stream)
+         (print-unreadable-object (,record ,stream :type t)
+           (format ,stream "~{~s~^ ~}"
+                   (list ,@(loop :for n :in names :for a :in accessors
+                                 :append `(,n (,a ,record)))))))
+       ',class)))
 
 (defun manifest-swap-specs (items)
   "The byte orders used by ITEMS, a manifest's stored fields, including those inside spans
@@ -607,14 +650,7 @@ no such code, so that a record holding a code the enum lacks can be read and wri
          (config (and (eq :config (getf (first spec) :type))
                       (first spec)))
          ;; (all-keys (loop :for item :in (rest spec) :when (getf item :name) :collect (getf item :name)))
-         (all-keys (labels ((named (items)
-                              (loop :for it :in items
-                                    :append (case (getf it :type)
-                                              (:span   (named (getf it :items)))
-                                              (:masque (loop :for b :in (getf it :bindings)
-                                                             :when (getf b :name) :collect (getf b :name)))
-                                              (t (and (getf it :name) (list (getf it :name))))))))
-                     (named (rest spec))))
+         (all-keys (manifest-field-names (rest spec)))
          (length-sources
            (let (acc)
              (labels ((scan (items)

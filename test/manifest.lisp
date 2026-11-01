@@ -1944,6 +1944,35 @@ Returns T if all checks pass."
   (:a :u8)
   (:b :u8 :default 5))
 
+;; Records: a class named after the manifest, and one named explicitly.
+(defmanifest rec-ihdr (:unit 8 :endian :big :record t)
+  (:width      (:u 4) :default 0)
+  (:height     (:u 4) :default 0)
+  (:color-type :u8    :default 0 :enumerate-by png-color-type))
+
+;; A chunk whose record holds the body's record; the length and CRC are slot fields.
+(defmanifest rec-chunk (:unit 8 :endian :big :record rec-chunk-record)
+  (:length (:u 4) :slot (:length-of :body))
+  (span :type+data
+    (str "RCHK")
+    (manifest :body rec-ihdr))
+  (:crc (:u 4) :default 0 :slot (:checksum-of :type+data :by #'crc)))
+
+;; A record whose sub-manifest has no record type, so that field holds a plist.
+(defmanifest rec-parent (:unit 8 :endian :big :record t)
+  (:a     :u8 :default 0)
+  (manifest :child png-ihdr))
+
+;; Masque keyword groups are fields of the record.
+(defmanifest rec-masque (:unit 8 :endian :big :record t)
+  (masque "h:aabb" (a :mode  :u8 :default 0 :enumerate-by png-color-type)
+                   (b :delta (:s 1) :default 0))
+  (:tail :u8 :default 0))
+
+;; A record class named in another package: its accessors and constructor go there too.
+(defmanifest rec-foreign (:unit 8 :endian :big :record specops.test.rules::rule-record)
+  (:a :u8 :default 0))
+
 (defun write-ihdr-from (record)
   "Marshal a png-ihdr body from RECORD, a plist known only when this runs."
   (let ((buf (ub8 13)))
@@ -2060,7 +2089,73 @@ Returns T if all checks pass."
                      (let ((buf (ub8 25)))  ; the chunk's length slot is patched in a vector
                        (marshal png-ihdr-chunk buf (:from (unmarshal png-ihdr-chunk c)))
                        (equalp c buf))))
-             '(t t t)))
+             '(t t t))
+
+      ;; 5. Record classes.
+      (check "rec-ihdr, a class with a constructor and accessors named after the manifest"
+             (let ((r (make-rec-ihdr :width 640 :color-type :rgba)))
+               (list (class-name (class-of r)) (rec-ihdr-width r) (rec-ihdr-height r)
+                     (rec-ihdr-color-type r)))
+             '(rec-ihdr 640 nil :rgba))
+      (check "rec-chunk, an explicit class name, with span children as slots"
+             (let ((r (make-rec-chunk-record :length 1 :body 2 :crc 3)))
+               (list (class-name (class-of r)) (rec-chunk-record-body r)
+                     (field-value r :length) (field-value r :crc) (field-value r :type+data)))
+             '(rec-chunk-record 2 1 3 nil))
+      (check "rec-foreign, the accessors and constructor are interned in the class's package"
+             (let ((accessor (find-symbol "RULE-RECORD-A" :specops.test.rules))
+                   (constructor (find-symbol "MAKE-RULE-RECORD" :specops.test.rules)))
+               (list (and accessor (fboundp accessor) t) (and constructor (fboundp constructor) t)
+                     (find-symbol "RULE-RECORD-A" :specops)))
+             '(t t nil))
+      (check "rec-ihdr, a record prints with its fields"
+             (let ((*package* (find-package :specops)))
+               (prin1-to-string (make-rec-ihdr :width 1)))
+             "#<REC-IHDR :WIDTH 1 :HEIGHT NIL :COLOR-TYPE NIL>")
+
+      ;; 6. Records into marshal.
+      (let ((literal (ub8 9)) (from (ub8 9)))
+        (marshal rec-ihdr literal :width 640 :height 480 :color-type :rgba)
+        (marshal rec-ihdr from (:from (make-rec-ihdr :width 640 :height 480 :color-type :rgba)))
+        (check "rec-ihdr, a record writes the same bytes as literal values" from literal))
+      (let ((r (make-rec-ihdr :width 1 :height 1)) (buf (ub8 9)))
+        (setf (rec-ihdr-height r) 2)
+        (marshal rec-ihdr buf (:from r))
+        (check "rec-ihdr, a field edited through its accessor, and a missing one defaulted"
+               (unmarshal rec-ihdr buf)
+               '(:width 1 :height 2 :color-type :grayscale)))
+      (let ((literal (ub8 21)) (from (ub8 21)))
+        (marshal rec-chunk literal :body (:width 7 :height 9 :color-type :rgb))
+        (marshal rec-chunk from (:from (make-rec-chunk-record
+                                        :length 999 :crc 0
+                                        :body (make-rec-ihdr :width 7 :height 9 :color-type :rgb))))
+        (check "rec-chunk, a record holding a record; length and CRC recomputed" from literal))
+      (let ((literal (ub8 14)) (from (ub8 14)))
+        (marshal rec-parent literal :a 5 :child (:width 1 :height 1 :color-type :rgb))
+        (marshal rec-parent from (:from (make-rec-parent :a 5 :child (list :width 1 :height 1
+                                                                            :color-type :rgb))))
+        (check "rec-parent, a record holding a plist for a child without a record type"
+               from literal))
+      (check "rec-masque, masque groups from a record"
+             (to-list (lambda (d) (marshal rec-masque d (:from (make-rec-masque :mode :rgba :delta -3
+                                                                                :tail 7)))))
+             '(6 #xFD 7))
+
+      ;; 7. Redefining a manifest with different fields redefines its class.
+      (check "redefining a record manifest with a new field gives the class the new slot"
+             (progn
+               (eval '(defmanifest rec-redefined (:unit 8 :endian :big :record t)
+                       (:a :u8 :default 0)))
+               (eval '(defmanifest rec-redefined (:unit 8 :endian :big :record t)
+                       (:a :u8 :default 0)
+                       (:b :u8 :default 0)))
+               (let ((r (funcall (find-symbol "MAKE-REC-REDEFINED" :specops) :a 1 :b 2)))
+                 (list (field-value r :a) (field-value r :b)
+                       (to-list (lambda (d) (funcall (compile nil `(lambda (d)
+                                                                     (marshal rec-redefined d
+                                                                       (:from ,r))))
+                                                     d))))))
+             '(1 2 (1 2))))
     (let ((pass (every #'identity results)))
       (format t "~&record checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
               pass (count t results) (length results))
