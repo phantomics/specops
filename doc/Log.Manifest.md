@@ -46,6 +46,12 @@ decisions:
   - SPECOPS-DRAFT-manifest-D33
   - SPECOPS-DRAFT-manifest-D34
   - SPECOPS-DRAFT-manifest-D35
+  - SPECOPS-DRAFT-manifest-D36
+  - SPECOPS-DRAFT-manifest-D37
+  - SPECOPS-DRAFT-manifest-D38
+  - SPECOPS-DRAFT-manifest-D39
+  - SPECOPS-DRAFT-manifest-D40
+  - SPECOPS-DRAFT-manifest-D41
 relates-to:
   - SPECOPS-DRAFT-manifest-complete
   - SPECOPS-DRAFT-restructure
@@ -73,8 +79,8 @@ which reads them back out. It covers the path from a freeform `marshal` macro to
 manifest-driven writing and reading, and the PNG test format used to exercise
 it. The chronicled state is commit `10b1568`; the updates at the end of this
 log carry the record forward: that of 2026-10-30 to commit `653345f`, three
-of 2026-10-31, to commits `738105a`, `d030f5c` and `2e1af03`, and that of
-2026-11-01 to commit `4f9c6d4`. The repository restructure that followed
+of 2026-10-31, to commits `738105a`, `d030f5c` and `2e1af03`, and two of
+2026-11-01, to commits `4f9c6d4` and `d7ba27f`. The repository restructure that followed
 moved the files this log names (see
 [SPECOPS-DRAFT-restructure](Log.Restructure.md)); code references stay pinned
 to the commits that held the work.
@@ -1529,3 +1535,221 @@ Table: Files changed in commits `fed7f35` through `4f9c6d4`.
 - **Exact round trips** of sources that are not canonical, should a format
   need them (SPECOPS-DRAFT-manifest-D35).
 - The items left from the previous update remain.
+
+## Update 2026-11-01 — Variable structure
+
+This installment covers commits `a12b394` through `d7ba27f`, which build the
+Manifest Completion Plan's SPECOPS-DRAFT-manifest-complete-D5 and answer its
+SPECOPS-DRAFT-manifest-complete-O4. A sub-manifest became a field plan, so
+that a `:case` field can choose one and a manifest can repeat one: by a
+count, by a count field, until an instance matches a condition, to the end of
+the source, or until a length slot's bytes are used. Count fields can be
+computed on write. One manifest now reads and writes any sequence of PNG
+chunks. The checks went from 258 to 292.
+
+### SPECOPS-DRAFT-manifest-D36 — A sub-manifest is a field plan, expanded by the macro that holds its parent
+
+**Status:** Proposed
+**Context:** Both macros expanded a sub-manifest in a clause of their own,
+which kept the region map and the shared environment. A sub-manifest could
+therefore appear only as a field by itself, not as a `:case` branch or as the
+element of a scan.
+**Decision:** `src/manifest/scan.lisp:manifest-plan@d7ba27f` is a field plan
+holding a sub-manifest's name. Its effectors call functions the macros pass
+in their context, `read-manifest` and `write-manifest`, which expand the
+child at a given cursor, or from given literal values and a record, sharing
+the parent's environment. The region bookkeeping for the field stays with the
+code that writes the field. The first commit made this change alone, and the
+expansions of nested manifests were compared before and after: identical once
+gensym names were normalized.
+**Alternatives:** A sub-manifest kind of plan that expands the child itself
+(rejected: the child's code must share the macros' lexical environment, which
+only they hold); a separate mechanism for `:case` branches and repeats
+(rejected: one plan serves both, and nests).
+
+### SPECOPS-DRAFT-manifest-D37 — A `:case` branch may be a sub-manifest, `(key (manifest name))`
+
+**Status:** Proposed
+**Context:** Chunked formats choose a record's layout by a tag, as PNG does
+by a chunk's type. SPECOPS-DRAFT-manifest-complete-D5 asked for `:case` to
+choose a sub-manifest, with a default branch.
+**Decision:** A branch written `(key (manifest name))` is stored like the
+`manifest` directive and read and written through a manifest plan. Keys stay
+codes through the selector's enum (SPECOPS-DRAFT-manifest-D20), so a tag the
+enum lacks takes the `otherwise` branch, which may read raw bytes counted by a
+length slot. `marshal` gives each kind of branch its value: a sub-manifest
+branch takes literal nested values, or a record form, from the given value or
+a `:from` record; other branches take a value form. Nested values for a
+branch that is not a sub-manifest are an expansion error when a constant
+selector chooses it, and a run-time error otherwise. Since every branch is
+compiled when the selector is known only at run time, a vector field now
+accepts any sequence, coerced to a vector once.
+**Alternatives:** A bare symbol naming the manifest, `(key name)` (rejected by
+the steward: `(manifest name)` mirrors the directive and cannot be taken for
+a width spec); string keys compared with `equalp` (rejected: an enum of the
+tags' codes keeps keys as integers).
+
+### SPECOPS-DRAFT-manifest-D38 — A repeated sub-manifest is a scan whose elements are instances
+
+**Status:** Proposed
+**Context:** SPECOPS-DRAFT-manifest-complete-D5 asked for sub-manifests
+repeated by a count, by a count or length field, or until an instance
+matching a condition on its fields, read as a list. A PNG file is a signature
+and chunks up to IEND.
+**Decision:** Options after the child's name in the `manifest` directive make
+it a repeat: `:count n`, `:count :field`, `:until (field value …)`,
+`:until :end`, or `:until :length` (SPECOPS-DRAFT-manifest-D40). In
+`src/manifest/scan.lisp:field-plan@d7ba27f` a repeat is a scan plan whose
+element is the manifest plan, whose assembler,
+`src/manifest/scan.lisp:list-assembler@d7ba27f`, collects a list on read and
+walks any sequence on write, and whose stop rule is a count rule,
+`src/manifest/scan.lisp:end-rule@d7ba27f`, the units rule, or
+`src/manifest/scan.lisp:until-rule@d7ba27f`. The until rule keeps the
+instance that matches. It reads fields with `field-value`, so plists and
+records serve alike, and compares codes through the enum of the child's
+field, so a value given as a keyword or as a code matches either way. On
+write it checks, as for terminators, that only the last instance matches,
+that it does, and that there is at least one. A repeat given no value, or
+`nil`, has no instances, since a record read from a file with none holds
+`nil`. A scan of instances checks before each that the source has not run
+out.
+**Alternatives:** A separate `repeat` directive (rejected by the steward:
+options on `manifest` keep one directive for sub-manifests); conditions
+written as code (rejected: no logic in manifests,
+SPECOPS-DRAFT-manifest-D2); an empty repeat as an error (rejected: it must
+round-trip).
+
+### SPECOPS-DRAFT-manifest-D39 — Slots inside a repeated instance resolve within that instance
+
+**Status:** Proposed
+**Context:** Regions are named by keywords fixed at expansion, made unique per
+sub-manifest field by prefixes (SPECOPS-DRAFT-manifest-D11). A repeat writes
+its child's code once and runs it for each instance, so every instance has
+the same region names. SPECOPS-DRAFT-manifest-complete-O4 asked how repeated
+instances are named and addressed.
+**Decision:** Each instance pushes fresh regions onto the map as it is
+written, as spans already did, so a slot inside an instance, such as a chunk's
+length or CRC, resolves within that instance. A slot outside a repeat can
+cover the whole repeat, but not one instance of it.
+**Alternatives:** Names built at run time, such as `:chunks/3/crc`, so that a
+slot outside a repeat could address one instance (rejected by the steward as
+more machinery than chunked formats need; possible later).
+
+### SPECOPS-DRAFT-manifest-D40 — A length slot bounds elements of varying width in units
+
+**Status:** Proposed
+**Context:** A `:length-of` slot gave a vector its element count by dividing
+the length by the element width. The elements of a vector of LEBs, and the
+instances of a repeat, have no fixed width, so `unmarshal` could not read
+them by a length.
+**Decision:** `src/manifest/scan.lisp:units-rule@d7ba27f` reads elements until
+the length a `:length-of` slot gives is used, and signals an error when an
+element crosses its end. `unmarshal` passes `field-plan` a function giving the
+length field's variable. The rule serves a LEB vector with no `:count` and a
+repeat written `(manifest :items item :until :length)`; the option is needed
+because a length slot can also cover a single sub-manifest. On write the rule
+adds nothing: the slot is computed from what is written.
+**Alternatives:** Inferring a repeat from a length slot over a `manifest`
+field (rejected: a single sub-manifest may have one, as PNG's IHDR chunk
+does); a units rule for fixed-width vectors too (unneeded: division already
+gives their count, and lets the vector be allocated in advance).
+
+### SPECOPS-DRAFT-manifest-D41 — A `:count-of` slot is backpatched with the elements written
+
+**Status:** Proposed
+**Context:** Formats such as WOFF hold a count field before the entries it
+counts. Callers supplied count fields themselves.
+**Decision:** A field declared `(:n :u16 :slot (:count-of :entries))` is
+written as a placeholder and backpatched, like a `:length-of` slot, with the
+number of elements written to the field it covers, which must be a vector or
+a repeated sub-manifest. `src/manifest/scan.lisp:emit-frame@d7ba27f` returns
+that number, and `marshal` records it in a variable shared with nested
+expansions, beside the region map. On read the field is an ordinary count
+field, which the covered field names with `:count :n`. As for other slot
+fields, a value given for it, or held in a record, is ignored.
+**Alternatives:** Computing the count before the covered field is written
+(rejected: the sequence would be evaluated twice, or held apart from the
+field that writes it); a count slot also used by reads to infer the count
+(rejected: `:count :n` already states it).
+
+### Implementation
+
+- **Manifest plans, `a12b394`.** `manifest-plan` and its two delegating
+  effectors; `read-manifest` in `src/manifest/manifest.lisp:unmarshal@d7ba27f`
+  and `write-manifest` in `src/manifest/manifest.lisp:marshal@d7ba27f`. The
+  `manifest` directive's trailing values, once passed to the child as static
+  values and used nowhere, are no longer passed; they now hold a repeat's
+  options.
+- **`:case` with sub-manifests, `17d30fd`.**
+  `src/manifest/manifest.lisp:manifest-branch-p@d7ba27f` recognizes the
+  branch form in `defmanifest`; `marshal`'s `case-value-context` gives each
+  kind of branch its value; `unmarshal` passes `read-manifest` to plans. The
+  vector assembler coerces its value to a vector.
+- **Repeats, `d4b1f5a`.** The until and end rules, the list assembler,
+  `src/manifest/scan.lisp:until-conditions@d7ba27f` and
+  `src/manifest/scan.lisp:until-test-form@d7ba27f`, the repeat branch of
+  `field-plan`, and the `manifest` clauses of both macros. `scan.lisp`
+  declares the registries special, since `manifest.lisp` defines them and is
+  loaded after it. `emit-scan` passes the source to rules and checks before
+  each element of varying width that the source has not run out.
+- **The units rule, `2caa4e2`.** The rule, and `unmarshal`'s `length-form`.
+- **`:count-of`, `d7ba27f`.** `emit-frame`'s count, `marshal`'s `counts`
+  variable and `counted-form`, the `:count-of` case of `resolve-region`, and
+  the check in `preprocess-spec` that a `:count-of` slot covers a vector or a
+  repeat. A repeat's missing value became no instances, and an empty `:until`
+  repeat an error on write.
+
+### Verification
+
+The run command is that of the update of 2026-10-31 for the scan model, with
+`(specops::run-record-demo)` and `(specops::run-variable-demo)` added.
+
+Table: Suites added or extended in commits `a12b394` through `d7ba27f`, and the totals at `d7ba27f`.
+
+| Suite | Checks | Added |
+|---|---|---|
+| `run-variable-demo` | 32 | New. The generic `png-chunk` with an IHDR branch and a raw branch, both ways, with a run-time selector, as records, and with a type the enum lacks; `png-any` reading and writing the 1×1 PNG through plists and records, and a PNG with a `tEXt` chunk and two IDATs; the `:until` checks; counted, fixed, to-the-end and length-bounded repeats; `:count-of` over a repeat and a vector; the expansion errors |
+| `run-vec-scan-demo` | 19 → 20 | A list as a vector field's value |
+| `run-leb-vector-demo` | 16 → 17 | A LEB vector read by its length slot, and an element crossing its end; this replaces the check that it was an error |
+| All sixteen suites | 258 → 292 | All pass, with the PNG verification |
+
+The test file's `test/manifest.lisp:verify-png@d7ba27f` now accepts ancillary
+chunks and consecutive IDATs between IHDR and IEND. Outside the suite, the PNG
+with a `tEXt` chunk and two IDATs, built by
+`test/manifest.lisp:png-with-ancillary-chunks@d7ba27f`, was decoded by Python's
+PIL, which read its title and its pixel. The manifest layer has no style
+warnings, and the five test scripts in `test/` pass.
+
+### Files
+
+Table: Files changed in commits `a12b394` through `d7ba27f`.
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/manifest/scan.lisp` | Modified | Manifest plans, the until, end and units rules, the list assembler, repeats in `field-plan`, `emit-frame`'s count |
+| `src/manifest/manifest.lisp` | Modified | Sub-manifest branches, both macros' sub-manifest expansion, repeats, `:count-of` |
+| `test/manifest.lisp` | Modified | The variable structure suite; `verify-png` for ancillary chunks |
+| `doc/Log.Manifest.md` | Modified | This update |
+
+### Metrics
+
+- Test checks: 292 automated checks plus 1 structural PNG verification, up
+  from 258.
+- Regressions at `d7ba27f`: 0.
+
+### Outstanding Work
+
+The units rule, listed as outstanding since the scan model was completed, is
+done, and with it reading a vector of LEB elements by a length slot. New:
+
+- **Instances addressed from outside a repeat**, by names built at run time,
+  should a format need a slot outside a repeat that covers one instance
+  (SPECOPS-DRAFT-manifest-D39).
+- **Trailing `:count-of` and `:length-of` slots.** A slot placed after the
+  field it covers is resolved before its own position is known, and writing
+  fails with a type error rather than a clear message; only checksum slots are
+  computed inline. The value could be written in place, as checksums are, or
+  the placement rejected at expansion.
+- **Fixed buffers of LEB elements**, which still need a way to skip unread
+  elements.
+- The other items of the previous updates remain.

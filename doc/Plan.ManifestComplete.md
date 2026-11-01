@@ -60,8 +60,8 @@ a struct interface, destinations that cannot be patched, and packaging. It
 assumes the decisions recorded in the
 [Manifest development log, SPECOPS-DRAFT-manifest](Log.Manifest.md) and the
 architecture in [SPECOPS-DRAFT-specops](Arch.SpecOps.md). Progress is charted
-in dated updates at the end of this plan; the latest is the update of
-2026-11-01, at commit `4f9c6d4`.
+in dated updates at the end of this plan; the latest is the second update of
+2026-11-01, at commit `d7ba27f`.
 
 ## Problem
 
@@ -248,6 +248,10 @@ list.
 manifest and prevents computing a closure for selective reads); loops written
 by hand around `marshal` and `unmarshal` (rejected as the end state: spans and
 slots could not cover the whole sequence).
+
+Note: built as SPECOPS-DRAFT-manifest-D37 and SPECOPS-DRAFT-manifest-D38 in
+the log, with repeats also bounded by the end of the source or a length slot
+(SPECOPS-DRAFT-manifest-D40).
 
 ### SPECOPS-DRAFT-manifest-complete-D6 — WOFF exercises offset-table backpatching
 
@@ -465,6 +469,9 @@ has a number of instances known only at run time, so a qualified name such as
 `:chunk/3/crc` would have to be built at run time, or slots inside a repeated
 instance would have to resolve within that instance only. The choice affects
 whether a slot outside the sequence can refer to one instance in it.
+
+Answered in the log by SPECOPS-DRAFT-manifest-D39: slots inside an instance
+resolve within it, and a slot outside a repeat covers the whole repeat.
 
 ### SPECOPS-DRAFT-manifest-complete-O5 — What happens to a fixed-length string of another length?
 
@@ -812,3 +819,51 @@ in place: a repeated sub-manifest can return a list of records or plists, and
 `marshal` can take one when its code runs. SPECOPS-DRAFT-manifest-complete-O4,
 the naming of repeated instances, remains to be settled before repeated
 sub-manifests are built.
+
+## Update 2026-11-01 — Progress: variable structure
+
+This installment charts the plan's progress at commit `d7ba27f`. The first
+priority of the previous update, variable structure, is done: one manifest
+reads and writes a PNG of any chunk sequence, and
+SPECOPS-DRAFT-manifest-complete-D5 is built and
+SPECOPS-DRAFT-manifest-complete-O4 answered. The log's update of the same
+date records the work, with SPECOPS-DRAFT-manifest-D36 through
+SPECOPS-DRAFT-manifest-D41. All sixteen suites pass: 292 checks and the PNG
+verification.
+
+### Progress
+
+Table: State of each Roadmap milestone at commit `d7ba27f`. Entries new since
+the previous update are marked "new".
+
+| Milestone | State | Done | Remaining |
+|---|---|---|---|
+| 1. Corrections and records | Done | As before | — |
+| 2. Field kinds on read | Partly done | As before; new: a units rule, so vectors of LEB elements read by a length slot; vector fields accept any sequence | SPECOPS-DRAFT-manifest-complete-O5 for fields without a terminator; writing a buffer sized by another field; fixed buffers of LEB elements; new: trailing `:length-of` and `:count-of` slots |
+| 3. Checked reads | Open | — | Read-side region map; the policy of SPECOPS-DRAFT-manifest-complete-O1 |
+| 4. Structs and run-time nested values | Done | As before | — |
+| 5. Variable structure | Done | New: sub-manifests as field plans; `:case` choosing a sub-manifest; repeats by count, count field, condition, end of source and length; `:count-of` slots; instance naming settled (SPECOPS-DRAFT-manifest-complete-O4); a PNG of any chunk sequence read and written by one manifest | Instances addressed from outside a repeat, should a format need it |
+| 6. Destinations | Open | — | Buffering (SPECOPS-DRAFT-manifest-complete-D2), which also lets a manifest with a `:length-of` or `:count-of` slot write to a function; checksums on streams; overrun checks |
+| 7. Selective reads and stream sources | Open | `known-count` and `known-extent` | Dependency closure and skip mode (SPECOPS-DRAFT-manifest-complete-D3); stream sources |
+| 8. WOFF | Open | New: `:count-of` slots, which its table directory needs | SPECOPS-DRAFT-manifest-complete-D6, the first test of `:offset-of` |
+| 9. Floats and masque completion | Partly done | Decimal masques in `masque` and `unmasque` | The `:f` class; decimal masques in `unmarshal`; range checks; keyword groups registered for `:case` and `:count` |
+| 10. Packaging | Partly done | As before | Suites behind `test-op`; a Ref |
+
+### Priorities
+
+1. **Checked reads** (SPECOPS-DRAFT-manifest-complete-O1): `unmarshal`
+   checks checksums and length slots, now including those inside repeated
+   instances.
+2. **Destinations** (SPECOPS-DRAFT-manifest-complete-D2).
+3. **Selective reads and stream sources**
+   (SPECOPS-DRAFT-manifest-complete-D3).
+4. **WOFF** (SPECOPS-DRAFT-manifest-complete-D6).
+5. **Floats and masque completion.**
+6. **Packaging:** `test-op`, then a Ref.
+
+### Dependencies
+
+Checked reads and selective reads both need a read-side region map, which
+also has to give each repeated instance fresh regions, as the write side does
+(SPECOPS-DRAFT-manifest-D39). WOFF's dependency on count fields computed on
+write is met. The rest are as in the update of 2026-10-30.
