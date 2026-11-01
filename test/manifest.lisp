@@ -116,8 +116,8 @@ simple (unsigned-byte 8) vector."
 
 (defun verify-png (v)
   "Walk PNG byte vector V: check signature, chunk framing, per-chunk lengths and
-CRC-32s, chunk order, IHDR fields, and IEND emptiness. Returns T if valid, and
-prints a report."
+CRC-32s, chunk order (IHDR first, IEND last, consecutive IDATs, other chunks
+ancillary), IHDR fields, and IEND emptiness. Returns T if valid, and prints a report."
   (let ((errors nil) (pos 0) (chunks nil))
     (flet ((err (fmt &rest args) (push (apply #'format nil fmt args) errors)))
       ;; signature
@@ -151,9 +151,20 @@ prints a report."
       (when (null errors)
         (unless (= pos (length v))
           (err "trailing ~a bytes after last chunk" (- (length v) pos)))
-        (let ((order (mapcar #'first chunks)))
-          (unless (equal order '("IHDR" "IDAT" "IEND"))
-            (err "chunk order ~a /= (IHDR IDAT IEND)" order)))
+        (let* ((order (mapcar #'first chunks))
+               (idats (loop :for type :in order :for i :from 0
+                            :when (string= type "IDAT") :collect i)))
+          (unless (and (string= (first order) "IHDR") (string= (car (last order)) "IEND")
+                       (= 1 (count "IHDR" order :test #'string=))
+                       (= 1 (count "IEND" order :test #'string=))
+                       idats (= (- (car (last idats)) (first idats)) (1- (length idats)))
+                       ;; any other chunk is ancillary: its type begins with a lower-case letter
+                       (every (lambda (type)
+                                (or (member type '("IHDR" "IDAT" "IEND") :test #'string=)
+                                    (lower-case-p (char type 0))))
+                              order))
+            (err "chunk order ~a is not IHDR, ancillary chunks and consecutive IDATs, IEND"
+                 order)))
         (let ((ihdr (second (assoc "IHDR" chunks :test #'string=))))
           (when (and ihdr (= (length ihdr) 13))
             (let ((w  (rd-u32-be ihdr 0))
@@ -2281,6 +2292,54 @@ Returns T if all checks pass."
     (:data (:case :type (:ihdr (manifest png-ihdr)) (otherwise :u 1 :vec))))
   (:crc (:u 4) :default 0 :slot (:checksum-of :type+data :by #'crc)))
 
+;; A whole PNG: the signature, then chunks until IEND.
+(defmanifest png-any (:unit 8 :endian :big :record t)
+  (:signature (:u 1 :vec) :count 8)
+  (manifest :chunks png-chunk :until (:type :iend)))
+
+;; A small instance, repeated by a count field, a fixed count, or to the end of the source.
+(defmanifest item-probe (:unit 8 :endian :big :record t)
+  (:tag   :u8  :default 0)
+  (:value :u16 :default 0))
+
+(defmanifest counted-items-probe (:unit 8 :endian :big)
+  (:n :u8 :default 0)
+  (manifest :items item-probe :count :n))
+
+(defmanifest fixed-items-probe (:unit 8 :endian :big)
+  (manifest :items item-probe :count 2)
+  (:after :u8 :default 0))
+
+(defmanifest rest-items-probe (:unit 8 :endian :big)
+  (:head :u8 :default 0)
+  (manifest :items item-probe :until :end))
+
+;; Repeats a field plan rejects.
+(defmanifest repeat-both-probe (:unit 8 :endian :big)
+  (manifest :items item-probe :count 2 :until (:tag 0)))
+
+(defmanifest repeat-unknown-probe (:unit 8 :endian :big)
+  (manifest :items item-probe :times 2))
+
+(defmanifest repeat-no-field-probe (:unit 8 :endian :big)
+  (manifest :items item-probe :until (:kind 0)))
+
+(defun png-with-ancillary-chunks ()
+  "A 1x1 PNG with a tEXt chunk and its image data split across two IDAT chunks, written
+by png-any from a list of chunk plists. IEND's type is given as its code."
+  (let ((zlib (zlib-store (->bytes (vector 0 255 0 0))))
+        (buf (ub8 105)))
+    (marshal png-any buf
+      :signature +png-signature+
+      :chunks (list (list :type :ihdr :data (list :width 1 :height 1 :color-type :rgb))
+                    (list :type #x74455874        ; tEXt, "Title" NUL "png"
+                          :data (map 'vector #'char-code
+                                     (concatenate 'string "Title" (string (code-char 0)) "png")))
+                    (list :type :idat :data (subseq zlib 0 7))
+                    (list :type :idat :data (subseq zlib 7))
+                    (list :type #x49454E44 :data #())))
+    buf))
+
 (defun run-variable-demo ()
   "Marshal and unmarshal sub-manifests chosen by :case, and repeated sub-manifests.
 Returns T if all checks pass."
@@ -2353,7 +2412,85 @@ Returns T if all checks pass."
       (check "png-chunk, nested values with a constant selector choosing raw data: an expansion error"
              (signals-error-p (lambda () (macroexpand-1 '(marshal png-chunk d :type :idat
                                                           :data (:width 1)))))
-             t))
+             t)
+
+      ;; 4. Whole PNGs: chunks repeated until IEND.
+      (let ((png (make-1x1-png)))
+        (check "png-any, the 1x1 PNG read as a signature and a list of three chunks"
+               (let ((plist (unmarshal png-any png)))
+                 (list (getf plist :signature) (mapcar (lambda (c) (getf c :type)) (getf plist :chunks))
+                       (getf (getf (first (getf plist :chunks)) :data) :width)))
+               (list +png-signature+ '(:ihdr :idat :iend) 1))
+        (check "png-any, the 1x1 PNG read and written back"
+               (let ((buf (ub8 72)))
+                 (marshal png-any buf (:from (unmarshal png-any png)))
+                 buf)
+               png)
+        (check "png-any, the 1x1 PNG read as records and written back"
+               (let ((buf (ub8 72)) (r (unmarshal png-any png (:as :record))))
+                 (marshal png-any buf (:from r))
+                 (list (mapcar (lambda (c) (class-name (class-of c))) (png-any-chunks r))
+                       (equalp buf png)))
+               '((png-chunk png-chunk png-chunk) t)))
+      (let ((png (png-with-ancillary-chunks)))
+        (check "png-any, a PNG with a tEXt chunk and two IDATs passes the verifier"
+               (let ((*standard-output* (make-broadcast-stream))) (verify-png png))
+               t)
+        (check "png-any, that PNG read back as five chunks"
+               (mapcar (lambda (c) (getf c :type)) (getf (unmarshal png-any png) :chunks))
+               (list :ihdr #x74455874 :idat :idat :iend))
+        (check "png-any, that PNG read and written back"
+               (let ((buf (ub8 105)))
+                 (marshal png-any buf (:from (unmarshal png-any png)))
+                 buf)
+               png)
+        (check "png-any, a source that ends before IEND signals an error"
+               (signals-error-p (lambda () (unmarshal png-any (subseq png 0 93))))
+               t))
+      (check "png-any, chunks without IEND last, or with IEND early, signal errors"
+             (flet ((write-chunks (chunks)
+                      (signals-error-p (lambda () (marshal png-any (ub8 200)
+                                                    :signature +png-signature+ :chunks chunks)))))
+               (list (write-chunks (list (list :type :ihdr :data (list :width 1 :height 1))))
+                     (write-chunks (list (list :type :iend :data #())
+                                         (list :type :ihdr :data (list :width 1 :height 1))))))
+             '(t t))
+
+      ;; 5. Counts, and the end of the source.
+      (check "counted-items-probe, two instances counted by a field, read and written"
+             (let ((bytes (->bytes #(2 1 0 5 2 0 6))))
+               (list (unmarshal counted-items-probe bytes)
+                     (equalp bytes (->bytes (let ((acc nil))
+                                              (marshal counted-items-probe (lambda (b) (push b acc))
+                                                       (:from (unmarshal counted-items-probe bytes)))
+                                              (reverse acc))))))
+             '((:n 2 :items ((:tag 1 :value 5) (:tag 2 :value 6))) t))
+      (check "fixed-items-probe, a fixed count of two, with the field after lined up"
+             (unmarshal fixed-items-probe (->bytes #(1 0 5 2 0 6 9)))
+             '(:items ((:tag 1 :value 5) (:tag 2 :value 6)) :after 9))
+      (check "rest-items-probe, instances to the end of the source, read and written"
+             (let ((bytes (->bytes #(9 1 0 5 2 0 6 3 0 7))))
+               (list (length (getf (unmarshal rest-items-probe bytes) :items))
+                     (equalp bytes (->bytes (let ((acc nil))
+                                              (marshal rest-items-probe (lambda (b) (push b acc))
+                                                       (:from (unmarshal rest-items-probe bytes)))
+                                              (reverse acc))))))
+             '(3 t))
+      (check "rest-items-probe, items given as records and a vector"
+             (let ((acc nil))
+               (marshal rest-items-probe (lambda (b) (push b acc))
+                        :head 9 :items (vector (make-item-probe :tag 1 :value 5)
+                                               (make-item-probe :tag 2 :value 6)))
+               (reverse acc))
+             '(9 1 0 5 2 0 6))
+
+      ;; 6. Repeats that are expansion errors.
+      (check "a repeat with :count and :until, an unknown option, or :until on a missing field"
+             (mapcar (lambda (form) (signals-error-p (lambda () (macroexpand-1 form))))
+                     '((unmarshal repeat-both-probe s)
+                       (unmarshal repeat-unknown-probe s)
+                       (unmarshal repeat-no-field-probe s)))
+             '(t t t)))
     (let ((pass (every #'identity results)))
       (format t "~&variable structure checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
               pass (count t results) (length results))

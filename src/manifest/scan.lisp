@@ -2,6 +2,9 @@
 
 (in-package #:specops)
 
+;; the registries are defined in manifest.lisp, which is loaded after this file
+(declaim (special *manifests* *enums*))
+
 (defclass stop-rule ()
   ((%initargs :initform nil       ;; the constant initargs a :stop-by field gave the rule,
               :accessor rule-initargs))) ;; so that a fresh one can be made at run time
@@ -20,6 +23,12 @@
 
 (defclass continuation-rule (stop-rule)
   ((bit  :initarg :bit  :initform 7 :reader rule-bit)))
+
+(defclass until-rule (stop-rule)
+  ((conditions :initarg :conditions   ;; ((field code enum) ...): an element whose fields all
+               :reader rule-conditions))) ;; have these codes ends the scan, and is kept
+
+(defclass end-rule (stop-rule) ())    ;; the scan ends with the source
 
 (defclass field-plan () ())
 
@@ -123,6 +132,23 @@ element and is true when the last elements recorded are the whole pattern."
 (defmethod stop-effector ((r continuation-rule) ctx)
   (list :after `(not (logbitp ,(rule-bit r) ,(getf ctx :element))) :keep t))
 
+(defun until-test-form (element conditions)
+  "A form true when the plist or record ELEMENT has every field of CONDITIONS at its code.
+A field's value may be a keyword of its enum or a code, so both sides are compared as codes."
+  `(and ,@(loop :for (field code enum) :in conditions
+                :collect (let ((v (gensym "V")))
+                           `(let ((,v (field-value ,element ',field)))
+                              (eql ,(if enum
+                                        `(if (keywordp ,v) (getf (rest (gethash ',enum *enums*)) ,v) ,v)
+                                        v)
+                                   ',code))))))
+
+(defmethod stop-effector ((r until-rule) ctx)
+  (list :after (until-test-form (getf ctx :element) (rule-conditions r)) :keep t))
+
+(defmethod stop-effector ((r end-rule) ctx)
+  (list :before `(>= ,(getf ctx :position) (length ,(getf ctx :src)))))
+
 ;;; The runtime protocol. A stop rule defined by a user with only these methods works at
 ;;; once: the default effectors below emit calls to them on a fresh instance per field.
 ;;; Defining stop-effector and frame-effector methods for the class later replaces the
@@ -177,6 +203,8 @@ LAST-P is true.")
            :initarg :enum
            :initform nil)))
 
+(defclass list-assembler (assembler) ())  ;; collects the elements, as plists or records, in a list
+
 (defgeneric assemble-effector (assembler ctx))
 
 (defun codec-form (codec direction)
@@ -229,6 +257,12 @@ a vector or a string, each encoded by the rule of terminator-code-form."
                         (if codec `(map 'string ,(codec-form codec "decode") ,out)
                             out)))))))
 
+(defmethod assemble-effector ((a list-assembler) ctx)
+  (let ((acc (gensym "ACC")))
+    (list :bindings `((,acc nil))
+          :collect `((push ,(getf ctx :element) ,acc))
+          :result `(nreverse ,acc))))
+
 (defmethod assemble-effector ((a leb-assembler) ctx)
   (with-slots (enum) a
     (let ((v (gensym "V")) (sh (gensym "SH")) (e (getf ctx :element)))
@@ -249,7 +283,7 @@ advances the variable. WIDTH is the element width in units when it is fixed, els
          (count (known-count rule))
          (extent (known-extent rule))
          (extent-var (cond ((null extent) nil) ((eq extent count) n) (t x)))
-         (ctx (list :name name :element e :index k :position pos
+         (ctx (list :name name :element e :index k :position pos :src src
                     :count (and count n) :extent extent-var))
          (overrun `(error "unmarshal: field ~s runs past the end of the source." ',name)))
     (destructuring-bind (&key bindings declare before after keep trailer) (stop-effector rule ctx)
@@ -265,9 +299,12 @@ advances the variable. WIDTH is the element width in units when it is fixed, els
                   `((when (and (vectorp ,src) (> (+ ,pos (* ,extent-var ,width)) (length ,src)))
                       ,overrun)))
            (loop ,@(and before `(:until ,before))
-                 :do ,@(and width (not extent-var)
-                            `((when (and (vectorp ,src) (> (+ ,pos ,width) (length ,src)))
-                                ,overrun)))
+                 :do ,@(cond ((and width (not extent-var))
+                              `((when (and (vectorp ,src) (> (+ ,pos ,width) (length ,src)))
+                                  ,overrun)))
+                             ((not width)  ; elements of varying width: one must at least begin
+                              `((when (and (vectorp ,src) (>= ,pos (length ,src)))
+                                  ,overrun))))
                      (let* ((,e ,(funcall read-element pos))
                             ,@(and after `((,stop ,after))))
                        (incf ,k)
@@ -356,6 +393,23 @@ cycling)."
   (let ((bit (rule-bit r)))
     (list :mark (lambda (e last) `(if ,last ,e (logior ,e ,(ash 1 bit)))))))
 
+(defmethod frame-effector ((r until-rule) ctx)
+  ;; a reader stops at the first element that matches, so only the last may, and it must
+  (let ((name (getf ctx :name)) (m (gensym "MATCH")))
+    (list :mark (lambda (e last)
+                  `(let ((,m ,(until-test-form e (rule-conditions r))))
+                     (cond ((and ,m (not ,last))
+                            (error "Field ~s: an element before the last matches its :until ~
+                                    condition, so a reader would stop there." ',name))
+                           ((and ,last (not ,m))
+                            (error "Field ~s: its last element does not match its :until ~
+                                    condition, so a reader would not stop there." ',name)))
+                     ,e)))))
+
+(defmethod frame-effector ((r end-rule) ctx)
+  (declare (ignore ctx))
+  nil)
+
 (defmethod frame-effector ((r stop-rule) ctx)
   (destructuring-bind (&key write &allow-other-keys) ctx
     (let ((s (gensym "RULE")) (c (gensym "C")))
@@ -384,6 +438,14 @@ and :last (true when the element just yielded was the final one)."))
                                           `(zerop ,v)))
                           ,g)
             :last fin))))
+
+(defmethod disassemble-effector ((a list-assembler) ctx)
+  ;; any sequence of plists or records; a list is used as it is
+  (let ((src (gensym "SRC")))
+    (list :bindings `((,src (coerce ,(getf ctx :value) 'list)))
+          :more src
+          :next `(pop ,src)
+          :last `(null ,src))))
 
 (defmethod disassemble-effector ((a vector-assembler) ctx)
   (with-slots (bits signed enum codec) a
@@ -450,7 +512,8 @@ RULE, and writes them with WRITE, an expansion-time function of an element form.
     (with-slots (rule assembler width element) p
       (emit-frame name rule assembler value
                   (if element
-                      (lambda (f) (write-effector element (list* :value f ctx)))
+                      ;; a sub-manifest element takes the element as its record
+                      (lambda (f) (write-effector element (list* :value f :record f :literal nil ctx)))
                       (lambda (f) (funcall write width f)))))))
 
 (defun case-clauses (p ctx effector)
@@ -490,6 +553,29 @@ RULE, and writes them with WRITE, an expansion-time function of an element form.
           ((listp keys) (mapcar #'code keys))
           (t (list (code keys))))))
 
+(defun until-conditions (name child until)
+  "The conditions of an :until option, (field value ...), as (field code enum) lists: a
+keyword value is translated through the enum of CHILD's field."
+  (unless (and (listp until) (evenp (length until)))
+    (error "Field ~s: :until takes :end or a list of fields and values, not ~s." name until))
+  (loop :for (field value) :on until :by #'cddr
+        :collect (let* ((item (labels ((walk (items)
+                                         (loop :for i :in items
+                                               :thereis (if (eq :span (getf i :type))
+                                                            (walk (getf i :items))
+                                                            (and (eq field (getf i :name)) i)))))
+                                (walk (rest (gethash child *manifests*)))))
+                        (enum (getf item :enumerate-by)))
+                   (unless item
+                     (error "Field ~s: :until names field ~s, which sub-manifest ~s lacks."
+                            name field child))
+                   (list field
+                         (if (and enum (keywordp value))
+                             (or (getf (rest (gethash enum *enums*)) value)
+                                 (error "Field ~s: ~s is not in enum ~a." name value enum))
+                             value)
+                         enum))))
+
 (defun check-leb-width (name length unit-bits)
   (unless (and (eql 1 length) (= 8 unit-bits))
     (error "Field ~s: a LEB field must be one 8-bit unit wide." name)))
@@ -511,7 +597,26 @@ initargs. The class must be defined when the field's code is expanded."
     (when (and stop-by (or end-by count))
       (error "Field ~s: :stop-by cannot be combined with :end-by or :count." name))
     (cond ((eq type :manifest)
-           (make-instance 'manifest-plan :manifest (first actual)))
+           (destructuring-bind (child &rest options &key count until &allow-other-keys) actual
+             (loop :for (key) :on options :by #'cddr
+                   :unless (member key '(:count :until))
+                     :do (error "Field ~s: unknown option ~s of sub-manifest ~s." name key child))
+             (when (and count until)
+               (error "Field ~s: a repeat takes :count or :until, not both." name))
+             (let ((element (make-instance 'manifest-plan :manifest child)))
+               (if (not (or count until))
+                   element
+                   ;; a repeated sub-manifest: a scan whose elements are instances, in a list
+                   (make-instance 'scan-plan
+                     :rule (cond (count (make-instance 'count-rule
+                                                       :n (and count-form
+                                                               (funcall count-form
+                                                                        (list :name name :count count)))))
+                                 ((eq until :end) (make-instance 'end-rule))
+                                 (t (make-instance 'until-rule
+                                                   :conditions (until-conditions name child until))))
+                     :element element
+                     :assembler (make-instance 'list-assembler))))))
           ((member :case subtypes)
            (let ((enum (funcall enum-of type-indicator)))
              (make-instance 'case-plan

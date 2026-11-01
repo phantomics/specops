@@ -481,13 +481,20 @@ in PAIRS from RECORD, a plist or a manifest's record, when the code runs."
                        (loop :for closure :in context
                              :collect `(unless (assoc ,closure ,map)
                                          (push (list ,closure ,index ,index) ,map)))
-                       (list name (write-effector
-                                   (field-plan item)
-                                   ;; literal pairs given for the child win over the record's
-                                   ;; value for this field, which is read when the code runs
-                                   (list :name name :literal (getf pairs name)
-                                         :record (and from name `(field-value ,from ',name))
-                                         :write-manifest #'write-manifest)))
+                       (list name (let ((plan (field-plan item)))
+                                    (write-effector
+                                     plan
+                                     (list* :name name :write-manifest #'write-manifest
+                                            (if (typep plan 'manifest-plan)
+                                                ;; literal pairs given for the child win over the
+                                                ;; record's value for this field, read at run time
+                                                (list :literal (getf pairs name)
+                                                      :record (and from name
+                                                                   `(field-value ,from ',name)))
+                                                ;; a repeat writes a sequence of plists or records
+                                                (list :value (or (value-source name nil)
+                                                                 (error "marshal: repeated field ~s ~
+                                                                         has no value." name))))))))
                        `((setf (third (assoc ,qname ,map)) ,index))
                        (loop :for closure :in context
                              :collect `(setf (third (assoc ,closure ,map)) ,index))
@@ -797,9 +804,13 @@ as an instance of the manifest's record class."
                    (case type
                      (:pad (push `(incf ,cursor ,(pad-count-form mode n cursor base)) reads))
                      (:manifest
-                      (record-read name (read-effector (field-plan item)
-                                                       (list :name name :cursor cursor
-                                                             :read-manifest #'read-manifest))))
+                      (record-read name (read-effector
+                                         (field-plan item :count-form (lambda (i)
+                                                                        (vec-count-form (getf i :name)
+                                                                                        (getf i :count)
+                                                                                        1)))
+                                         (list :name name :cursor cursor :src src
+                                               :read-manifest #'read-manifest))))
                      (:span
                       (loop :for item :in items :do (process-item item)))
                      (:string
