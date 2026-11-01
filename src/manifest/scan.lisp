@@ -35,17 +35,33 @@
    (branches :initarg :branches))) ;; ((keys . plan) …), keys or OTHERWISE
 
 (defgeneric known-count (rule)
+  (:documentation "The number of data elements RULE yields, as a form, when it is known
+before reading; otherwise NIL.")
   (:method ((r stop-rule)) nil)
   (:method ((r count-rule)) (rule-n r)))
 
-(defgeneric known-extent (plan)
+(defgeneric known-extent (object)
+  (:documentation "For a stop rule, the number of elements it consumes, as a form, when that
+is fixed before reading. For a field plan, the number of units it consumes, when that is a
+constant. Otherwise NIL.")
+  (:method ((r stop-rule)) nil)
+  (:method ((r count-rule)) (rule-n r))
   (:method ((p field-plan)) nil)
   (:method ((p scalar-plan)) (slot-value p 'width))
+  (:method ((p scan-plan))
+    (let ((x (known-extent (slot-value p 'rule))))
+      (and (integerp x) (* x (slot-value p 'width)))))
   (:method ((p case-plan))
     (let ((ws (mapcar (lambda (b) (known-extent (rest b))) (slot-value p 'branches))))
       (and (first ws) (every (lambda (w) (eql w (first ws))) ws) (first ws)))))
 
-(defgeneric stop-effector (rule ctx))
+(defgeneric stop-effector (rule ctx)
+  (:documentation "Read-side fragments for RULE, given CTX (:element, :index, :position,
+:count and :extent, the last two variables bound only when known): :bindings, :declare,
+:before (stop before reading when true), :after (evaluated after each element is read),
+:keep (T when the element that stops the scan is data, NIL when it is a delimiter, or
+:DYNAMIC when :after returns NIL, :KEEP or :DROP), and :trailer (a form giving how many
+elements already collected to drop at the end)."))
 
 (defgeneric read-effector (plan ctx))  ;; form that returns the value and advances the cursor
 
@@ -63,11 +79,6 @@
   (list :after `(not (logbitp ,(rule-bit r) ,(getf ctx :element))) :keep t))
 
 (defclass assembler () ())
-
-;; (defclass vector-assembler (assembler)
-;;   ((etype   :initarg :etype)
-;;    (convert :initarg :convert :initform #'identity) ;; expansion-time fn
-;;    (decoder :initarg :decoder :initform nil)))      ;; form or nil
 
 (defclass vector-assembler (assembler)
   ((bits :initarg :bits)
@@ -102,33 +113,25 @@
 
 (defmethod assemble-effector ((a vector-assembler) ctx)
   (with-slots (bits signed enum codec) a
-    (destructuring-bind (&key element count &allow-other-keys) ctx
+    (destructuring-bind (&key name element count trailer &allow-other-keys) ctx
       (let* ((v (gensym "V")) (j (gensym "J"))
              (etype (cond (enum t) (signed `(signed-byte ,bits)) (t `(unsigned-byte ,bits))))
              (x (let ((s (if signed
                              `(if (logbitp ,(1- bits) ,element) (- ,element ,(ash 1 bits)) ,element)
                              element)))
                   (if enum `(enumerated ,s (gethash ',enum *enums*)) s))))
+        (when (and count trailer)
+          (error "Field ~s: a counted field cannot drop trailing elements." name))
         (list :bindings (if count
                             `((,v (make-array ,count :element-type ',etype)) (,j 0))
                             `((,v (make-array 8 :adjustable t :fill-pointer 0))))
               :collect (if count `((setf (aref ,v ,j) ,x) (incf ,j)) `((vector-push-extend ,x ,v)))
-              :result (let ((out (if count v `(coerce ,v '(simple-array ,etype (*))))))
+              :result (let ((out (cond (count v)
+                                       (trailer `(progn (decf (fill-pointer ,v) ,trailer)
+                                                        (coerce ,v '(simple-array ,etype (*)))))
+                                       (t `(coerce ,v '(simple-array ,etype (*)))))))
                         (if codec `(map 'string ,(codec-form codec "decode") ,out)
                             out)))))))
-
-;; (defmethod assemble-effector ((a vector-assembler) ctx)
-;;   (with-slots (etype convert decoder) a
-;;     (destructuring-bind (&key element count &allow-other-keys) ctx
-;;       (let ((v (gensym "V")) (j (gensym "J")) (x (funcall convert element)))
-;;         (list :bindings (if count
-;;                             `((,v (make-array ,count :element-type ',etype)) (,j 0))
-;;                             `((,v (make-array 8 :adjustable t :fill-pointer 0))))
-;;               :collect (if count
-;;                            `((setf (aref ,v ,j) ,x) (incf ,j))
-;;                            `((vector-push-extend ,x ,v)))
-;;               :result (let ((out (if count v `(coerce ,v '(simple-array ,etype (*))))))
-;;                         (if decoder `(map 'string ,decoder ,out) out)))))))
 
 (defmethod assemble-effector ((a leb-assembler) ctx)
   (with-slots (enum) a
@@ -141,34 +144,53 @@
                                           v)
                                       enum)))))
 
-(defun emit-scan (name rule assembler read-at cursor length src)
-  "Return one fused loop that reads, stop-tests and assembles a field, then
-advances CURSOR. READ-AT maps an offset form to a form reading one raw element."
-  (let* ((e (gensym "E")) (k (gensym "K")) (n (gensym "N")) (stop (gensym "STOP"))
+(defun emit-scan (name rule assembler read-element cursor src &key width)
+  "Return one fused loop that reads, stop-tests and assembles a field, then advances CURSOR.
+READ-ELEMENT maps a position variable to a form that reads one raw element there and
+advances the variable. WIDTH is the element width in units when it is fixed, else NIL."
+  (let* ((e (gensym "E")) (k (gensym "K")) (pos (gensym "POS")) (stop (gensym "STOP"))
+         (n (gensym "N")) (x (gensym "X"))
          (count (known-count rule))
-         (ctx (list :element e :index k :count (and count n))))
-    (destructuring-bind (&key bindings declare before after keep) (stop-effector rule ctx)
+         (extent (known-extent rule))
+         (extent-var (cond ((null extent) nil) ((eq extent count) n) (t x)))
+         (ctx (list :name name :element e :index k :position pos
+                    :count (and count n) :extent extent-var))
+         (overrun `(error "unmarshal: field ~s runs past the end of the source." ',name)))
+    (destructuring-bind (&key bindings declare before after keep trailer) (stop-effector rule ctx)
       (destructuring-bind (&key ((:bindings ab)) ((:declare ad)) collect result)
-          (assemble-effector assembler ctx)
-        `(let* (,@(and count `((,n ,count))) (,k 0) ,@bindings ,@ab)
+          (assemble-effector assembler (list* :trailer trailer ctx))
+        `(let* ((,pos ,cursor)
+                ,@(and count `((,n ,count)))
+                ,@(and extent-var (not (eq extent-var n)) `((,x ,extent)))
+                (,k 0) ,@bindings ,@ab)
            (declare (type fixnum ,k) ,@declare ,@ad)
+           ;; a fixed extent is checked against the source once, before the loop
+           ,@(and width extent-var
+                  `((when (and (vectorp ,src) (> (+ ,pos (* ,extent-var ,width)) (length ,src)))
+                      ,overrun)))
            (loop ,@(and before `(:until ,before))
-                 :do ,@(and (not count)
-                            `((when (and (vectorp ,src)
-                                         (> (+ ,cursor (* (1+ ,k) ,length)) (length ,src)))
-                                (error "unmarshal: field ~s runs past the end of the source." ',name))))
-                     (let* ((,e ,(funcall read-at `(+ ,cursor (* ,k ,length))))
+                 :do ,@(and width (not extent-var)
+                            `((when (and (vectorp ,src) (> (+ ,pos ,width) (length ,src)))
+                                ,overrun)))
+                     (let* ((,e ,(funcall read-element pos))
                             ,@(and after `((,stop ,after))))
                        (incf ,k)
-                       ,@(if (and after (not keep)) `((unless ,stop ,@collect)) collect)
+                       ,@(cond ((or (not after) (eq t keep)) collect)
+                               ((eq :dynamic keep) `((unless (eq ,stop :drop) ,@collect)))
+                               (t `((unless ,stop ,@collect))))
                        ,@(and after `((when ,stop (loop-finish))))))
-           (incf ,cursor (* ,k ,length))
+           ,(if (and width extent-var)
+                `(setf ,cursor (+ ,cursor (* ,extent-var ,width)))
+                `(setf ,cursor ,pos))
            ,result)))))
 
 (defgeneric frame-effector (rule ctx)
-  (:documentation "Write-side fragments for RULE: :bindings, :check (forms run on each
-data element), :mark (expansion-time function of an element form and a last-p form,
-returning the form to write), :trailer (forms run after the last element)."))
+  (:documentation "Write-side fragments for RULE, given CTX (:name, :element, :index, the
+number of elements written so far, :value and :write, an expansion-time function of a code
+form returning a form that writes it): :bindings, :declare, :prelude (forms run before the
+first element), :check (forms run on each data element before it is written), :mark (an
+expansion-time function of an element form and a last-p form, returning the form to write),
+and :trailer (forms run after the last element)."))
 
 (defmethod frame-effector ((r count-rule) ctx)
   (declare (ignore ctx))
@@ -232,19 +254,20 @@ and :last (true when the element just yielded was the final one)."))
 (defun emit-frame (name rule assembler value-form write)
   "Return one loop that splits VALUE-FORM into elements, checks and marks each under
 RULE, and writes them with WRITE, an expansion-time function of an element form."
-  (let* ((e (gensym "E")) (l (gensym "L"))
-         (ctx (list :name name :element e :value value-form :write write)))
-    (destructuring-bind (&key bindings check mark trailer) (frame-effector rule ctx)
-      (destructuring-bind (&key ((:bindings ab)) ((:declare ad)) prelude more next last)
+  (let* ((e (gensym "E")) (l (gensym "L")) (k (gensym "K"))
+         (ctx (list :name name :element e :index k :value value-form :write write)))
+    (destructuring-bind (&key bindings declare prelude check mark trailer) (frame-effector rule ctx)
+      (destructuring-bind (&key ((:bindings ab)) ((:declare ad)) ((:prelude ap)) more next last)
           (disassemble-effector assembler ctx)
-        `(let* (,@ab ,@bindings)
-           (declare ,@ad)
-           ,@prelude
+        `(let* ((,k 0) ,@ab ,@bindings)
+           (declare (type fixnum ,k) ,@ad ,@declare)
+           ,@ap ,@prelude
            (loop :while ,more
                  :do (let* ((,e ,next) (,l ,last))
                        (declare (ignorable ,l))
                        ,@check
-                       ,(funcall write (if mark (funcall mark e l) e))))
+                       ,(funcall write (if mark (funcall mark e l) e))
+                       (incf ,k)))
            ,@trailer)))))
 
 (defmethod read-effector ((p scalar-plan) ctx)
@@ -255,8 +278,9 @@ RULE, and writes them with WRITE, an expansion-time function of an element form.
 (defmethod read-effector ((p scan-plan) ctx)
   (destructuring-bind (&key name read-at cursor src &allow-other-keys) ctx
     (with-slots (rule assembler width) p
-      (emit-scan name rule assembler (lambda (at) (funcall read-at at width nil))
-                 cursor width src))))
+      (emit-scan name rule assembler
+                 (lambda (pos) `(prog1 ,(funcall read-at pos width nil) (incf ,pos ,width)))
+                 cursor src :width width))))
 
 (defmethod write-effector ((p scalar-plan) ctx)
   (destructuring-bind (&key value write &allow-other-keys) ctx
@@ -323,23 +347,6 @@ RULE, and writes them with WRITE, an expansion-time function of an element form.
                                      :assembler (make-instance 'leb-assembler :signed signed
                                                                               :enum enumerate-by)))
           (t (make-instance 'scalar-plan :width length :signed signed :enum enumerate-by)))))
-
-;; (defun field-plan (item selector-form enum-of)
-;;   "Build the plan for the stored field plist ITEM."
-;;   (destructuring-bind (&key name length signed subtypes type-indicator type-conditions
-;;                        &allow-other-keys) item
-;;     (cond ((member :case subtypes)
-;;            (let ((enum (funcall enum-of type-indicator)))
-;;              (make-instance 'case-plan
-;;                :selector (funcall selector-form type-indicator)
-;;                :branches (loop :for b :in type-conditions
-;;                                :collect (cons (translate-keys (getf b :keys) enum name)
-;;                                               (field-plan (list* :name name b)
-;;                                                           selector-form enum-of))))))
-;;           ((member :leb subtypes)
-;;            (make-instance 'scan-plan :rule (make-instance 'continuation-rule)
-;;                                      :assembler (make-instance 'leb-assembler :signed signed)))
-;;           (t (make-instance 'scalar-plan :width length :signed signed)))))
 
 (defun simplify-plan (p)
   "A case plan whose selector is a constant reduces to its branch at expansion."

@@ -19,34 +19,6 @@
            ,(append (list 'list (cons 'list params))
                     map))))
 
-;; ===============================================================
-;; LEB128 encoding utilities
-;; ===============================================================
-
-;; (defun encode-leb128-unsigned (value writer)
-;;   "Encode a non-negative integer as an unsigned LEB128 byte vector."
-;;   (declare (type (integer 0) value))
-;;   (if (zerop value)
-;;       (funcall writer 0)
-;;       (loop :while (plusp value)
-;;             :do (let ((byte (logand value #x7F)))
-;;                   (setf value (ash value -7))
-;;                   (when (plusp value)
-;;                     (setf byte (logior byte #x80)))
-;;                   (funcall writer byte)))))
-
-;; (defun encode-leb128-signed (value writer)
-;;   "Encode an integer as a signed LEB128 byte vector."
-;;   (let ((more t))
-;;     (loop :while more
-;;           :do (let ((byte (logand value #x7F)))
-;;                 (setf value (ash value -7))
-;;                 (if (or (and (zerop value) (zerop (logand byte #x40)))
-;;                         (and (= value -1)  (not (zerop (logand byte #x40)))))
-;;                     (setf more nil)
-;;                     (setf byte (logior byte #x80)))
-;;                 (funcall writer byte)))))
-
 (defmacro defmanifest (name params &body fields)
   (destructuring-bind (&key unit endian index vextend-by count-from length pad offset) params
     (let* ((unit-spec (typecase unit
@@ -627,35 +599,13 @@
                (var-of (field what)
                  (or (rest (assoc field vars))
                      (error "unmarshal: ~a needs field ~a, which isn't read before it." what field)))
-               (term-code-form (name end-by codec)
-                 (typecase end-by
-                   (character (if codec
-                                  `(or (funcall ,codec ,end-by)
-                                       (error "unmarshal: terminator ~s of field ~s has no code in ~a."
-                                              ,end-by ',name ',codec))
-                                  (char-code end-by)))
-                   (integer end-by)
-                   (t (error "unmarshal: :end-by of field ~s must be a character or an integer, not ~s."
-                             name end-by))))
-               (vec-count-form (name count length &optional end-by swap-by codec)
+               (vec-count-form (name count length)
                  (cond ((integerp count) count)                    ;; :count 4
                        ((keywordp count) (var-of count name))      ;; :count :n-items
                        ((assoc name length-sources)                ;; reverse :length-of
                         `(floor ,(var-of (rest (assoc name length-sources)) name) ,length))
-                       (end-by
-                        (let ((tm (gensym "TM")) (k (gensym "K")))
-                          `(let ((,tm ,(term-code-form name end-by codec)))
-                             (loop :for ,k :from 0
-                                   :when (and (vectorp ,src)
-                                              (> (+ ,cursor (* (1+ ,k) ,length)) (length ,src)))
-                                     :do (error
-                                          "unmarshal: field ~s has no terminator before the end of the source."
-                                          ',name)
-                                   :until (eql ,tm (funcall (aref ,dsym ,swap-by)
-                                                            (+ ,cursor (* ,k ,length)) ,length nil ,src))
-                                   :finally (return ,k)))))
                        (t (error "unmarshal: no element count for vector field ~a ~
-                   (give :count or a :length-of slot)." name))))
+                   (give :count, a :length-of slot or :end-by)." name))))
                (record-read (name form)
                  (if name (let ((var (gensym (string name))))
                             (push (cons name var) vars)
