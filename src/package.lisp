@@ -72,6 +72,7 @@
    #:defenum
    #:marshal
    #:unmarshal
+   #:field-value
 
    ;; -- Stop rules for :stop-by fields: the runtime protocol and the effectors
    #:stop-rule

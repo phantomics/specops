@@ -5,6 +5,11 @@
 (defun codec-for (fn on-error)
   (lambda (x) (or (funcall fn x) (funcall on-error x))))
 
+(defgeneric field-value (record name)
+  (:documentation "The value of the field NAME, a keyword, in RECORD, which marshal reads
+fields from when it is given (:from RECORD); NIL when RECORD holds no value for it.")
+  (:method ((record list) name) (getf record name)))
+
 ;; (defun txcodec-ebcdic (a) (specops.map.ebcdic:ebcdic-code-cp037 a))
 
 ;; (defun txcodec-ebcdic (a) (specops.map.ebcdic:ebcdic-code-cp037 a))
@@ -213,13 +218,24 @@ and nested manifests, whose code shares the top-level manifest's serializers."
                     (and (member :case (getf i :subtypes)) (list (getf i :type-indicator))))))
 
 (defmacro marshal (name destination &body pairs)
-  (let* ((spec (gethash name *manifests*))
+  "Write the fields of the manifest NAME to DESTINATION. PAIRS give field values as keywords
+and forms, and may begin with a list of options: (:from RECORD) takes every field not given
+in PAIRS from RECORD, a plist or a manifest's record, when the code runs."
+  (let* ((options (and (consp (first pairs)) (first pairs)))
+         (pairs (if options (rest pairs) pairs))
+         (from (and (getf options :from) (gensym "REC")))
+         (manifest-name name)
+         (spec (gethash name *manifests*))
          (params (first spec))
          (base (gensym "BA"))
          (selvars (mapcar (lambda (s) (cons s (gensym (string s))))
                           (case-selectors (rest spec))))
          regions slots slots-of swap-specs offset access enter index tell write prefix
          values length serializers map b i sub-lexicon written)
+
+    (loop :for (key) :on options :by #'cddr
+          :unless (member key '(:from))
+            :do (error "marshal: unknown option ~s for manifest ~s." key name))
 
     ;; populate the symbol lexicon or import it from an enclosing marshal macro
     (if (getf pairs :-+sub-lexicon+-)
@@ -275,13 +291,24 @@ and nested manifests, whose code shares the top-level manifest's serializers."
              (assign-serializer (s)
                `(setf (aref ,serializers ,s)
                       (serializer-for ,(getf params :unit-spec) ,s)))
+             (missing-form (field)
+               `(error "marshal: field ~s of manifest ~s has no value, in the record or as a default."
+                       ',field ',manifest-name))
+             (value-source (field default &optional (from-record t))
+               ;; a field's value comes from its literal pair, else from the :from record when
+               ;; the code runs, else from its default; slot fields are never read from a record
+               (let ((given (getf pairs field)))
+                 (cond (given given)
+                       ((and from from-record field)
+                        `(or (field-value ,from ',field) ,(or default (missing-form field))))
+                       (t default))))
              (masque-binder (b)
                (if (eq :binding (first b))
                    (second b)
                    (destructuring-bind (&key name bind-to default enumerate-by &allow-other-keys) b
                      (list bind-to
                            ;; a default goes through the enum like a given value
-                           (or (enumerate enumerate-by (or (getf pairs name) default))
+                           (or (enumerate enumerate-by (value-source name default))
                                (error "Masque field ~a not specified." name))))))
              (enumerate (table-name value)
                (cond ((not table-name) value)
@@ -299,7 +326,7 @@ and nested manifests, whose code shares the top-level manifest's serializers."
                    (error "marshal: :case selector ~s is not a field of ~a." sel name)))
              (selector-form (sel field)
                (let* ((item (selector-item sel))
-                      (v (or (getf pairs sel) (getf item :default))))
+                      (v (value-source sel (getf item :default))))
                  (cond ((not (member sel written))
                         (error "marshal: field ~s needs its :case selector ~s, which must come before it."
                                field sel))
@@ -311,15 +338,19 @@ and nested manifests, whose code shares the top-level manifest's serializers."
                               :enumerate-by)))
                  (and e (gethash e *enums*))))
              (vec-source-form (name default count end-by)
-               (cond ((getf pairs name))
-                     ((vectorp default) default)
-                     (end-by "")
-                     ((and (integerp default) (integerp count))
-                      (make-array count :initial-element default))   ; built now, a literal in the code
-                     (t (error "Field ~a: no value, no default, and no integer :count." name))))
+               (let ((fallback (cond ((vectorp default) default)
+                                     (end-by "")
+                                     ((and (integerp default) (integerp count))
+                                      ;; built now, a literal in the code
+                                      (make-array count :initial-element default)))))
+                 (cond ((getf pairs name))
+                       ((and from name) `(or (field-value ,from ',name)
+                                             ,(or fallback (missing-form name))))
+                       (fallback)
+                       (t (error "Field ~a: no value, no default, and no integer :count." name)))))
              (scalar-value-form (name default enumerate-by slot)
                ;; a default goes through the enum like a given value; a slot is backpatched
-               (let ((value (or (enumerate enumerate-by (or (getf pairs name) default))
+               (let ((value (or (enumerate enumerate-by (value-source name default (not slot)))
                                 (and slot 0) (error "Field ~a not specified." name)))
                      (selvar (rest (assoc name selvars))))
                  (push name written)
@@ -359,22 +390,29 @@ and nested manifests, whose code shares the top-level manifest's serializers."
                                          (cons ,length (masque ,actual ,@(mapcar #'masque-binder bindings)))
                                          ,enter)))
                      (:manifest
+                      ;; with a :from record, the child's fields come from the record's value for
+                      ;; this field, bound once; literal pairs given for the child still win
+                      (let* ((child-record (and from name (gensym "REC")))
+                             (child (macroexpand (append (list 'marshal (first actual) destination)
+                                                         (and child-record `((:from ,child-record)))
+                                                         (list :-+sub-lexicon+-
+                                                               (list* :pr-sym (qualify name) sub-lexicon))
+                                                         (rest actual)
+                                                         (getf pairs name)))))
                       (append
                        `((push (list ,qname ,index ,index) ,map))
                        (loop :for closure :in context
                              :collect `(unless (assoc ,closure ,map)
                                          (push (list ,closure ,index ,index) ,map)))
-                       (list name (macroexpand (append (list 'marshal (first actual) destination)
-                                                       (list :-+sub-lexicon+-
-                                                             (list* :pr-sym (qualify name) sub-lexicon))
-                                                       (rest actual)
-                                                       (getf pairs name))))
+                       (list name (if child-record
+                                      `(let ((,child-record (field-value ,from ',name))) ,child)
+                                      child))
                        `((setf (third (assoc ,qname ,map)) ,index))
                        (loop :for closure :in context
                              :collect `(setf (third (assoc ,closure ,map)) ,index))
                        (loop :for slot-of :in (getf slots-of qname)
                              :when (not (eq :checksum-of (second slot-of)))
-                               :collect (apply #'resolve-region qname slot-of))))
+                               :collect (apply #'resolve-region qname slot-of)))))
                      (:span
                       ;; push a fresh per-instance region at the span's start so that
                       ;; repeated span names across sibling sub-manifests don't collide
@@ -512,9 +550,12 @@ and nested manifests, whose code shares the top-level manifest's serializers."
               :do (error "Slot reference found with no matching region."))
       
       (append (if (getf pairs :-+sub-lexicon+-)
-                  `(let ((,base ,index) ,@(mapcar (lambda (p) (list (rest p) nil)) selvars)))
+                  `(let ((,base ,index)
+                         ,@(and from `((,from ,(getf options :from))))
+                         ,@(mapcar (lambda (p) (list (rest p) nil)) selvars)))
                   ;; bind selector variables in sub-manifest's expression
                   `(let* ((,access ,destination)
+                          ,@(and from `((,from ,(getf options :from))))
                           (,index ,(or offset 0))
                           (,base ,index)
                           (,values) ;; (,bindings-sym)

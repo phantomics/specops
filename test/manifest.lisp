@@ -1934,3 +1934,134 @@ Returns T if all checks pass."
       (format t "~&stop-by checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
               pass (count t results) (length results))
       pass)))
+
+;;; ===========================================================================
+;;; Part Q — records: values from a record at run time, and round trips
+;;; ===========================================================================
+
+;; A field with no default, which a record must supply.
+(defmanifest record-required-probe (:unit 8 :endian :big)
+  (:a :u8)
+  (:b :u8 :default 5))
+
+(defun write-ihdr-from (record)
+  "Marshal a png-ihdr body from RECORD, a plist known only when this runs."
+  (let ((buf (ub8 13)))
+    (marshal png-ihdr buf (:from record))
+    buf))
+
+(defun run-record-demo ()
+  "Marshal from records given at run time, and round-trip records.
+Returns T if all checks pass."
+  (let ((results nil))
+    (flet ((check (label got want)
+             (let ((ok (equalp got want)))
+               (push ok results)
+               (format t "~&  ~:[FAIL~;ok  ~]  ~a~%" ok label)
+               (unless ok
+                 (format t "~&          got  ~s~%          want ~s~%" got want))))
+           (to-list (manifest-thunk)
+             (let ((acc nil))
+               (funcall manifest-thunk (lambda (b) (push b acc)))
+               (reverse acc))))
+      (format t "~&record checks:~%")
+
+      ;; 1. Flat records known only at run time.
+      (let ((literal (ub8 13)))
+        (marshal png-ihdr literal :width 640 :height 480 :bit-depth 8
+                                  :color-type :rgba :interlace :adam7)
+        (check "png-ihdr, a plist record writes the same bytes as literal values"
+               (write-ihdr-from (list :width 640 :height 480 :bit-depth 8
+                                      :color-type :rgba :interlace :adam7))
+               literal))
+      (check "png-ihdr, one compiled marshal writes two different records"
+             (list (coerce (write-ihdr-from (list :width 1 :height 1)) 'list)
+                   (coerce (write-ihdr-from (list :width 2 :height 3 :color-type :rgb)) 'list))
+             '((0 0 0 1  0 0 0 1  8 0 0 0 0) (0 0 0 2  0 0 0 3  8 2 0 0 0)))
+      (check "png-ihdr, fields the record lacks take their defaults"
+             (unmarshal png-ihdr (write-ihdr-from (list :width 1 :height 1)))
+             '(:width 1 :height 1 :bit-depth 8 :color-type :grayscale
+               :compression 0 :filter 0 :interlace :none))
+      (check "png-ihdr, enum values in a record as a keyword, a known code, and an unknown code"
+             (mapcar (lambda (c) (aref (write-ihdr-from (list :color-type c)) 9))
+                     '(:rgba 2 1))
+             '(6 2 1))
+      (check "png-ihdr, a literal pair overrides the record"
+             (let ((buf (ub8 13)) (rec (list :width 1 :height 1)))
+               (marshal png-ihdr buf (:from rec) :height 600)
+               (getf (unmarshal png-ihdr buf) :height))
+             600)
+      (check "record-required-probe, a field with no default and no value in the record"
+             (let ((rec (list :b 1)))
+               (list (to-list (lambda (d) (marshal record-required-probe d (:from (list :a 7 :b 1)))))
+                     (signals-error-p
+                      (lambda () (to-list (lambda (d) (marshal record-required-probe d (:from rec))))))))
+             '((7 1) t))
+      (check "an unknown marshal option is an expansion error"
+             (signals-error-p (lambda () (macroexpand-1 '(marshal png-ihdr d (:form rec)))))
+             t)
+
+      ;; 2. Nested records; slot fields are recomputed.
+      (let ((literal (ub8 25)) (from (ub8 25))
+            (rec (list :length 999 :crc 12345
+                       :png-ihdr (list :width 1 :height 1 :color-type :rgb))))
+        (marshal png-ihdr-chunk literal :png-ihdr (:width 1 :height 1 :color-type :rgb))
+        (marshal png-ihdr-chunk from (:from rec))
+        (check "png-ihdr-chunk, a nested record; its length and CRC recomputed, not copied"
+               from literal))
+      (let ((literal (ub8 25)) (from (ub8 25))
+            (rec (list :png-ihdr (list :width 1 :height 1 :color-type :rgb))))
+        (marshal png-ihdr-chunk literal :png-ihdr (:width 1 :height 2 :color-type :rgb))
+        (marshal png-ihdr-chunk from (:from rec) :png-ihdr (:height 2))
+        (check "png-ihdr-chunk, a literal pair for a nested field overrides the nested record"
+               from literal))
+
+      ;; 3. Other field kinds from a record.
+      (check "case-probe, a :case selector and value from a record"
+             (let ((rec (list :kind 4 :v 300 :after 9)))
+               (to-list (lambda (d) (marshal case-probe d (:from rec)))))
+             '(4 #xAC #x02 9))
+      (check "case-enum-probe, an enumerated selector from a record, and its default"
+             (list (let ((rec (list :kind :long :v -2 :after 9)))
+                     (to-list (lambda (d) (marshal case-enum-probe d (:from rec)))))
+                   (let ((rec (list :v #x102 :after 9)))
+                     (to-list (lambda (d) (marshal case-enum-probe d (:from rec))))))
+             '((2 #xFF #xFF #xFF #xFE 9) (1 1 2 9)))
+      (let ((literal (ub8 15)) (from (ub8 15))
+            (rec (list :data (->bytes #(1 2 3)))))
+        ;; a chunk's length slot is patched, so it is written to a vector
+        (marshal png-idat-chunk literal :data (->bytes #(1 2 3)))
+        (marshal png-idat-chunk from (:from rec))
+        (check "png-idat-chunk, a vector from a record" from literal))
+      (check "cstring-probe, a terminated vector missing from the record writes the terminator"
+             (let ((rec (list :after 9)))
+               (to-list (lambda (d) (marshal cstring-probe d (:from rec)))))
+             '(0 9))
+      (check "leb-vec-probe, a vector with no default missing from the record signals an error"
+             (let ((rec (list :after 9)))
+               (signals-error-p (lambda () (to-list (lambda (d) (marshal leb-vec-probe d (:from rec)))))))
+             t)
+      (check "masque-probe-typed, masque groups from a record"
+             (let ((rec (list :mode :rgba :delta -3 :tail 7)))
+               (to-list (lambda (d) (marshal masque-probe-typed d (:from rec)))))
+             '(6 #xFD 7))
+
+      ;; 4. Plists read by unmarshal, written back.
+      (check "unmarshal-probe, case-probe and png-ihdr-chunk round-trip through plists"
+             (let ((a (->bytes #(#xFF #xFE #x02 #x01 #xD4 #xFE #xFF #xFF 7)))
+                   (b (->bytes #(4 #xAC #x02 9)))
+                   (c (let ((buf (ub8 25)))
+                        (marshal png-ihdr-chunk buf :png-ihdr (:width 7 :height 9 :color-type :rgba))
+                        buf)))
+               (list (equalp a (->bytes (to-list (lambda (d) (marshal unmarshal-probe d
+                                                                     (:from (unmarshal unmarshal-probe a)))))))
+                     (equalp b (->bytes (to-list (lambda (d) (marshal case-probe d
+                                                                     (:from (unmarshal case-probe b)))))))
+                     (let ((buf (ub8 25)))  ; the chunk's length slot is patched in a vector
+                       (marshal png-ihdr-chunk buf (:from (unmarshal png-ihdr-chunk c)))
+                       (equalp c buf))))
+             '(t t t)))
+    (let ((pass (every #'identity results)))
+      (format t "~&record checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
+              pass (count t results) (length results))
+      pass)))
