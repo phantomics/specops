@@ -94,45 +94,6 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                              dc-width)))))
           (t (error "Attempted to serialize incompatible value - must be an integer, a vector or a pair indicating integer value and encoding width.")))))))
 
-;; (defun make-array-writer (array &key num-width)
-;;   (lambda (offset &rest numbers)
-;;     (let ((width) (mask) (count 0) (eltype (array-element-type array)))
-;;       (if (and (listp eltype) (eql 'unsigned-byte (first eltype))
-;;                (member (second eltype) '(8 16 32 64)))
-;;           (setf width (second eltype)
-;;                 mask  (1- (ash 1 width)))
-;;           (error "Invalid collection array; only unsigned arrays of 8, 16, 32 or 64-bit integers may be used."))
-;;       (loop :for number :in numbers
-;;             :do (let ((num-width (or num-width (find-width number width)))
-;;                       (base count))
-;;                   (loop :for n :below num-width
-;;                         :do (setf (row-major-aref array (+ offset base (- num-width 1 n)))
-;;                                   (logand mask number))
-;;                             (setf number (ash number (- width)))
-;;                             (incf count))))
-;;       count)))
-
-;; (defun serialize (item unit collector)
-;;   (let ((mask (1- (ash 1 unit)))) ;; TODO: find a way to create the mask just once?
-;;     (flet ((decompose (number starting-width)
-;;              (print (list :sw starting-width unit))
-;;              (let ((shift (- (* unit starting-width))))
-;;                (loop :for i :below starting-width
-;;                      :do (funcall collector (logand mask (ash number shift)))
-;;                          (incf shift unit)))))
-;;       (print (list :it item))
-;;       (if (integerp item) ;; values that fit within a byte are just pushed on
-;;           (if (zerop (ash item (- unit)))
-;;               (funcall collector item)
-;;               (decompose item (1- (find-width item unit))))
-;;           (if (and (consp item) (not (listp (rest item))))
-;;               ;; handle cons cells encoding width and value, like (3 . 5) → #x000005
-;;               (destructuring-bind (width &rest value) item
-;;                 (decompose value (1- width)))
-;;               (if (vectorp item)
-;;                   (loop :for i :across item :do (funcall collector i))
-;;                   (error "Attempted to serialize incompatible value - must be an integer, a vector or a pair indicating integer value and encoding width.")))))))
-
 (defun join-spec (unit items)
   (let ((shift (- unit)) (mask (1- (ash 1 unit))))
       (let ((collected))
@@ -206,7 +167,6 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                (:htable `(gethash (char-code ,char) ,table))))
                  (integer (and (< -1 ,char (length ,xtable))
                                (aref ,xtable ,char)))))))))
-
 (defun quantify-mask-string (string params)
   (let ((segments) (symbols) (factor) (base 0) (bits 0) (width 1) (sx 0) (enumask "01"))
     (when (and (< 1 (length string)) (char= #\: (aref string 1)))
@@ -241,7 +201,7 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                     (incf bits width)
                     (incf sx)))))
     ;; (print (list :ss segments))
-    (let ((segments (if factor (cons 1 (reverse (loop :for s :in segments :collect (expt factor (1- s)))))
+    (let ((segments (if factor (reverse (cons 1 (loop :for s :in segments :collect (expt factor s))))
                         (cons 0 (loop :for s :in segments :collect (abs (- s bits)))))))
       ;; (print (list :seg segments symbols bits))
       (values (loop :for pair :in (rest (assoc :static params)) ;; values
@@ -254,18 +214,18 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                 (error "Invalid key for static base value increment."))))
                     :finally (return base))
               ;; (cons 0 (loop :for s :in segments :collect (abs (- s bits))))
-              segments symbols bits))))
+              factor segments symbols bits))))
 
 (defmacro masque (string &rest assignments)
+  "Compose a number as represented by an alphanumeric string laying out fields and static sections."
   (let* ((base-sym (gensym))
          (params (if (listp (caar assignments)) (first assignments) nil))
          (assignments (if (not params) assignments (rest assignments)))
          (processor (rest (assoc :with-processor params))))
-    (multiple-value-bind (base segments symbols) (quantify-mask-string string params)
-      ;; (print (list :ss segments symbols params))
+    (multiple-value-bind (base _ segments symbols) (quantify-mask-string string params)
+      ;; the factor is not needed information for masking so it's bound to _
       ;; (format t "~v,'0B~%" 16 (ash (1- (ash 1 length)) (nth index segments)))
 
-      ;; (print segments)
       (if processor
           (let* ((rev-sym (reverse symbols)) (rev-seg (reverse segments))
                  (big-endian (eq :big (rest (assoc :endian params))))
@@ -303,28 +263,34 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                                  `(setf ,base-sym
                                                         (logior ,base-sym
                                                                 (ash (logand ,value ,(1- (ash 1 length)))
-                                                                     ,(nth index segments)))))
-                                             ))))))
+                                                                     ,(nth index segments)))))))))))
             (if (not steps)
                 base `(let ((,base-sym ,base)) ,@steps ,base-sym)))))))
 
 (defmacro unmasque (string test-value params-or-keys &body body)
+  "Decompose a number according to the same type of alphanumeric string informing the (masque) macro."
   (let* ((params (if (listp (first params-or-keys)) params-or-keys nil))
          (keys   (if (not params) params-or-keys (first body)))
-         (body   (if (not params) body (rest body))))
-    (multiple-value-bind (base segments symbols bits) (quantify-mask-string string params)
+         (body   (if (not params) body (rest body)))
+         (value  (gensym)))
+    (multiple-value-bind (base factor segments symbols bits) (quantify-mask-string string params)
       (let* ((variant-mask (1- (ash 1 bits)))
              (pairs (loop :for key :in keys
-                          :collect (let* ((index (position (intern (string-upcase key) "KEYWORD")
-                                                           symbols))
-                                          (length (- (nth (1+ index) segments) (nth index segments))))
-                                     (decf variant-mask (ash (1- (ash 1 length)) (nth index segments)))
-                                     `(,key (logand ,(1- (ash 1 length))
-                                                    (ash ,test-value ,(- (nth index segments)))))))))
+                          :collect (let ((index (position (intern (string-upcase key) "KEYWORD")
+                                                          symbols)))
+                                     (if factor
+                                         (list key `(floor (mod ,value ,(* factor (nth index segments)))
+                                                           ,(nth index segments)))
+                                         (let ((length (- (nth (1+ index) segments) (nth index segments))))
+                                           (decf variant-mask (ash (1- (ash 1 length)) (nth index segments)))
+                                           (list key `(logand ,(1- (ash 1 length))
+                                                              (ash ,value ,(- (nth index segments)))))))))))
         ;; (print (list :vm (format nil "~v,'0B" 16 variant-mask)
         ;;              (format nil "~v,'0B" 16 base)))
-        `(if (/= ,base (logand ,variant-mask ,test-value))
-             nil (let ,pairs ,@body))))))
+        `(let ((,value ,test-value))
+           ,(if factor `(let ,pairs ,@body)
+                `(if (/= ,base (logand ,variant-mask ,test-value))
+                     nil (let ,pairs ,@body))))))))
 
 (defun deserializer-for (&optional (unit-power 0) (swap-by 0))
   (let ((unit (ash 1 (+ 3 unit-power))))
