@@ -1619,3 +1619,175 @@ Returns T if all checks pass."
       (format t "~&LEB vector checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
               pass (count t results) (length results))
       pass)))
+
+;;; ===========================================================================
+;;; Part P — user-defined stop rules (:stop-by) and the runtime protocol
+;;; ===========================================================================
+
+;; Stop rules are instantiated when a field's code is expanded, so their classes, and any
+;; effector methods, must exist at compile time.
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  ;; QUIC's variable-length integers: the top two bits of the first byte give the length,
+  ;; 1, 2, 4 or 8 bytes. Complete once that many bytes are read, so it asks done-p.
+  (defclass quic-length (stop-rule)
+    ((expected :initform nil) (seen :initform 0)))
+
+  ;; The high bit marks every element but the last, which is data: :keep and frame-element.
+  (defclass high-bit-run (stop-rule) ())
+
+  ;; Two zero elements end the field; both are dropped: :drop, trailer and frame-trailer.
+  (defclass double-zero (stop-rule)
+    ((previous :initform nil)))
+
+  ;; A one-element terminator given by an initarg, with only the runtime methods...
+  (defclass stop-at (stop-rule)
+    ((code :initarg :code :reader stop-at-code)))
+
+  ;; ...and the same rule upgraded to inline code by effector methods.
+  (defclass stop-at-inline (stop-at) ())
+
+  (defmethod stop-effector ((r stop-at-inline) ctx)
+    (list :after `(eql ,(getf ctx :element) ,(stop-at-code r)) :keep nil))
+
+  (defmethod frame-effector ((r stop-at-inline) ctx)
+    (list :trailer (list (funcall (getf ctx :write) (stop-at-code r))))))
+
+(defmethod feed ((r quic-length) element)
+  (with-slots (expected seen) r
+    (incf seen)
+    (unless expected (setf expected (ash 1 (ash element -6))))
+    nil))
+
+(defmethod done-p ((r quic-length))
+  (with-slots (expected seen) r
+    (and expected (>= seen expected))))
+
+(defmethod feed ((r high-bit-run) element)
+  (if (logbitp 7 element) nil :keep))
+
+(defmethod frame-element ((r high-bit-run) element last-p)
+  (if last-p element (logior element #x80)))
+
+(defmethod feed ((r double-zero) element)
+  (with-slots (previous) r
+    (prog1 (and (eql 0 element) (eql 0 previous) :drop)
+      (setf previous element))))
+
+(defmethod trailer ((r double-zero)) 1)
+
+(defmethod frame-trailer ((r double-zero)) (list 0 0))
+
+(defmethod feed ((r stop-at) element)
+  (and (eql element (stop-at-code r)) :drop))
+
+(defmethod frame-trailer ((r stop-at)) (list (stop-at-code r)))
+
+;; Two fields with the same rule: each must start with a fresh instance.
+(defmanifest quic-probe (:unit 8 :endian :big)
+  (:a     (:u 1 :vec) :stop-by quic-length)
+  (:b     (:u 1 :vec) :stop-by quic-length)
+  (:after :u8 :default 0))
+
+(defmanifest high-bit-probe (:unit 8 :endian :big)
+  (:v     (:u 1 :vec) :stop-by high-bit-run)
+  (:after :u8 :default 0))
+
+(defmanifest double-zero-probe (:unit 8 :endian :big)
+  (:v     (:u 1 :vec) :stop-by double-zero)
+  (:after :u8 :default 0))
+
+(defmanifest stop-at-probe (:unit 8 :endian :big)
+  (:v     (:u 1 :vec) :stop-by (stop-at :code 255))
+  (:after :u8 :default 0))
+
+(defmanifest stop-at-inline-probe (:unit 8 :endian :big)
+  (:v     (:u 1 :vec) :stop-by (stop-at-inline :code 255))
+  (:after :u8 :default 0))
+
+(defmanifest stop-by-unknown-probe (:unit 8 :endian :big)
+  (:v (:u 1 :vec) :stop-by no-such-rule))
+
+(defmanifest stop-by-with-end-by-probe (:unit 8 :endian :big)
+  (:v (:u 1 :vec) :stop-by double-zero :end-by 0))
+
+(defun run-stop-by-demo ()
+  "Marshal and unmarshal fields ended by user-defined stop rules.
+Returns T if all checks pass."
+  (let ((results nil))
+    (labels ((check (label got want)
+               (let ((ok (equalp got want)))
+                 (push ok results)
+                 (format t "~&  ~:[FAIL~;ok  ~]  ~a~%" ok label)
+                 (unless ok
+                   (format t "~&          got  ~s~%          want ~s~%" got want))))
+             (to-list (manifest-thunk)
+               (let ((acc nil))
+                 (funcall manifest-thunk (lambda (b) (push b acc)))
+                 (reverse acc)))
+             (mentions-p (tree symbols)
+               (if (consp tree)
+                   (or (mentions-p (car tree) symbols) (mentions-p (cdr tree) symbols))
+                   (and (member tree symbols) t))))
+      (format t "~&stop-by checks:~%")
+
+      ;; 1. done-p, and fresh state per field.
+      (check "quic-probe, a 1-byte and a 2-byte varint, each field with its own rule"
+             (unmarshal quic-probe (->bytes #(#x25 #x7B #xBD 9)))
+             '(:a #(#x25) :b #(#x7B #xBD) :after 9))
+      (check "quic-probe, written unchanged"
+             (to-list (lambda (d) (marshal quic-probe d :a #(#x25) :b #(#x7B #xBD) :after 9)))
+             '(#x25 #x7B #xBD 9))
+      (check "quic-probe, a source that ends before the varint does signals an error"
+             (signals-error-p (lambda () (unmarshal quic-probe (->bytes #(#x25 #x7B)))))
+             t)
+
+      ;; 2. :keep and frame-element.
+      (check "high-bit-probe, every element but the last is marked on write"
+             (to-list (lambda (d) (marshal high-bit-probe d :v #(1 2 3) :after 9)))
+             '(#x81 #x82 3 9))
+      (check "high-bit-probe, read back: the unmarked element ends the field and is kept"
+             (unmarshal high-bit-probe (->bytes #(#x81 #x82 3 9)))
+             '(:v #(#x81 #x82 3) :after 9))
+
+      ;; 3. :drop, trailer and frame-trailer.
+      (check "double-zero-probe, data then two zeros"
+             (to-list (lambda (d) (marshal double-zero-probe d :v #(5 0 6) :after 9)))
+             '(5 0 6 0 0 9))
+      (check "double-zero-probe, read back: a single zero is data, both final zeros dropped"
+             (unmarshal double-zero-probe (->bytes #(5 0 6 0 0 9)))
+             '(:v #(5 0 6) :after 9))
+
+      ;; 4. Initargs, and the upgrade to inline code.
+      (check "stop-at-probe, a terminator given by an initarg, written and read back"
+             (let ((bytes (to-list (lambda (d) (marshal stop-at-probe d :v #(1 2) :after 9)))))
+               (list bytes (unmarshal stop-at-probe (->bytes bytes))))
+             '((1 2 255 9) (:v #(1 2) :after 9)))
+      (check "stop-at-inline-probe, the upgraded rule gives the same bytes and values"
+             (let ((bytes (to-list (lambda (d) (marshal stop-at-inline-probe d :v #(1 2) :after 9)))))
+               (list bytes (unmarshal stop-at-inline-probe (->bytes bytes))))
+             '((1 2 255 9) (:v #(1 2) :after 9)))
+      (check "stop-at-probe calls the runtime protocol; stop-at-inline-probe does not"
+             (list (mentions-p (macroexpand-1 '(unmarshal stop-at-probe s)) '(feed done-p))
+                   (mentions-p (macroexpand-1 '(marshal stop-at-probe d :v #(1))) '(frame-trailer))
+                   (mentions-p (macroexpand-1 '(unmarshal stop-at-inline-probe s))
+                               '(feed done-p make-instance))
+                   (mentions-p (macroexpand-1 '(marshal stop-at-inline-probe d :v #(1)))
+                               '(frame-element frame-trailer make-instance)))
+             '(t t nil nil))
+
+      ;; 5. Fields that cannot use :stop-by.
+      (check "stop-by-unknown-probe, a class that does not exist is an expansion error"
+             (signals-error-p (lambda () (macroexpand-1 '(unmarshal stop-by-unknown-probe s))))
+             t)
+      (check "stop-by-with-end-by-probe, :stop-by with :end-by is an expansion error"
+             (signals-error-p (lambda () (macroexpand-1 '(unmarshal stop-by-with-end-by-probe s))))
+             t)
+      (check ":stop-by on a scalar field is an error when the manifest is defined"
+             (signals-error-p (lambda () (macroexpand-1 '(defmanifest stop-by-scalar-probe
+                                                          (:unit 8 :endian :big)
+                                                          (:v :u8 :stop-by double-zero)))))
+             t))
+    (let ((pass (every #'identity results)))
+      (format t "~&stop-by checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
+              pass (count t results) (length results))
+      pass)))

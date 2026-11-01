@@ -85,7 +85,8 @@
                    (values width signed subtype-list type-indicator type-conditions)))
                (process-field (field-spec &optional unincrementing)
                  (destructuring-bind (symbol predicate &key (endian 0) length enumerate-by end-by
-                                                         count default slot codec &allow-other-keys)
+                                                         count default slot codec stop-by
+                                                         &allow-other-keys)
                      field-spec
                    (multiple-value-bind (width signed subtype-list type-indicator type-conditions)
                        (parse-type predicate)
@@ -94,6 +95,9 @@
                                          (:big 0) (:little 1) (:middle 2) (:pdp 2)
                                          (t endian))))
                      (unless unincrementing (incf index (ash width (- unit-spec))))
+                     ;; a :case field passes :stop-by to its branches, for its vector branches
+                     (when (and stop-by (not (intersection '(:vec :case) subtype-list)))
+                       (error "Field ~s: :stop-by applies to :vec fields only." symbol))
                      (list 'list
                            :name (and (not (string= "_" (symbol-name symbol))) symbol)
                            :signed signed :length (ash width (- unit-spec))
@@ -102,6 +106,7 @@
                            :type-indicator type-indicator :type-conditions type-conditions
                            :subtypes (and subtype-list (cons 'list subtype-list))
                            :end-by end-by :swap-by (or this-swap-by swap-by)
+                           :stop-by (list 'quote stop-by)
                            :default default)))))
                (process-entry (f accumulator)
                  (typecase (first f)
@@ -321,7 +326,8 @@
                (destructuring-bind (&key name type kind signed (swap-by 0) upto default offset
                                       count actual bindings with length encode-by end-by
                                       type-indicator type-conditions codec
-                                      slot enumerate-by subtypes items mode n)
+                                      slot enumerate-by subtypes items mode n
+                                      &allow-other-keys) ;; keys only field plans read, as :stop-by
                    item
                  (let ((qname (qualify name)))
                    ;; (when context (setf name (intern (format nil "~a/~a" (first context) name)

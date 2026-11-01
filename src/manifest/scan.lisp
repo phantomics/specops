@@ -2,7 +2,9 @@
 
 (in-package #:specops)
 
-(defclass stop-rule () ())
+(defclass stop-rule ()
+  ((%initargs :initform nil       ;; the constant initargs a :stop-by field gave the rule,
+              :accessor rule-initargs))) ;; so that a fresh one can be made at run time
 
 (defclass count-rule        (stop-rule)
   ((n    :initarg :n
@@ -116,6 +118,45 @@ element and is true when the last elements recorded are the whole pattern."
 
 (defmethod stop-effector ((r continuation-rule) ctx)
   (list :after `(not (logbitp ,(rule-bit r) ,(getf ctx :element))) :keep t))
+
+;;; The runtime protocol. A stop rule defined by a user with only these methods works at
+;;; once: the default effectors below emit calls to them on a fresh instance per field.
+;;; Defining stop-effector and frame-effector methods for the class later replaces the
+;;; calls with inline code, with no change to the manifests that use it.
+
+(defgeneric done-p (rule)
+  (:documentation "Before each element is read: true when the field is complete.")
+  (:method ((r stop-rule)) nil))
+
+(defgeneric feed (rule element)
+  (:documentation "After ELEMENT is read: NIL to continue, :KEEP to stop with ELEMENT as
+data, or :DROP to stop with ELEMENT as a delimiter.")
+  (:method ((r stop-rule) element) (declare (ignore element)) nil))
+
+(defgeneric trailer (rule)
+  (:documentation "After the scan: how many of the elements collected as data to drop.")
+  (:method ((r stop-rule)) 0))
+
+(defgeneric frame-element (rule element last-p)
+  (:documentation "On write: the code to write for ELEMENT, the last data element when
+LAST-P is true.")
+  (:method ((r stop-rule) element last-p) (declare (ignore last-p)) element))
+
+(defgeneric frame-trailer (rule)
+  (:documentation "On write: a list of codes to write after the data.")
+  (:method ((r stop-rule)) nil))
+
+(defun runtime-rule-form (r)
+  "A form making a fresh instance of R's class with R's constant initargs."
+  `(make-instance ',(class-name (class-of r)) ,@(mapcar (lambda (x) `',x) (rule-initargs r))))
+
+(defmethod stop-effector ((r stop-rule) ctx)
+  (let ((s (gensym "RULE")))
+    (list :bindings `((,s ,(runtime-rule-form r)))
+          :before `(done-p ,s)
+          :after `(feed ,s ,(getf ctx :element))
+          :keep :dynamic
+          :trailer `(trailer ,s))))
 
 (defclass assembler () ())
 
@@ -311,6 +352,13 @@ cycling)."
   (let ((bit (rule-bit r)))
     (list :mark (lambda (e last) `(if ,last ,e (logior ,e ,(ash 1 bit)))))))
 
+(defmethod frame-effector ((r stop-rule) ctx)
+  (destructuring-bind (&key write &allow-other-keys) ctx
+    (let ((s (gensym "RULE")) (c (gensym "C")))
+      (list :bindings `((,s ,(runtime-rule-form r)))
+            :mark (lambda (e last) `(frame-element ,s ,e ,last))
+            :trailer `((dolist (,c (frame-trailer ,s)) ,(funcall write c)))))))
+
 (defgeneric disassemble-effector (assembler ctx)
   (:documentation "Write-side fragments for ASSEMBLER: :bindings, :declare, :prelude,
 :more (true while elements remain, tested before each), :next (yields the next element)
@@ -430,9 +478,22 @@ RULE, and writes them with WRITE, an expansion-time function of an element form.
   (unless (and (eql 1 length) (= 8 unit-bits))
     (error "Field ~s: a LEB field must be one 8-bit unit wide." name)))
 
+(defun user-rule (name spec)
+  "Make the stop rule a :stop-by key names: a class, or a list of a class and constant
+initargs. The class must be defined when the field's code is expanded."
+  (destructuring-bind (class &rest initargs) (if (listp spec) spec (list spec))
+    (unless (and (symbolp class) (find-class class nil) (subtypep class 'stop-rule))
+      (error "Field ~s: :stop-by names ~s, which is not a stop-rule class defined when the ~
+              field is expanded." name class))
+    (let ((rule (apply #'make-instance class initargs)))
+      (setf (rule-initargs rule) initargs)
+      rule)))
+
 (defun field-plan (item &key selector-form enum-of count-form (unit-bits 8))
-  (destructuring-bind (&key name length signed subtypes count end-by codec enumerate-by
+  (destructuring-bind (&key name length signed subtypes count end-by codec enumerate-by stop-by
                          type-indicator type-conditions &allow-other-keys) item
+    (when (and stop-by (or end-by count))
+      (error "Field ~s: :stop-by cannot be combined with :end-by or :count." name))
     (cond ((member :case subtypes)
            (let ((enum (funcall enum-of type-indicator)))
              (make-instance 'case-plan
@@ -451,7 +512,8 @@ RULE, and writes them with WRITE, an expansion-time function of an element form.
                (when (and end-by count)
                  (error "Field ~s: a vector of LEB elements cannot be a fixed buffer." name)))
              (make-instance 'scan-plan :width length
-               :rule (cond ((and end-by count)  ; a fixed buffer holding a terminator
+               :rule (cond (stop-by (user-rule name stop-by))
+                           ((and end-by count)  ; a fixed buffer holding a terminator
                             (make-instance 'bounded-terminator-rule
                                            :codes (terminator-code-forms name end-by codec)
                                            :n (and count-form (funcall count-form item))))
