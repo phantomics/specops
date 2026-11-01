@@ -181,6 +181,11 @@ this function will only work for 1d simple-arrays with such element-types."
     (update-adler32 adler32 sequence :start start :end end)
     (finalize-adler32 adler32)))
 
+(defun adler32 (buf start end)
+  "The Adler-32 checksum of BUF from START to END, called as a manifest's :checksum-of
+slots call their functions, like crc."
+  (adler32-checksum buf :start start :end end))
+
 (defun cs-adapt (item)
   (if (and (vectorp item)
            (typep item '(unsigned-byte 8)))

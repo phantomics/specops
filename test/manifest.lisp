@@ -2573,3 +2573,230 @@ Returns T if all checks pass."
       (format t "~&variable structure checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
               pass (count t results) (length results))
       pass)))
+
+;;; ===========================================================================
+;;; Part S — checked reads: checksums, length, offset and count slots, constants
+;;; ===========================================================================
+
+;; A length slot over two-byte elements, which a length of an odd number of bytes fails.
+(defmanifest checked-wide-probe (:unit 8 :endian :big)
+  (:size :u8 :slot (:length-of :data))
+  (:data (:u 2 :vec)))
+
+;; An offset slot over a field that follows another.
+(defmanifest checked-offset-probe (:unit 8 :endian :big)
+  (:at   :u8  :slot (:offset-of :body))
+  (:x    :u8  :default 0)
+  (:body :u16 :default 0))
+
+;; A count slot over a repeat that is not counted by it, so the two can disagree.
+(defmanifest checked-count-probe (:unit 8 :endian :big)
+  (:n :u8 :slot (:count-of :items))
+  (manifest :items item-probe :until :end))
+
+(defun byte-sum (buf start end)
+  "The low byte of the sum of BUF's elements from START to END: a checksum function."
+  (ldb (byte 8 0) (loop :for i :from start :below end :sum (aref buf i))))
+
+;; A checksum read from an integer source.
+(defmanifest checked-int-probe (:unit 8 :endian :big)
+  (span :body (:a :u8 :default 0) (:b :u8 :default 0))
+  (:sum :u8 :slot (:checksum-of :body :by #'byte-sum)))
+
+;; An Adler-32 checksum, through the wrapper with the standard signature.
+(defmanifest checked-adler-probe (:unit 8 :endian :big)
+  (span :body (:data (:u 1 :vec) :count 4))
+  (:sum (:u 4) :default 0 :slot (:checksum-of :body :by #'adler32)))
+
+;; Slots a checked read rejects at expansion.
+(defmanifest checked-dangling-probe (:unit 8 :endian :big)
+  (:size :u8 :slot (:length-of :nothing)))
+
+(defmanifest checked-no-by-probe (:unit 8 :endian :big)
+  (span :body (:a :u8 :default 0))
+  (:sum :u8 :slot (:checksum-of :body)))
+
+(defun failed-checks (thunk &optional (restart 'continue))
+  "Call THUNK, answering each manifest-check-failed with RESTART, CONTINUE or USE-VALUE
+with the expected value; USE-VALUE falls back to CONTINUE where it is not offered. Return
+a list of (kind field manifest expected actual position use-value-p) per failure, and the
+value THUNK returned."
+  (let ((seen nil))
+    (let ((value (handler-bind ((manifest-check-failed
+                                  (lambda (c)
+                                    (let ((use (find-restart 'use-value c)))
+                                      (push (list (check-kind c) (check-field c) (check-manifest c)
+                                                  (check-expected c) (check-actual c) (check-position c)
+                                                  (and use t))
+                                            seen)
+                                      (if (and use (eq restart 'use-value))
+                                          (use-value (check-expected c) c)
+                                          (continue c))))))
+                   (funcall thunk))))
+      (values (nreverse seen) value))))
+
+(defun tree-mentions-p (symbol tree)
+  "True when SYMBOL appears anywhere in TREE, such as an expansion."
+  (cond ((eq symbol tree) t)
+        ((consp tree) (or (tree-mentions-p symbol (car tree)) (tree-mentions-p symbol (cdr tree))))))
+
+(defun run-checked-read-demo ()
+  "Check what unmarshal reads: checksums, length, offset and count slots, and constants, with
+the CONTINUE and USE-VALUE restarts and the (:check nil) option. Returns T if all checks pass."
+  (let ((results nil))
+    (flet ((check (label got want)
+             (let ((ok (equalp got want)))
+               (push ok results)
+               (format t "~&  ~:[FAIL~;ok  ~]  ~a~%" ok label)
+               (unless ok
+                 (format t "~&          got  ~s~%          want ~s~%" got want)))))
+      (format t "~&checked read checks:~%")
+
+      ;; 1. Sound files read with no failed check.
+      (check "png-file and png-any read the 1x1 PNG, and png-any the PNG with ancillary chunks, with no failure"
+             (list (failed-checks (lambda () (unmarshal png-file (make-1x1-png))))
+                   (failed-checks (lambda () (unmarshal png-any (make-1x1-png))))
+                   (failed-checks (lambda () (unmarshal png-any (png-with-ancillary-chunks)))))
+             '(nil nil nil))
+
+      ;; 2. A corrupt CRC: the condition, its report, and the two restarts.
+      (let ((png (make-1x1-png)))
+        (setf (aref png 57) (logxor (aref png 57) 1))  ; IDAT's CRC is at units 56 to 59
+        (let ((stored (rd-u32-be png 56)) (computed (crc png 37 56)))
+          (check "png-file, a corrupt IDAT CRC signals manifest-check-failed, a subclass of error"
+                 (handler-case (progn (unmarshal png-file png) :no-error)
+                   (manifest-check-failed (c) (list (typep c 'error) (check-kind c) (check-field c)
+                                                    (check-manifest c) (check-position c))))
+                 '(t :checksum :crc png-idat-chunk 56))
+          (check "png-file, the condition's report names the field, the manifest, the unit and both values"
+                 (handler-case (unmarshal png-file png)
+                   (manifest-check-failed (c)
+                     (format nil "~a" c)))
+                 (format nil "unmarshal: field :CRC of manifest PNG-IDAT-CHUNK, at unit 56, holds the ~
+                              checksum #x~x, but :TYPE+DATA gives #x~x." stored computed))
+          (check "png-file, CONTINUE keeps the stored CRC, and the failure offers USE-VALUE"
+                 (multiple-value-bind (seen plist) (failed-checks (lambda () (unmarshal png-file png)))
+                   (list seen (getf (getf plist :idat) :crc)))
+                 (list (list (list :checksum :crc 'png-idat-chunk computed stored 56 t)) stored))
+          (check "png-file, USE-VALUE with the expected value gives the computed CRC, in a record too"
+                 (list (getf (getf (nth-value 1 (failed-checks (lambda () (unmarshal png-file png))
+                                                               'use-value))
+                                   :idat)
+                             :crc)
+                       (png-idat-chunk-crc
+                        (png-file-idat (nth-value 1 (failed-checks
+                                                     (lambda () (unmarshal png-file png (:as :record)))
+                                                     'use-value)))))
+                 (list computed computed))
+          (check "png-file, (:check nil) reads the stored CRC with no failure, and leaves the checks out"
+                 (list (getf (getf (unmarshal png-file png (:check nil)) :idat) :crc)
+                       (tree-mentions-p 'check-failed (macroexpand-1 '(unmarshal png-file s (:check nil))))
+                       (tree-mentions-p 'check-failed (macroexpand-1 '(unmarshal png-file s))))
+                 (list stored nil t))))
+
+      ;; 3. A corrupt CRC inside a repeat: only the instance at fault fails.
+      (let ((png (png-with-ancillary-chunks)))
+        (setf (aref png 85) (logxor (aref png 85) #xFF))  ; the second IDAT's data, units 81 to 88
+        (check "png-any, a byte changed in the second of two IDATs fails that chunk's CRC alone"
+               (multiple-value-bind (seen plist) (failed-checks (lambda () (unmarshal png-any png)))
+                 (list (mapcar (lambda (s) (list (first s) (second s) (third s) (sixth s))) seen)
+                       (= (fourth (first seen)) (crc png 77 89))
+                       (mapcar (lambda (c) (getf c :type)) (getf plist :chunks))))
+               (list '((:checksum :crc png-chunk 89)) t (list :ihdr #x74455874 :idat :idat :iend))))
+
+      ;; 4. Length slots.
+      (let ((png (make-1x1-png)))
+        (setf (aref png 11) 14)  ; IHDR's length, 13, at units 8 to 11
+        (check "png-file, an IHDR length of 14 over a 13-unit body fails, and USE-VALUE gives 13"
+               (multiple-value-bind (seen plist) (failed-checks (lambda () (unmarshal png-file png))
+                                                                'use-value)
+                 (list seen (getf (getf plist :ihdr) :length)))
+               '(((:length :length png-ihdr-chunk 13 14 8 t)) 13)))
+      (check "checked-wide-probe, a length of 3 over two-unit elements reads one, and fails"
+             (multiple-value-list (failed-checks (lambda () (unmarshal checked-wide-probe
+                                                                       (->bytes #(3 0 1 0 2))))))
+             '(((:length :size checked-wide-probe 2 3 0 t)) (:size 3 :data #(1))))
+      (check "checked-wide-probe, a length of 4 reads two elements with no failure"
+             (multiple-value-list (failed-checks (lambda () (unmarshal checked-wide-probe
+                                                                       (->bytes #(4 0 1 0 2))))))
+             '(nil (:size 4 :data #(1 2))))
+
+      ;; 5. Offset slots, the first test of :offset-of in either direction.
+      (let ((buf (ub8 4)))
+        (marshal checked-offset-probe buf :x 7 :body 5)
+        (check "checked-offset-probe, written: the offset slot holds the unit at which :body begins"
+               (coerce buf 'list) '(2 7 0 5))
+        (check "checked-offset-probe, read back with no failure, and with a wrong offset"
+               (list (multiple-value-list (failed-checks (lambda () (unmarshal checked-offset-probe buf))))
+                     (failed-checks (lambda () (unmarshal checked-offset-probe (->bytes #(3 7 0 5))))))
+               '((nil (:at 2 :x 7 :body 5))
+                 ((:offset :at checked-offset-probe 2 3 0 t)))))
+
+      ;; 6. Count slots.
+      (check "checked-count-probe, a count that agrees with the instances read, and one that does not"
+             (list (failed-checks (lambda () (unmarshal checked-count-probe (->bytes #(2 1 0 5 2 0 6)))))
+                   (failed-checks (lambda () (unmarshal checked-count-probe (->bytes #(3 1 0 5 2 0 6))))))
+             '(nil ((:count :n checked-count-probe 2 3 0 t))))
+      (check "count-of-items-probe, a repeat counted by its :count-of field needs no check"
+             (tree-mentions-p 'check-failed (macroexpand-1 '(unmarshal count-of-items-probe s)))
+             nil)
+
+      ;; 7. A checksum read from an integer source, through a buffer of its units.
+      (check "checked-int-probe, integer sources: sound, corrupt, and as a (units . integer) pair"
+             (list (multiple-value-list (failed-checks (lambda () (unmarshal checked-int-probe #x010203))))
+                   (failed-checks (lambda () (unmarshal checked-int-probe #x010204)))
+                   (multiple-value-list (failed-checks (lambda () (unmarshal checked-int-probe
+                                                                             (cons 3 #x000202))))))
+             '((nil (:a 1 :b 2 :sum 3))
+               ((:checksum :sum checked-int-probe 3 4 2 t))
+               (nil (:a 0 :b 2 :sum 2))))
+      (check "source-units numbers an integer's units as deserializer-for does"
+             (list (coerce (source-units #x010203 0) 'list) (coerce (source-units (cons 4 #x0102) 0) 'list)
+                   (coerce (source-units #x0102 1) 'list))
+             '((1 2 3) (0 0 1 2) (#x0102)))
+
+      ;; 8. Adler-32 through the wrapper.
+      (let ((buf (ub8 8)))
+        (marshal checked-adler-probe buf :data #(1 2 3 4))
+        (check "checked-adler-probe, adler32 written as adler32-checksum gives, and read back"
+               (list (= (rd-u32-be buf 4) (adler32-checksum (->bytes #(1 2 3 4))) (adler32 buf 0 4))
+                     (multiple-value-list (failed-checks (lambda () (unmarshal checked-adler-probe buf)))))
+               (list t (list nil (list :data #(1 2 3 4) :sum (rd-u32-be buf 4)))))
+        (setf (aref buf 2) 9)
+        (check "checked-adler-probe, a changed data byte fails the Adler-32"
+               (mapcar #'first (failed-checks (lambda () (unmarshal checked-adler-probe buf))))
+               '(:checksum)))
+
+      ;; 9. Constants: restartable with CONTINUE only.
+      (let ((png (make-1x1-png)))
+        (setf (aref png 15) (char-code #\X))  ; "IHDR" becomes "IHDX"
+        (check "png-file, a changed chunk type fails as a constant, then the CRC over it fails"
+               (mapcar (lambda (s) (list (first s) (second s) (sixth s) (seventh s)))
+                       (failed-checks (lambda () (unmarshal png-file png)) 'use-value))
+               '((:constant nil 15 nil) (:checksum :crc 29 t))))
+      (check "terminated-probe, a missing terminator fails as a constant, and CONTINUE reads on"
+             (multiple-value-list (failed-checks (lambda () (unmarshal terminated-probe (->bytes #(65 66 1 7))))))
+             '(((:constant nil terminated-probe 0 1 2 nil)) (:n 7)))
+      (check "masque-probe, a wrong static group fails as a constant, and CONTINUE reads on"
+             (multiple-value-list (failed-checks (lambda () (unmarshal masque-probe (->bytes #(1 4 5 9))))))
+             '(((:constant nil masque-probe 3 4 1 nil)) (:lead 1 :kind 5 :tail 9)))
+      (check "terminated-probe and masque-probe, (:check nil) reads them with no failure"
+             (list (multiple-value-list (failed-checks (lambda () (unmarshal terminated-probe
+                                                                             (->bytes #(65 66 1 7))
+                                                                             (:check nil)))))
+                   (multiple-value-list (failed-checks (lambda () (unmarshal masque-probe
+                                                                             (->bytes #(1 4 5 9))
+                                                                             (:check nil))))))
+             '((nil (:n 7)) (nil (:lead 1 :kind 5 :tail 9))))
+
+      ;; 10. Expansion errors.
+      (check "a slot over a region the manifest lacks, a checksum with no :by, and an unknown option"
+             (mapcar (lambda (form) (signals-error-p (lambda () (macroexpand-1 form))))
+                     '((unmarshal checked-dangling-probe s)
+                       (unmarshal checked-no-by-probe s)
+                       (unmarshal png-file s (:checks nil))))
+             '(t t t)))
+    (let ((pass (every #'identity results)))
+      (format t "~&checked read checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
+              pass (count t results) (length results))
+      pass)))

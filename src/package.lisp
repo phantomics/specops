@@ -74,6 +74,15 @@
    #:unmarshal
    #:field-value
 
+   ;; -- Checked reads: the condition unmarshal signals and its readers
+   #:manifest-check-failed
+   #:check-manifest
+   #:check-field
+   #:check-kind
+   #:check-expected
+   #:check-actual
+   #:check-position
+
    ;; -- Stop rules for :stop-by fields: the runtime protocol and the effectors
    #:stop-rule
    #:done-p

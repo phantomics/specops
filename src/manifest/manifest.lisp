@@ -722,14 +722,109 @@ no such code, so that a record holding a code the enum lacks can be read and wri
   (loop :for (key val) :on (rest form) :by #'cddr :when (equalp val value) :return key
         :finally (return value)))
 
+(define-condition manifest-check-failed (simple-error)
+  ((manifest :initarg :manifest :initform nil :reader check-manifest)
+   (field    :initarg :field    :initform nil :reader check-field)
+   (kind     :initarg :kind     :initform nil :reader check-kind)
+   (expected :initarg :expected :initform nil :reader check-expected)
+   (actual   :initarg :actual   :initform nil :reader check-actual)
+   (position :initarg :position :initform nil :reader check-position))
+  (:documentation "Signalled by unmarshal when what it reads fails a check. KIND is
+:checksum, :length, :offset or :count for a slot field, whose value is ACTUAL while the
+region it covers gives EXPECTED, or :constant for a constant string, terminator or masque
+bits, FIELD then being NIL. POSITION is the unit at which the slot field begins, or for a
+constant the first unit that differs: the masque's first unit for masque bits. A CONTINUE
+restart accepts the value read; for a slot field, a USE-VALUE restart substitutes another,
+such as EXPECTED."))
+
+(defun check-failed (manifest field kind expected actual position substitutable control
+                     &rest arguments)
+  "Signal manifest-check-failed with CONTROL and ARGUMENTS as its message. Return the
+substitute and T when the USE-VALUE restart, offered when SUBSTITUTABLE, is invoked, and
+NIL when the CONTINUE restart is."
+  (restart-case (error 'manifest-check-failed
+                       :manifest manifest :field field :kind kind :expected expected
+                       :actual actual :position position
+                       :format-control control :format-arguments arguments)
+    (continue ()
+      :report "Accept the value read and continue reading."
+      (values nil nil))
+    (use-value (value)
+      :test (lambda (c) (declare (ignore c)) substitutable)
+      :report "Use another value for the field."
+      :interactive (lambda ()
+                     (format *query-io* "~&Value to use (evaluated): ")
+                     (finish-output *query-io*)
+                     (list (eval (read *query-io*))))
+      (values value t))))
+
+(defun manifest-regions (items)
+  "The region table of ITEMS, a manifest's stored fields, built at expansion. Returns two
+values. The first lists the regions, in the order they begin: one per named field and per
+span, at any depth of spans, as a plist of :name, :kind (:field, :manifest or :span),
+:span (the innermost span holding it, or NIL) and :slots (the slot fields that cover it).
+The second lists the slots in field order, as plists of :field, :kind (the slot's kind,
+such as :length-of), :region (the name of the region it covers) and :by (a checksum's
+function form). Regions inside sub-manifests belong to their own tables."
+  (let (regions slots)
+    (labels ((walk (items span)
+               (dolist (item items)
+                 (destructuring-bind (&key name type slot &allow-other-keys) item
+                   (when name
+                     (push (list :name name
+                                 :kind (case type (:span :span) (:manifest :manifest) (t :field))
+                                 :span span :slots nil)
+                           regions))
+                   (when (and name slot)
+                     (push (list :field name :kind (first slot) :region (second slot)
+                                 :by (getf (cddr slot) :by))
+                           slots))
+                   (when (eq :span type) (walk (getf item :items) name))))))
+      (walk items nil)
+      (dolist (r regions)
+        (setf (getf r :slots)
+              (loop :for s :in slots :when (eq (getf s :region) (getf r :name))
+                    :collect (getf s :field))))
+      (values (nreverse regions) (nreverse slots)))))
+
+(defun manifest-checksums-p (items &optional visited)
+  "True when ITEMS, a manifest's stored fields, or a manifest nested in them as a field, a
+repeat or a :case branch, has a :checksum-of slot."
+  (labels ((nested-p (child)
+             (and (not (member child visited))
+                  (manifest-checksums-p (rest (gethash child *manifests*)) (cons child visited)))))
+    (loop :for item :in items
+          :thereis (or (eq :checksum-of (first (getf item :slot)))
+                       (case (getf item :type)
+                         (:span (manifest-checksums-p (getf item :items) visited))
+                         (:manifest (nested-p (first (getf item :actual)))))
+                       (loop :for b :in (getf item :type-conditions)
+                             :thereis (and (eq :manifest (getf b :type))
+                                           (nested-p (first (getf b :actual)))))))))
+
+(defun source-units (source unit-spec)
+  "SOURCE, an integer or a (units . integer) pair that unmarshal reads, as a vector of its
+units, numbered from the most significant as deserializer-for numbers them, so that a
+checksum function can read it. A bare integer has as many units as its value needs."
+  (let* ((unit (ash 1 (+ 3 unit-spec)))
+         (value (if (consp source) (rest source) source))
+         (units (if (consp source) (first source) (find-width value unit)))
+         (buffer (make-array units :element-type (list 'unsigned-byte unit))))
+    (dotimes (i units buffer)
+      (setf (aref buffer i) (ldb (byte unit (* unit (- units i 1))) value)))))
+
 (defmacro unmarshal (name source &optional params &rest keys)
   "Read the fields of the manifest NAME from SOURCE. With KEYS, return their values in
 order; otherwise return every named field, as a plist or, given (:as :record) in PARAMS,
-as an instance of the manifest's record class."
+as an instance of the manifest's record class. Checksums, length, offset and count slots,
+and constants are checked as they are read, and a failure signals manifest-check-failed;
+(:check nil) in PARAMS leaves the checks out."
   (let* ((spec (gethash name *manifests*))
+         (manifest-name name)
          (config (and (eq :config (getf (first spec) :type))
                       (first spec)))
          (nested (getf params :-+sub-lexicon+-))
+         (check (getf params :check t))
          (as (getf params :as :plist))
          ;; a nested manifest without a record class is read as a plist inside a record
          (record-class (and (eq as :record) (getf config :record)))
@@ -749,10 +844,12 @@ as an instance of the manifest's record class."
          (keys (or keys all-keys))
          (dvector (make-array 4 :initial-element nil))
          (base (gensym "BA")) (dsym (gensym "DS"))
-         raws sub-lexicon prefix cursor)
+         raws sub-lexicon prefix cursor
+         ;; a buffer of an integer source's units, made at most once, for checksums
+         buffer)
     
     (loop :for (key) :on params :by #'cddr
-          :unless (member key '(:as :-+sub-lexicon+-))
+          :unless (member key '(:as :check :-+sub-lexicon+-))
             :do (error "unmarshal: unknown option ~s for manifest ~s." key name))
     (unless (member as '(:plist :record))
       (error "unmarshal: :as must be :plist or :record, not ~s." as))
@@ -762,17 +859,52 @@ as an instance of the manifest's record class."
       (error "unmarshal: manifest ~s has no record class; give it (:record t)." name))
 
     (if (getf params :-+sub-lexicon+-)
-        (destructuring-bind (&key cr-sym pr-sym &allow-other-keys) (getf params :-+sub-lexicon+-)
-          (setf cursor cr-sym prefix pr-sym sub-lexicon (getf params :-+sub-lexicon+-)))
+        (destructuring-bind (&key cr-sym pr-sym bf-sym &allow-other-keys) (getf params :-+sub-lexicon+-)
+          (setf cursor cr-sym prefix pr-sym buffer bf-sym sub-lexicon (getf params :-+sub-lexicon+-)))
         (setf cursor (gensym "CR")
-              sub-lexicon (list :cr-sym cursor :ds-sym dsym)))
+              buffer (and check (manifest-checksums-p (rest spec)) (gensym "BUF"))
+              sub-lexicon (list :cr-sym cursor :ds-sym dsym :bf-sym buffer)))
           
     ;; (loop :for item :in (rest spec) :do (setf (getf fields (getf item :name)) item))
 
     ;; (print (list :ff fields keys))
 
 
-    (let ((vars) (reads) (src (gensym "SRC")))
+    (let ((vars) (reads) (src (gensym "SRC"))
+          ;; for checked reads: (region start end), the variables recording where a region a
+          ;; slot covers begins and ends, each made only when a check uses it; (field . at),
+          ;; where each checked slot field begins; the checks not yet emitted; and the
+          ;; names of the fields read and regions closed so far
+          (region-vars) (slot-starts) (pending) (done))
+      (when check
+        (multiple-value-bind (regions slots) (manifest-regions (rest spec))
+          (dolist (s slots)
+            (destructuring-bind (&key field kind region by) s
+              (unless (find region regions :key (lambda (r) (getf r :name)))
+                (error "unmarshal: the ~s slot of field ~s covers ~s, which is not a field or span ~
+                        of manifest ~s." kind field region name))
+              (unless (member kind '(:length-of :offset-of :count-of :checksum-of))
+                (error "unmarshal: field ~s has a slot of unknown kind ~s." field kind))
+              (when (and (eq kind :checksum-of) (not by))
+                (error "unmarshal: the :checksum-of slot of field ~s gives no function with :by."
+                       field))
+              ;; a field counted by its :count-of slot's field agrees with it as it is read
+              (unless (and (eq kind :count-of)
+                           (let ((target (find-in-manifest (rest spec)
+                                                           (lambda (i) (and (eq region (getf i :name))
+                                                                            i)))))
+                             (eq field (if (eq :manifest (getf target :type))
+                                           (getf (rest (getf target :actual)) :count)
+                                           (getf target :count)))))
+                (push s pending)
+                (push (cons field (gensym (format nil "~a-AT" (symbol-name field)))) slot-starts)
+                (let ((rv (or (assoc region region-vars)
+                              (first (push (list region nil nil) region-vars)))))
+                  (when (and (not (eq kind :count-of)) (not (second rv)))
+                    (setf (second rv) (gensym (format nil "~a-START" (symbol-name region)))))
+                  (when (and (member kind '(:length-of :checksum-of)) (not (third rv)))
+                    (setf (third rv) (gensym (format nil "~a-END" (symbol-name region)))))))))
+          (setf pending (nreverse pending))))
       (labels ((interpret (form enumerate-by)
                  (cond
                    (enumerate-by `(enumerated ,form (gethash ',enumerate-by *enums*)))
@@ -804,7 +936,8 @@ as an instance of the manifest's record class."
                       `(unmarshal ,child ,src
                                   (:-+sub-lexicon+- ,(list* :cr-sym cursor :pr-sym (qualify name)
                                                             sub-lexicon)
-                                   ,@(and (eq as :record) '(:as :record))))))))
+                                   ,@(and (eq as :record) '(:as :record))
+                                   ,@(and (not check) '(:check nil))))))))
                (length-form (i)
                  ;; the length in units of field I, from a :length-of slot over it, when one is read
                  (let ((source (assoc (getf i :name) length-sources)))
@@ -820,7 +953,65 @@ as an instance of the manifest's record class."
                  (let ((e (getf (find-in-manifest (rest spec) (lambda (i) (and (eq sel (getf i :name)) i)))
                                 :enumerate-by)))
                    (and e (gethash e *enums*))))
+               (buffer-form ()
+                 ;; what a checksum function reads: the source, or its units when an integer
+                 (let ((units `(source-units ,src ,(getf config :unit-spec))))
+                   `(if (vectorp ,src) ,src
+                        ,(if buffer `(or ,buffer (setf ,buffer ,units)) units))))
+               (check-form (s)
+                 ;; a form checking the slot S against the region it covers
+                 (destructuring-bind (&key field kind region by) s
+                   (let* ((var (or (rest (assoc field vars))
+                                   (error "unmarshal: slot field ~s of manifest ~s is not read."
+                                          field manifest-name)))
+                          (at (rest (assoc field slot-starts)))
+                          (start (second (assoc region region-vars)))
+                          (end (third (assoc region region-vars)))
+                          (exp (gensym "EXPECTED")) (v (gensym "V")) (use (gensym "USE")))
+                     `(let ((,exp ,(ecase kind
+                                     (:length-of `(- ,end ,start))
+                                     (:offset-of start)
+                                     (:count-of `(length ,(var-of region field)))
+                                     (:checksum-of `(funcall ,by ,(buffer-form) ,start ,end)))))
+                        (unless (eql ,var ,exp)
+                          (multiple-value-bind (,v ,use)
+                              (check-failed ',manifest-name ',field
+                                            ,(ecase kind (:length-of :length) (:offset-of :offset)
+                                                    (:count-of :count) (:checksum-of :checksum))
+                                            ,exp ,var ,at t
+                                            ,(concatenate
+                                              'string "unmarshal: field ~s of manifest ~s, at unit ~a, "
+                                              (ecase kind
+                                                (:length-of "gives the length ~a, but ~s spans ~a units.")
+                                                (:offset-of "gives the offset ~a, but ~s begins at unit ~a.")
+                                                (:count-of "gives the count ~a, but ~s has ~a elements.")
+                                                (:checksum-of "holds the checksum #x~x, but ~s gives #x~x.")))
+                                            ',field ',manifest-name ,at ,var ',region ,exp)
+                            (when ,use (setf ,var ,v))))))))
+               (emit-ready-checks ()
+                 ;; a check is emitted once its slot field is read and its region closed
+                 (setf pending
+                       (loop :for s :in pending
+                             :if (and (member (getf s :field) done) (member (getf s :region) done))
+                               :do (push (check-form s) reads)
+                             :else :collect s)))
+               (constant-failed (expected actual position control &rest arguments)
+                 ;; a form signalling a failed constant check, which only CONTINUE answers
+                 `(check-failed ',manifest-name nil :constant ,expected ,actual ,position nil
+                                ,control ,@arguments))
                (process-item (item)
+                 ;; read ITEM, recording where it begins and ends when a check needs it
+                 (let* ((rname (getf item :name))
+                        (rv (and rname (rest (assoc rname region-vars))))
+                        (at (and rname (rest (assoc rname slot-starts)))))
+                   (when (first rv) (push `(setf ,(first rv) ,cursor) reads))
+                   (when at (push `(setf ,at ,cursor) reads))
+                   (read-item item)
+                   (when (second rv) (push `(setf ,(second rv) ,cursor) reads))
+                   (when (and rname pending)
+                     (push rname done)
+                     (emit-ready-checks))))
+               (read-item (item)
                  (destructuring-bind (&key name type subtypes length signed (swap-by 0)
                                         items enumerate-by actual codec end-by
                                         bindings mode n &allow-other-keys)
@@ -845,18 +1036,27 @@ as an instance of the manifest's record class."
                      (:span
                       (loop :for item :in items :do (process-item item)))
                      (:string
-                      (let ((i (gensym "I")) (got (gensym "G")))
-                        (push `(loop :for ch :across ,actual :for ,i :from 0
-                                     :for ,got := (funcall (aref ,dsym 0) (+ ,cursor ,i) 1 nil ,src)
-                                     :unless (eql ,got ,(if codec `(funcall ,codec ch) '(char-code ch)))
-                                       :do (error "unmarshal: expected ~s at unit ~a, read #x~x."
-                                                  ,actual (+ ,cursor ,i) ,got))
-                              reads)
-                        (when end-by
-                          (push `(unless (eql ,end-by (funcall (aref ,dsym 0)
-                                                               (+ ,cursor ,(length actual)) 1 nil ,src))
-                                   (error "unmarshal: missing terminator after ~s." ,actual))
-                                reads))
+                      (let ((i (gensym "I")) (got (gensym "G")) (want (gensym "W")))
+                        ;; a mismatch is reported once, at the first unit that differs
+                        (when check
+                          (push `(loop :for ch :across ,actual :for ,i :from 0
+                                       :for ,got := (funcall (aref ,dsym 0) (+ ,cursor ,i) 1 nil ,src)
+                                       :for ,want := ,(if codec `(funcall ,codec ch) '(char-code ch))
+                                       :unless (eql ,got ,want)
+                                         :do ,(constant-failed
+                                               want got `(+ ,cursor ,i)
+                                               "unmarshal: expected ~s at unit ~a, read #x~x."
+                                               actual `(+ ,cursor ,i) got)
+                                             (loop-finish))
+                                reads)
+                          (when end-by
+                            (let ((pos `(+ ,cursor ,(length actual))))
+                              (push `(let ((,got (funcall (aref ,dsym 0) ,pos 1 nil ,src)))
+                                       (unless (eql ,end-by ,got)
+                                         ,(constant-failed end-by got pos
+                                                           "unmarshal: missing terminator after ~s."
+                                                           actual)))
+                                    reads))))
                         (push `(incf ,cursor ,(+ (length actual) (if end-by 1 0))) reads)))
                      (:masque
                       (multiple-value-bind (base _ segments symbols bits) (quantify-mask-string actual nil)
@@ -885,11 +1085,14 @@ as an instance of the manifest's record class."
                                   ;; static group, e.g. (p +goff-ptv-prefix+): check it against the constant
                                   (destructuring-bind (char form) (second b)
                                     (multiple-value-bind (w p) (group char)
-                                      (push `(unless (= (ldb (byte ,w 0) ,form) (ldb (byte ,w ,p) ,raw))
-                                               (error "unmarshal: masque ~s group ~a is ~a, expected ~a."
-                                                      ,actual ',char (ldb (byte ,w ,p) ,raw)
-                                                      (ldb (byte ,w 0) ,form)))
-                                            checks)))
+                                      (when check
+                                        (push `(unless (= (ldb (byte ,w 0) ,form) (ldb (byte ,w ,p) ,raw))
+                                                 ,(constant-failed
+                                                   `(ldb (byte ,w 0) ,form) `(ldb (byte ,w ,p) ,raw) cursor
+                                                   "unmarshal: masque ~s group ~a is ~a, expected ~a."
+                                                   actual `',char `(ldb (byte ,w ,p) ,raw)
+                                                   `(ldb (byte ,w 0) ,form)))
+                                              checks))))
                                   ;; keyword group, e.g. (t :kind :u8): read it as a field
                                   (destructuring-bind (&key name bind-to signed enumerate-by &allow-other-keys) b
                                     (when name
@@ -906,9 +1109,13 @@ as an instance of the manifest's record class."
                                                          enumerate-by))
                                                 sets)))))))
                             (push `(let ((,raw (funcall (aref ,dsym ,swap-by) ,cursor ,length nil ,src)))
-                                     (unless (= ,base (logand ,const-mask ,raw))
-                                       (error "unmarshal: constant bits of masque ~s don't match (read #x~x)."
-                                              ,actual ,raw))
+                                     (declare (ignorable ,raw))
+                                     ,@(and check
+                                            `((unless (= ,base (logand ,const-mask ,raw))
+                                                ,(constant-failed
+                                                  base `(logand ,const-mask ,raw) cursor
+                                                  "unmarshal: constant bits of masque ~s don't match (read #x~x)."
+                                                  actual raw))))
                                      ,@(reverse checks)
                                      ,@(reverse sets))
                                   reads)
@@ -958,6 +1165,9 @@ as an instance of the manifest's record class."
                          (push (list 'incf cursor length) reads))))))))
         
         (dolist (item (rest spec)) (process-item item))
+        (when pending
+          (error "unmarshal: the slots of fields ~s in manifest ~s cover regions that are not read."
+                 (mapcar (lambda (s) (getf s :field)) pending) name))
 
         ;; (dolist (k keys)
         ;;   (unless (assoc k vars) (error "unmarshal: no field ~a in manifest ~a." k name)))
@@ -967,6 +1177,11 @@ as an instance of the manifest's record class."
                 (,dsym (vector ,@(coerce dvector 'list)))
                 ,@(and (not (getf params :-+sub-lexicon+-))
                        (list (list cursor 0)))
+                ,@(and buffer (not nested) `((,buffer nil)))
+                ,@(loop :for (nil start end) :in region-vars
+                        :when start :collect (list start 0)
+                        :when end :collect (list end 0))
+                ,@(mapcar (lambda (s) (list (rest s) 0)) slot-starts)
                 ,@(mapcar #'rest vars)
                 ,@(mapcar #'rest raws))
            ,@(reverse reads)
