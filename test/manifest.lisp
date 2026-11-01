@@ -2327,6 +2327,21 @@ Returns T if all checks pass."
 (defmanifest unsized-items-probe (:unit 8 :endian :big)
   (manifest :items item-probe :until :length))
 
+;; Count fields computed on write: over a repeat, and over a vector of two-byte elements.
+(defmanifest count-of-items-probe (:unit 8 :endian :big :record t)
+  (:n     :u8 :slot (:count-of :items))
+  (manifest :items item-probe :count :n)
+  (:after :u8 :default 0))
+
+(defmanifest count-of-vector-probe (:unit 8 :endian :big)
+  (:n    :u16 :slot (:count-of :data))
+  (:data (:u 2 :vec) :count :n))
+
+;; A :count-of slot over a field that has no elements.
+(defmanifest count-of-scalar-probe (:unit 8 :endian :big)
+  (:n :u8 :slot (:count-of :x))
+  (:x :u8 :default 0))
+
 ;; Repeats a field plan rejects.
 (defmanifest repeat-both-probe (:unit 8 :endian :big)
   (manifest :items item-probe :count 2 :until (:tag 0)))
@@ -2460,14 +2475,15 @@ Returns T if all checks pass."
         (check "png-any, a source that ends before IEND signals an error"
                (signals-error-p (lambda () (unmarshal png-any (subseq png 0 93))))
                t))
-      (check "png-any, chunks without IEND last, or with IEND early, signal errors"
+      (check "png-any, chunks without IEND last, with IEND early, or none at all signal errors"
              (flet ((write-chunks (chunks)
                       (signals-error-p (lambda () (marshal png-any (ub8 200)
                                                     :signature +png-signature+ :chunks chunks)))))
                (list (write-chunks (list (list :type :ihdr :data (list :width 1 :height 1))))
                      (write-chunks (list (list :type :iend :data #())
-                                         (list :type :ihdr :data (list :width 1 :height 1))))))
-             '(t t))
+                                         (list :type :ihdr :data (list :width 1 :height 1))))
+                     (write-chunks nil)))
+             '(t t t))
 
       ;; 5. Counts, and the end of the source.
       (check "counted-items-probe, two instances counted by a field, read and written"
@@ -2517,7 +2533,36 @@ Returns T if all checks pass."
              (signals-error-p (lambda () (macroexpand-1 '(unmarshal unsized-items-probe s))))
              t)
 
-      ;; 7. Repeats that are expansion errors.
+      ;; 7. Count fields computed on write.
+      (check "count-of-items-probe, the count field holds the number of instances written"
+             (let ((buf (ub8 8)))
+               (marshal count-of-items-probe buf
+                        :items (list (list :tag 1 :value 5) (list :tag 2 :value 6)) :after 9)
+               (coerce buf 'list))
+             '(2 1 0 5 2 0 6 9))
+      (check "count-of-items-probe, read back: the count field counts the repeat"
+             (unmarshal count-of-items-probe (->bytes #(2 1 0 5 2 0 6 9)))
+             '(:n 2 :items ((:tag 1 :value 5) (:tag 2 :value 6)) :after 9))
+      (check "count-of-items-probe, a record's stale count is recomputed, and no instances count 0"
+             (list (let ((buf (ub8 5)))
+                     (marshal count-of-items-probe buf
+                              (:from (make-count-of-items-probe
+                                      :n 7 :items (list (make-item-probe :tag 3 :value 4)) :after 9)))
+                     (coerce buf 'list))
+                   (let ((buf (ub8 2)))
+                     (marshal count-of-items-probe buf :items nil :after 9)
+                     (coerce buf 'list)))
+             '((1 3 0 4 9) (0 9)))
+      (check "count-of-vector-probe, a count of two-byte elements, written and read back"
+             (let ((buf (ub8 8)))
+               (marshal count-of-vector-probe buf :data #(1 2 3))
+               (list (coerce buf 'list) (unmarshal count-of-vector-probe buf)))
+             '((0 3 0 1 0 2 0 3) (:n 3 :data #(1 2 3))))
+      (check "count-of-scalar-probe, a :count-of slot over a scalar: an expansion error"
+             (signals-error-p (lambda () (macroexpand-1 '(marshal count-of-scalar-probe d :x 1))))
+             t)
+
+      ;; 8. Repeats that are expansion errors.
       (check "a repeat with :count and :until, an unknown option, or :until on a missing field"
              (mapcar (lambda (form) (signals-error-p (lambda () (macroexpand-1 form))))
                      '((unmarshal repeat-both-probe s)

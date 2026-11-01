@@ -285,7 +285,7 @@ in PAIRS from RECORD, a plist or a manifest's record, when the code runs."
          (base (gensym "BA"))
          (selvars (mapcar (lambda (s) (cons s (gensym (string s))))
                           (case-selectors (rest spec))))
-         regions slots slots-of swap-specs offset access enter index tell write prefix
+         regions slots slots-of swap-specs offset access enter index tell write prefix counts
          values length serializers map b i sub-lexicon written)
 
     (loop :for (key) :on options :by #'cddr
@@ -295,10 +295,11 @@ in PAIRS from RECORD, a plist or a manifest's record, when the code runs."
     ;; populate the symbol lexicon or import it from an enclosing marshal macro
     (if (getf pairs :-+sub-lexicon+-)
         (destructuring-bind (&key ac-sym en-sym ba-sym in-sym tl-sym wr-sym pr-sym
-                               vl-sym ln-sym sr-sym mp-sym b-sym i-sym)
+                               vl-sym ln-sym sr-sym mp-sym ct-sym b-sym i-sym)
             (getf pairs :-+sub-lexicon+-)
           (setf access ac-sym enter en-sym base ba-sym index in-sym tell tl-sym write wr-sym prefix pr-sym
-                values vl-sym length ln-sym serializers sr-sym map mp-sym b b-sym i i-sym
+                values vl-sym length ln-sym serializers sr-sym map mp-sym counts ct-sym
+                b b-sym i i-sym
                 ;; propagate the same lexicon to deeper sub-manifests so nested
                 ;; inlining keeps sharing the top-level environment
                 sub-lexicon (getf pairs :-+sub-lexicon+-)))
@@ -311,12 +312,13 @@ in PAIRS from RECORD, a plist or a manifest's record, when the code runs."
               length (gensym "LN")
               serializers (gensym "SR")
               map (gensym "MP")
+              counts (gensym "CT")     ; elements written by fields that :count-of slots cover
               b (gensym "BB")
               i (gensym "II")
               sub-lexicon (list :ac-sym access :en-sym enter :ba-sym base :in-sym index
                                 :tl-sym tell :wr-sym write
                                 :vl-sym values :ln-sym length
-                                :sr-sym serializers :mp-sym map :b-sym b :i-sym i)))
+                                :sr-sym serializers :mp-sym map :ct-sym counts :b-sym b :i-sym i)))
 
 
     
@@ -325,6 +327,16 @@ in PAIRS from RECORD, a plist or a manifest's record, when the code runs."
                  (destructuring-bind (&key length name swap-by type slot items &allow-other-keys) item
                    (setf offset (getf item :offset))
                    (push (qualify name) regions)
+                   (when (and slot (eq :count-of (first slot)))
+                     ;; only a vector or a repeated sub-manifest has elements to count
+                     (let ((target (find-in-manifest (rest spec)
+                                                     (lambda (i) (and (eq (second slot) (getf i :name)) i)))))
+                       (unless (or (member :vec (getf target :subtypes))
+                                   (and (eq :manifest (getf target :type))
+                                        (let ((options (rest (getf target :actual))))
+                                          (or (getf options :count) (getf options :until)))))
+                         (error "marshal: the :count-of slot of field ~s covers field ~s, which is ~
+                                 not a vector or a repeated sub-manifest." name (second slot)))))
                    (when slot
                      (push item slots)
                      (push (list (qualify name) (first slot) length swap-by)
@@ -337,12 +349,21 @@ in PAIRS from RECORD, a plist or a manifest's record, when the code runs."
              (resolve-region (name slot-field slot-type slot-width swap-by)
                `(funcall ,write (aref ,serializers ,swap-by)
                         (cons ,slot-width
-                              ;; :length-of → (- end start) ; :offset-of → start
+                              ;; :length-of → (- end start) ; :offset-of → start ;
+                              ;; :count-of → the elements written
                               ,(case slot-type
                                  (:length-of `(- (third (assoc ,name ,map))
                                                  (second (assoc ,name ,map))))
-                                 (:offset-of `(second (assoc ,name ,map)))))
+                                 (:offset-of `(second (assoc ,name ,map)))
+                                 (:count-of `(rest (assoc ,name ,counts)))))
                         (second (assoc ',slot-field ,map)))) ; slot's reserved position
+             (counted-form (qname form)
+               ;; FORM writes the field QNAME; when a :count-of slot covers the field, which
+               ;; preprocess-spec has checked is a vector or a repeat, record the number of
+               ;; elements FORM returns, which the slot is backpatched with
+               (if (find :count-of (getf slots-of qname) :key #'second)
+                   `(push (cons ,qname ,form) ,counts)
+                   form))
              (assign-serializer (s)
                `(setf (aref ,serializers ,s)
                       (serializer-for ,(getf params :unit-spec) ,s)))
@@ -482,19 +503,22 @@ in PAIRS from RECORD, a plist or a manifest's record, when the code runs."
                              :collect `(unless (assoc ,closure ,map)
                                          (push (list ,closure ,index ,index) ,map)))
                        (list name (let ((plan (field-plan item)))
-                                    (write-effector
-                                     plan
-                                     (list* :name name :write-manifest #'write-manifest
-                                            (if (typep plan 'manifest-plan)
-                                                ;; literal pairs given for the child win over the
-                                                ;; record's value for this field, read at run time
-                                                (list :literal (getf pairs name)
-                                                      :record (and from name
-                                                                   `(field-value ,from ',name)))
-                                                ;; a repeat writes a sequence of plists or records
-                                                (list :value (or (value-source name nil)
-                                                                 (error "marshal: repeated field ~s ~
-                                                                         has no value." name))))))))
+                                    (counted-form
+                                     qname
+                                     (write-effector
+                                      plan
+                                      (list* :name name :write-manifest #'write-manifest
+                                             (if (typep plan 'manifest-plan)
+                                                 ;; literal pairs given for the child win over the
+                                                 ;; record's value for this field, read at run time
+                                                 (list :literal (getf pairs name)
+                                                       :record (and from name
+                                                                    `(field-value ,from ',name)))
+                                                 ;; a repeat writes a sequence of plists or
+                                                 ;; records; none given, or NIL, is no instances
+                                                 (list :value (or (getf pairs name)
+                                                                  (and from name
+                                                                       `(field-value ,from ',name))))))))))
                        `((setf (third (assoc ,qname ,map)) ,index))
                        (loop :for closure :in context
                              :collect `(setf (third (assoc ,closure ,map)) ,index))
@@ -532,18 +556,20 @@ in PAIRS from RECORD, a plist or a manifest's record, when the code runs."
                                                                               (and (integerp c) c)))
                                                               :unit-bits (ash 1 (+ 3 (getf params
                                                                                            :unit-spec)))))))
-                                  (write-effector
-                                   plan
-                                   (list* :name name
-                                          :write (lambda (w f) `(funcall (aref ,serializers ,swap-by)
-                                                                         (cons ,w ,f) ,enter))
-                                          :write-manifest #'write-manifest
-                                          (cond ((member :case subtypes)
-                                                 (case-value-context name default enumerate-by slot plan))
-                                                ((member :vec subtypes)
-                                                 (list :value (vec-source-form name default count end-by)))
-                                                (t (list :value (scalar-value-form name default
-                                                                                   enumerate-by slot))))))))
+                                  (counted-form
+                                   qname
+                                   (write-effector
+                                    plan
+                                    (list* :name name
+                                           :write (lambda (w f) `(funcall (aref ,serializers ,swap-by)
+                                                                          (cons ,w ,f) ,enter))
+                                           :write-manifest #'write-manifest
+                                           (cond ((member :case subtypes)
+                                                  (case-value-context name default enumerate-by slot plan))
+                                                 ((member :vec subtypes)
+                                                  (list :value (vec-source-form name default count end-by)))
+                                                 (t (list :value (scalar-value-form name default
+                                                                                    enumerate-by slot)))))))))
                                ;; ((member :leb subtypes)
                                ;;  (unless (eql 1 length-form)
                                ;;    (error "Field ~s: a LEB field must be one unit wide." name))
@@ -656,7 +682,7 @@ in PAIRS from RECORD, a plist or a manifest's record, when the code runs."
                           ,@(if (getf params :length) `((,length ,(getf params :length))))
                           ;; ,@(loop :for c :in (case-selectors (rest spec)) :collect (list c '(gensym)))
                           ,@(mapcar (lambda (p) (list (rest p) nil)) selvars)
-                          (,enter) (,tell) (,write) (,map)
+                          (,enter) (,tell) (,write) (,map) (,counts)
                            (,serializers (make-array ,(1+ (reduce #'max swap-specs :initial-value 0)) :initial-element nil)))
 
                      (typecase ,access

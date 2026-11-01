@@ -413,9 +413,13 @@ cycling)."
     (list :mark (lambda (e last) `(if ,last ,e (logior ,e ,(ash 1 bit)))))))
 
 (defmethod frame-effector ((r until-rule) ctx)
-  ;; a reader stops at the first element that matches, so only the last may, and it must
+  ;; a reader stops at the first element that matches, so only the last may, and it must;
+  ;; with no elements at all, a reader would not stop either
   (let ((name (getf ctx :name)) (m (gensym "MATCH")))
-    (list :mark (lambda (e last)
+    (list :trailer `((when (zerop ,(getf ctx :index))
+                       (error "Field ~s has no elements, so none matches its :until condition ~
+                               and a reader would not stop." ',name)))
+          :mark (lambda (e last)
                   `(let ((,m ,(until-test-form e (rule-conditions r))))
                      (cond ((and ,m (not ,last))
                             (error "Field ~s: an element before the last matches its :until ~
@@ -509,7 +513,8 @@ RULE, and writes them with WRITE, an expansion-time function of an element form.
                        ,@check
                        ,(funcall write (if mark (funcall mark e l) e))
                        (incf ,k)))
-           ,@trailer)))))
+           ,@trailer
+           ,k)))))  ; the number of data elements written, for a :count-of slot
 
 (defmethod read-effector ((p scalar-plan) ctx)
   (destructuring-bind (&key read-at cursor &allow-other-keys) ctx
