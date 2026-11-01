@@ -9,8 +9,8 @@
          :reader  rule-n)))   ;; integer or form
 
 (defclass terminator-rule   (stop-rule)
-  ((code :initarg :code
-         :reader rule-code))) ;; code form
+  ((codes :initarg :codes
+          :reader rule-codes))) ;; list of code forms: one per element of the terminator
 
 (defclass bounded-terminator-rule (terminator-rule)
   ((n    :initarg :n
@@ -75,17 +75,42 @@ elements already collected to drop at the end)."))
 (defmethod stop-effector ((r count-rule) ctx)
   (list :before `(>= ,(getf ctx :index) ,(getf ctx :count))))
 
+(defun pattern-matcher (codes)
+  "Fragments that match a terminator of several elements, CODES, against the elements
+fed to it: :bindings, :declare, :pattern (a variable holding the codes as a vector) and
+:feed, an expansion-time function of an element form, returning a form that records the
+element and is true when the last elements recorded are the whole pattern."
+  (let ((p (length codes)) (pattern (gensym "PAT")) (window (gensym "WIN"))
+        (seen (gensym "SEEN")) (j (gensym "J")))
+    (list :bindings `((,pattern (vector ,@codes)) (,window (make-array ,p)) (,seen 0))
+          :declare `((type fixnum ,seen))
+          :pattern pattern
+          :feed (lambda (e)
+                  ;; the window is a ring; after SEEN elements, the oldest is at (mod SEEN P)
+                  `(progn (setf (aref ,window (mod ,seen ,p)) ,e)
+                          (incf ,seen)
+                          (and (>= ,seen ,p)
+                               (loop :for ,j :below ,p
+                                     :always (eql (aref ,window (mod (+ ,seen ,j) ,p))
+                                                  (aref ,pattern ,j)))))))))
+
 (defmethod stop-effector ((r terminator-rule) ctx)
-  (let ((tm (gensym "TM")))
-    (list :bindings `((,tm ,(rule-code r)))
-          :after `(eql ,(getf ctx :element) ,tm) :keep nil)))
+  (let ((codes (rule-codes r)) (e (getf ctx :element)))
+    (if (null (rest codes))
+        (let ((tm (gensym "TM")))
+          (list :bindings `((,tm ,(first codes)))
+                :after `(eql ,e ,tm) :keep nil))
+        ;; the elements of the pattern before its last were collected as data; drop them
+        ;; when the pattern is found, but not when a bounded scan stops at its count
+        (destructuring-bind (&key bindings declare feed &allow-other-keys) (pattern-matcher codes)
+          (let ((hit (gensym "HIT")))
+            (list :bindings `(,@bindings (,hit nil)) :declare declare
+                  :after `(setf ,hit ,(funcall feed e)) :keep nil
+                  :trailer `(if ,hit ,(1- (length codes)) 0)))))))
 
 (defmethod stop-effector ((r bounded-terminator-rule) ctx)
   ;; stop at the terminator or at the buffer's end; emit-scan moves past the whole buffer
-  (let ((tm (gensym "TM")))
-    (list :bindings `((,tm ,(rule-code r)))
-          :before `(>= ,(getf ctx :index) ,(getf ctx :extent))
-          :after `(eql ,(getf ctx :element) ,tm) :keep nil)))
+  (list* :before `(>= ,(getf ctx :index) ,(getf ctx :extent)) (call-next-method)))
 
 (defmethod stop-effector ((r continuation-rule) ctx)
   (list :after `(not (logbitp ,(rule-bit r) ,(getf ctx :element))) :keep t))
@@ -119,6 +144,17 @@ elements already collected to drop at the end)."))
                    (char-code end-by)))
     (integer end-by)
     (t (error "Field ~s: :end-by must be a character or an integer, not ~s." name end-by))))
+
+(defun terminator-code-forms (name end-by codec)
+  "The code forms of a terminator: one for a character or an integer, one per element for
+a vector or a string, each encoded by the rule of terminator-code-form."
+  (typecase end-by
+    ((or character integer) (list (terminator-code-form name end-by codec)))
+    (vector (if (zerop (length end-by))
+                (error "Field ~s: :end-by is empty." name)
+                (map 'list (lambda (x) (terminator-code-form name x codec)) end-by)))
+    (t (error "Field ~s: :end-by must be a character, an integer, a vector or a string, not ~s."
+              name end-by))))
 
 (defun enum-decode-form (form enum)
   (if enum `(enumerated ,form (gethash ',enum *enums*)) form))
@@ -208,27 +244,64 @@ and :trailer (forms run after the last element)."))
   (declare (ignore ctx))
   nil) ;; length vs :count check waits on Plan O5
 
+(defun terminator-frame (r name element write)
+  "Write-side fragments shared by the terminator rules: :size (the number of elements in
+the terminator), :bindings, :declare, :check (signals an error on data that contains the
+terminator), :emit (forms that write the terminator once) and :code-at (an expansion-time
+function of an index form, returning a form for the terminator's element at that index,
+cycling)."
+  (let* ((codes (rule-codes r)) (p (length codes)))
+    (if (= 1 p)
+        (let ((tm (gensym "TM")))
+          (list :size 1 :bindings `((,tm ,(first codes)))
+                :check `((when (eql ,element ,tm)
+                           (error "Field ~s contains its terminator ~a." ',name ,tm)))
+                :emit (list (funcall write tm))
+                :code-at (lambda (j) (declare (ignore j)) tm)))
+        ;; data and terminator are fed through one matcher, so the pattern must first appear
+        ;; at the terminator's last element; earlier, it lies in the data or straddles both
+        (destructuring-bind (&key bindings declare pattern feed) (pattern-matcher codes)
+          (let ((j (gensym "J")) (c (gensym "C")))
+            (list :size p :bindings bindings :declare declare
+                  :check `((when ,(funcall feed element)
+                             (error "Field ~s contains its terminator ~s." ',name ,pattern)))
+                  :emit `((loop :for ,j :below ,p
+                                :for ,c := (aref ,pattern ,j)
+                                :do (when (and ,(funcall feed c) (< ,j ,(1- p)))
+                                      (error "Field ~s: the end of its data and the start of ~
+                                              its terminator ~s form the terminator."
+                                             ',name ,pattern))
+                                    ,(funcall write c)))
+                  :code-at (lambda (jf) `(aref ,pattern (mod ,jf ,p)))))))))
+
 (defmethod frame-effector ((r terminator-rule) ctx)
   (destructuring-bind (&key name element write &allow-other-keys) ctx
-    (let ((tm (gensym "TM")))
-      (list :bindings `((,tm ,(rule-code r)))
-            :check `((when (eql ,element ,tm)
-                       (error "Field ~s contains its terminator ~a." ',name ,tm)))
-            :trailer (list (funcall write tm))))))
+    (destructuring-bind (&key bindings declare check emit &allow-other-keys)
+        (terminator-frame r name element write)
+      (list :bindings bindings :declare declare :check check :trailer emit))))
 
 (defmethod frame-effector ((r bounded-terminator-rule) ctx)
   ;; data that fills the buffer needs no terminator; shorter data is followed by the
-  ;; terminator, repeated to the buffer's end
+  ;; terminator, repeated to the buffer's end, and must leave room for a whole one
   (destructuring-bind (&key name element index write &allow-other-keys) ctx
     (unless (rule-n r)
       (error "Field ~s: writing a buffer with a terminator needs an integer :count for now." name))
-    (let ((tm (gensym "TM")) (n (gensym "N")))
-      (list :bindings `((,tm ,(rule-code r)) (,n ,(rule-n r)))
-            :check `((when (>= ,index ,n)
-                       (error "Field ~s holds at most ~a elements." ',name ,n))
-                     (when (eql ,element ,tm)
-                       (error "Field ~s contains its terminator ~a." ',name ,tm)))
-            :trailer `((loop :repeat (- ,n ,index) :do ,(funcall write tm)))))))
+    (destructuring-bind (&key size bindings declare check emit code-at)
+        (terminator-frame r name element write)
+      (let ((n (gensym "N")) (room (gensym "ROOM")) (j (gensym "J")))
+        (list :bindings `(,@bindings (,n ,(rule-n r))) :declare declare
+              :check `((when (>= ,index ,n)
+                         (error "Field ~s holds at most ~a elements." ',name ,n))
+                       ,@check)
+              :trailer `((let ((,room (- ,n ,index)))
+                           (when (plusp ,room)
+                             ,@(and (> size 1)
+                                    `((when (< ,room ,size)
+                                        (error "Field ~s leaves room for ~a of the ~a elements ~
+                                                of its terminator." ',name ,room ,size))))
+                             ,@emit
+                             (loop :for ,j :below (- ,room ,size)
+                                   :do ,(funcall write (funcall code-at j)))))))))))
 
 (defmethod frame-effector ((r continuation-rule) ctx)
   (declare (ignore ctx))
@@ -361,10 +434,10 @@ RULE, and writes them with WRITE, an expansion-time function of an element form.
            (make-instance 'scan-plan :width length
              :rule (cond ((and end-by count)  ; a fixed buffer holding a terminator
                           (make-instance 'bounded-terminator-rule
-                                         :code (terminator-code-form name end-by codec)
+                                         :codes (terminator-code-forms name end-by codec)
                                          :n (and count-form (funcall count-form item))))
                          (end-by
-                          (make-instance 'terminator-rule :code (terminator-code-form name end-by codec)))
+                          (make-instance 'terminator-rule :codes (terminator-code-forms name end-by codec)))
                          (t (make-instance 'count-rule :n (and count-form (funcall count-form item)))))
              :assembler (make-instance 'vector-assembler :bits (* length unit-bits) :signed signed
                                                          :enum enumerate-by :codec codec)))

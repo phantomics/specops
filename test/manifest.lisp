@@ -1367,3 +1367,128 @@ Returns T if all checks pass."
       (format t "~&bounded buffer checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
               pass (count t results) (length results))
       pass)))
+
+;;; ===========================================================================
+;;; Part N — terminators of several elements
+;;; ===========================================================================
+
+;; A line ended by CR LF, given as a vector of codes.
+(defmanifest crlf-probe (:unit 8 :endian :big)
+  (:line  (:u 1 :vec) :end-by #(13 10))
+  (:after :u8 :default 0))
+
+;; The same terminator given as a string.
+(defmanifest crlf-string-probe (:unit 8 :endian :big)
+  (:line  (:u 1 :vec) :end-by #.(coerce (list #\Return #\Newline) 'string))
+  (:after :u8 :default 0))
+
+;; A pattern that overlaps itself, for matches that straddle data and terminator.
+(defmanifest aa-probe (:unit 8 :endian :big)
+  (:s     (:u 1 :vec) :end-by "AA")
+  (:after :u8 :default 0))
+
+;; Characters of the terminator go through the codec ($ is #x5B in CP037).
+(defmanifest ebcdic-multi-probe (:unit 8 :endian :big)
+  (:name (:u 1 :vec) :end-by "$$" :codec #'specops.map.ebcdic:ebcdic-code-cp037))
+
+;; A six-byte buffer ended by CR LF.
+(defmanifest bounded-crlf-probe (:unit 8 :endian :big)
+  (:line  (:u 1 :vec) :count 6 :end-by #(13 10))
+  (:after :u8 :default 0))
+
+(defmanifest empty-terminator-probe (:unit 8 :endian :big)
+  (:s (:u 1 :vec) :end-by #()))
+
+(defun run-multi-terminator-demo ()
+  "Marshal and unmarshal fields ended by terminators of several elements.
+Returns T if all checks pass."
+  (let ((results nil))
+    (flet ((check (label got want)
+             (let ((ok (equalp got want)))
+               (push ok results)
+               (format t "~&  ~:[FAIL~;ok  ~]  ~a~%" ok label)
+               (unless ok
+                 (format t "~&          got  ~s~%          want ~s~%" got want))))
+           (to-list (manifest-thunk)
+             (let ((acc nil))
+               (funcall manifest-thunk (lambda (b) (push b acc)))
+               (reverse acc))))
+      (format t "~&multi-element terminator checks:~%")
+
+      ;; 1. CR LF, as a vector and as a string.
+      (check "crlf-probe, \"ab\" then CR LF"
+             (to-list (lambda (d) (marshal crlf-probe d :line "ab" :after 9)))
+             '(97 98 13 10 9))
+      (check "crlf-probe, read back (both elements of the terminator dropped)"
+             (unmarshal crlf-probe (->bytes #(97 98 13 10 9)))
+             '(:line #(97 98) :after 9))
+      (check "crlf-string-probe, a string terminator writes the same bytes"
+             (to-list (lambda (d) (marshal crlf-string-probe d :line "ab" :after 9)))
+             '(97 98 13 10 9))
+      (check "crlf-probe, no value writes the terminator alone, and reads back empty"
+             (list (to-list (lambda (d) (marshal crlf-probe d :after 9)))
+                   (unmarshal crlf-probe (->bytes #(13 10 9))))
+             '((13 10 9) (:line #() :after 9)))
+
+      ;; 2. Partial matches are data.
+      (check "crlf-probe, a CR not followed by LF is data, on both sides"
+             (list (to-list (lambda (d) (marshal crlf-probe d :line #(97 13 98) :after 9)))
+                   (unmarshal crlf-probe (->bytes #(97 13 98 13 10 9))))
+             '((97 13 98 13 10 9) (:line #(97 13 98) :after 9)))
+      (check "crlf-probe, data ending in CR reads back whole"
+             (list (to-list (lambda (d) (marshal crlf-probe d :line #(97 13) :after 9)))
+                   (unmarshal crlf-probe (->bytes #(97 13 13 10 9))))
+             '((97 13 13 10 9) (:line #(97 13) :after 9)))
+
+      ;; 3. Data that would end the field early.
+      (check "crlf-probe, data containing CR LF signals an error"
+             (signals-error-p
+              (lambda () (to-list (lambda (d) (marshal crlf-probe d :line #(97 13 10 98))))))
+             t)
+      (check "aa-probe, data ending in A would form AA with the terminator: an error"
+             (signals-error-p (lambda () (to-list (lambda (d) (marshal aa-probe d :s "xA")))))
+             t)
+      (check "aa-probe, data starting with A is fine, and reads back"
+             (let ((bytes (to-list (lambda (d) (marshal aa-probe d :s "Ax" :after 9)))))
+               (list bytes (unmarshal aa-probe (->bytes bytes))))
+             '((65 120 65 65 9) (:s #(65 120) :after 9)))
+      (check "crlf-probe, a source with no terminator signals an error"
+             (signals-error-p (lambda () (unmarshal crlf-probe (->bytes #(97 98 13)))))
+             t)
+
+      ;; 4. A codec, and an empty terminator.
+      (check "ebcdic-multi-probe, \"HI\" then $$ encoded as #x5B #x5B"
+             (to-list (lambda (d) (marshal ebcdic-multi-probe d :name "HI")))
+             '(#xC8 #xC9 #x5B #x5B))
+      (check "ebcdic-multi-probe, read back as a string"
+             (unmarshal ebcdic-multi-probe (->bytes #(#xC8 #xC9 #x5B #x5B)))
+             '(:name "HI"))
+      (check "empty-terminator-probe, an empty :end-by is an expansion error"
+             (signals-error-p (lambda () (macroexpand-1 '(unmarshal empty-terminator-probe s))))
+             t)
+
+      ;; 5. Fixed buffers ended by CR LF.
+      (check "bounded-crlf-probe, \"ab\" then CR LF repeated to the buffer's end"
+             (to-list (lambda (d) (marshal bounded-crlf-probe d :line "ab" :after 9)))
+             '(97 98 13 10 13 10 9))
+      (check "bounded-crlf-probe, \"abcd\" leaves room for exactly one CR LF"
+             (to-list (lambda (d) (marshal bounded-crlf-probe d :line "abcd" :after 9)))
+             '(97 98 99 100 13 10 9))
+      (check "bounded-crlf-probe, \"abcdef\" fills the buffer with no terminator"
+             (to-list (lambda (d) (marshal bounded-crlf-probe d :line "abcdef" :after 9)))
+             '(97 98 99 100 101 102 9))
+      (check "bounded-crlf-probe, \"abcde\" leaves room for half a terminator: an error"
+             (signals-error-p
+              (lambda () (to-list (lambda (d) (marshal bounded-crlf-probe d :line "abcde")))))
+             t)
+      (check "bounded-crlf-probe, read back, skipping what follows the terminator"
+             (list (unmarshal bounded-crlf-probe (->bytes #(97 98 13 10 13 10 9)))
+                   (unmarshal bounded-crlf-probe (->bytes #(97 13 10 122 122 122 9))))
+             '((:line #(97 98) :after 9) (:line #(97) :after 9)))
+      (check "bounded-crlf-probe, a full buffer ending in CR keeps the CR as data"
+             (unmarshal bounded-crlf-probe (->bytes #(97 98 99 100 101 13 9)))
+             '(:line #(97 98 99 100 101 13) :after 9)))
+    (let ((pass (every #'identity results)))
+      (format t "~&multi-element terminator checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
+              pass (count t results) (length results))
+      pass)))
