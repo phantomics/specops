@@ -42,6 +42,10 @@ decisions:
   - SPECOPS-DRAFT-manifest-D29
   - SPECOPS-DRAFT-manifest-D30
   - SPECOPS-DRAFT-manifest-D31
+  - SPECOPS-DRAFT-manifest-D32
+  - SPECOPS-DRAFT-manifest-D33
+  - SPECOPS-DRAFT-manifest-D34
+  - SPECOPS-DRAFT-manifest-D35
 relates-to:
   - SPECOPS-DRAFT-manifest-complete
   - SPECOPS-DRAFT-restructure
@@ -68,8 +72,9 @@ record, `marshal`, which writes values into that structure, and `unmarshal`,
 which reads them back out. It covers the path from a freeform `marshal` macro to
 manifest-driven writing and reading, and the PNG test format used to exercise
 it. The chronicled state is commit `10b1568`; the updates at the end of this
-log carry the record forward: that of 2026-10-30 to commit `653345f`, and
-three of 2026-10-31, to commits `738105a`, `d030f5c` and `2e1af03`. The repository restructure that followed
+log carry the record forward: that of 2026-10-30 to commit `653345f`, three
+of 2026-10-31, to commits `738105a`, `d030f5c` and `2e1af03`, and that of
+2026-11-01 to commit `4f9c6d4`. The repository restructure that followed
 moved the files this log names (see
 [SPECOPS-DRAFT-restructure](Log.Restructure.md)); code references stay pinned
 to the commits that held the work.
@@ -1343,3 +1348,184 @@ From the previous update, the keyword defaults, unknown enum codes, error
 wording and exports are done. Remaining: writing a buffer sized by another
 field, the units rule, fixed buffers of LEB elements, and decimal masques in
 `unmarshal`. The Manifest Completion Plan's other milestones are unchanged.
+
+## Update 2026-11-01 — Records and round trips
+
+This installment covers commits `fed7f35` through `4f9c6d4`, which give the
+manifest layer records: `marshal` takes field values from a record when its
+code runs, `defmanifest` can define a record class, `unmarshal` can return an
+instance of it, and a record read from a file writes the file back. They
+answer the Manifest Completion Plan's open questions
+SPECOPS-DRAFT-manifest-complete-O2 and SPECOPS-DRAFT-manifest-complete-O3, and
+build its SPECOPS-DRAFT-manifest-complete-D4 with a class in place of the
+struct it named. A new suite brings the checks from 217 to 258.
+
+### SPECOPS-DRAFT-manifest-D32 — A manifest's record is a CLOS class, defined on request, with its names in the class's package
+
+**Status:** Proposed
+**Context:** SPECOPS-DRAFT-manifest-complete-D4 proposed that `defmanifest`
+always define a struct. SBCL treats redefining a struct with different slots
+as an incompatible redefinition, which stops with an error until the image is
+restarted, and a manifest's fields change often while a format is being
+written. Defining a type for every manifest could also clash with names
+already in use.
+**Decision:** `defmanifest` defines a record class when its parameters give
+`:record`: `t` names the class after the manifest, and a symbol names it
+explicitly. `src/manifest/manifest.lisp:define-manifest-record@4f9c6d4`
+defines the class, with a slot per named field, an initarg of the field's
+keyword and an accessor named after the class and the field; a constructor,
+`make-` and the class name; a `field-value` method; and a `print-object`
+method that shows the fields. The slots are the fields that `unmarshal`'s
+plist has, both being taken from
+`src/manifest/manifest.lisp:manifest-field-names@4f9c6d4`: span children at
+the span's level, masque keyword groups, sub-manifest fields and slot fields,
+but not unnamed fields. Derived names are interned in the package of the
+class's name. Because the class is defined from the stored fields,
+`defmanifest` expands into the registration followed by
+`define-manifest-record`, which reads them once the registration has run at
+compile time.
+**Alternatives:** A struct, as SPECOPS-DRAFT-manifest-complete-D4 proposed
+(rejected by the steward: the redefinition problem above); a record for every
+manifest (rejected by the steward: needless types and possible clashes);
+derived names in the package current at the `defmanifest` form (rejected by
+the steward in favor of keeping them beside the class).
+
+### SPECOPS-DRAFT-manifest-D33 — `marshal` takes a run-time record through an options list
+
+**Status:** Proposed
+**Context:** `marshal` took each field's value from its literal arguments at
+expansion, so a sub-manifest's values had to be a literal plist in the call,
+and a record built or read at run time could not be written
+(SPECOPS-DRAFT-manifest-complete-O3). A reserved keyword argument such as
+`:from` would clash with a format that has a field of that name.
+**Decision:** `marshal`'s arguments may begin with a list of options, which
+cannot be taken for a field since fields begin with keywords:
+`(marshal png-ihdr buf (:from record) :height 600)`. A field's value is its
+literal argument, else `(field-value record field)` when the code runs, else
+its default. `src/manifest/manifest.lisp:field-value@4f9c6d4` is a generic
+function with a method for plists, to which each record class adds its own,
+so plists and records share one generated path. A field with no value in the
+record and no default signals an error naming the field and the manifest when
+the code runs. Slot fields are never read from a record: lengths, offsets and
+checksums are recomputed, so an edited record is written consistently. A
+sub-manifest field's record value is bound once and passed to the child's
+expansion as its own `:from`, at any depth, and literal values for the child
+still override it. An unknown option is an expansion error.
+**Alternatives:** A reserved key (rejected by the steward: the clash above);
+fetching values with `getf` only (rejected: records would need converting);
+separate generated paths for plists and records (rejected: one generic
+function serves both at the cost of a dispatch per field).
+
+### SPECOPS-DRAFT-manifest-D34 — `unmarshal` takes its options in its params, `(:as :record)` among them
+
+**Status:** Proposed
+**Context:** `unmarshal` returned values for given keys and a plist otherwise
+(SPECOPS-DRAFT-manifest-D13). Records needed a way to ask for them, and
+SPECOPS-DRAFT-manifest-complete-O2 asked where `unmarshal`'s options belong.
+**Decision:** Options go in `unmarshal`'s `params` argument, which already
+carried the internal sub-lexicon: `(unmarshal png-file source (:as :record))`
+returns an instance of the manifest's record class, and `:as :plist` is the
+default. Nested sub-manifests are read as records when they have a record
+class, and as plists inside the parent's record when they do not. An unknown
+option, an `:as` other than `:plist` or `:record`, `:as :record` with keys,
+and `:as :record` for a manifest without a record class are expansion errors.
+**Alternatives:** Options after the manifest's name, as in
+`(unmarshal (png-file :record) …)` (rejected in
+SPECOPS-DRAFT-manifest-complete-O2: the name should stay a plain symbol);
+always returning a record when the manifest has one (rejected: the plist stays
+the default, as callers already expect).
+
+### SPECOPS-DRAFT-manifest-D35 — Round trips are canonical
+
+**Status:** Proposed
+**Context:** A record read by `unmarshal` and written by `marshal` should
+reproduce its source, but a record holds only named fields.
+**Decision:** A round trip reproduces a canonical source exactly, and writes
+any other source in canonical form. Pad bytes are written with the pad's fill
+value, unnamed fields with their defaults, and the elements after a
+terminator in a fixed buffer as terminators; slot fields are recomputed, so
+they match a source only if it was consistent. The limits are tested, not
+just stated.
+**Alternatives:** Keeping pad bytes, unnamed fields and buffer tails in
+hidden slots so that any source is reproduced (rejected by the steward: much
+more work for sources that are malformed or unusual).
+
+### Implementation
+
+- **Run-time records, `fed7f35`.** In
+  `src/manifest/manifest.lisp:marshal@4f9c6d4`, the options list is taken from
+  the arguments before anything reads them, and its record is bound once. A
+  local `value-source` chooses each field's value for the masque binder,
+  `selector-form`, `scalar-value-form` and `vec-source-form`; for a vector,
+  the fallback is its vector default, an empty string for a terminated field,
+  or its repeated numeric default. `field-value` is exported.
+- **Record classes, `360acc0`.** `defmanifest` accepts `:record` and stores
+  the class's name in the manifest's configuration entry;
+  `define-manifest-record` and `manifest-field-names` are new, the latter
+  lifted out of `unmarshal`.
+- **Records out, `1e8938d`.** In `src/manifest/manifest.lisp:unmarshal@4f9c6d4`,
+  the `:as` option, its checks, the result built with `make-instance`, and
+  `:as :record` passed to nested expansions.
+- **Round-trip tests, `4f9c6d4`.** The PNG manifests of the test file gained
+  `:record t`; their plist behavior is unchanged.
+
+### Verification
+
+The run command is that of the update of 2026-10-31 for the scan model, with
+`(specops::run-record-demo)` added.
+
+Table: The suite added in this installment, and the totals at commit `4f9c6d4`.
+
+| Suite | Function | Checks | Result |
+|---|---|---|---|
+| Records and round trips | `run-record-demo` | 41 | 41 pass |
+| All fifteen suites | from `run-png-demo` to `run-record-demo` | 258 and the PNG verification | All pass |
+
+The new suite checks, among other things:
+
+- **Run-time records:** a compiled function, `test/manifest.lisp:write-ihdr-from@4f9c6d4`,
+  writing two different plists; defaults, enum values given three ways,
+  overrides and a missing field; nested records whose length and CRC are
+  recomputed; `:case`, vector and masque fields from records.
+- **Record classes:** named after the manifest and explicitly, with accessors
+  in another package; editing through accessors; redefining a manifest with a
+  new field.
+- **Records out:** a record holding a record, a record holding a plist, and
+  the option errors.
+- **Round trips:** the 1×1 PNG through a plist and through records; an edit
+  to its IHDR (Adam7 interlacing), accepted by the independent PNG verifier;
+  an edit to its IDAT, which gives exactly the bytes of a PNG built with that
+  pixel; and the 80-byte GOFF END probe. Outside the suite, both edited files
+  were decoded by Python's PIL, which read the interlaced image and the green
+  pixel.
+- **Limits:** pad bytes, buffer tails and an unnamed field written back in
+  canonical form.
+
+The manifest layer has no style warnings, and the five test scripts in
+`test/` pass.
+
+### Files
+
+Table: Files changed in commits `fed7f35` through `4f9c6d4`.
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/manifest/manifest.lisp` | Modified | `field-value`, the options of `marshal` and `unmarshal`, record classes |
+| `src/package.lisp` | Modified | Exports `field-value` |
+| `test/manifest.lisp` | Modified | The records suite; records for the PNG manifests |
+| `doc/Log.Manifest.md` | Modified | This update |
+
+### Metrics
+
+- Test checks: 258 automated checks plus 1 structural PNG verification, up
+  from 217.
+- Regressions at `4f9c6d4`: 0.
+
+### Outstanding Work
+
+- **Destinations that cannot be patched.** A manifest with a `:length-of`
+  slot cannot be written to a function, record or not; buffering is the
+  plan's SPECOPS-DRAFT-manifest-complete-D2.
+- **Exact round trips** of sources that are not canonical, should a format
+  need them (SPECOPS-DRAFT-manifest-D35).
+- The items left from the previous update remain.

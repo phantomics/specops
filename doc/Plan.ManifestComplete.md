@@ -60,8 +60,8 @@ a struct interface, destinations that cannot be patched, and packaging. It
 assumes the decisions recorded in the
 [Manifest development log, SPECOPS-DRAFT-manifest](Log.Manifest.md) and the
 architecture in [SPECOPS-DRAFT-specops](Arch.SpecOps.md). Progress is charted
-in dated updates at the end of this plan; the latest is the third update of
-2026-10-31, at commit `2e1af03`.
+in dated updates at the end of this plan; the latest is the update of
+2026-11-01, at commit `4f9c6d4`.
 
 ## Problem
 
@@ -226,6 +226,11 @@ reported at run time.
 **Alternatives:** Plists only (rejected: no slot-name checking and no
 accessors); CLOS classes (deferred: structs are enough and cheaper to
 generate).
+
+Note: built as a CLOS class, defined only when a manifest asks for one
+(SPECOPS-DRAFT-manifest-D32 in the log), because a struct cannot be redefined
+with different slots without an error. This record may be reworded or
+withdrawn.
 
 ### SPECOPS-DRAFT-manifest-complete-D5 — Variable structure is declared, with no evaluation escape hatch
 
@@ -436,6 +441,9 @@ argument, which carries the sub-lexicon. Putting `:struct` and similar options
 in `params` would keep the name a plain symbol and give one place for every
 option.
 
+Answered in the log by SPECOPS-DRAFT-manifest-D34: options go in `params`,
+with `(:as :record)` the first of them.
+
 ### SPECOPS-DRAFT-manifest-complete-O3 — How does `marshal` take nested values known only at run time?
 
 Sub-manifest values are taken from the call at expansion, so the child's
@@ -444,6 +452,10 @@ the generated code to fetch each child field from a run-time object, with
 `getf` or an accessor, and to check required fields when it runs. Whether
 both input forms share one generated path, and how errors are reported, is
 open.
+
+Answered in the log by SPECOPS-DRAFT-manifest-D33: `(:from record)` in an
+options list, read through the generic function `field-value` in one path for
+plists and records, with a missing field reported when the code runs.
 
 ### SPECOPS-DRAFT-manifest-complete-O4 — How are repeated instances named and addressed?
 
@@ -751,3 +763,52 @@ Unchanged from the previous update. Milestone 1 had no dependents, so its
 completion unblocks nothing new; structs and round trips are next on their
 own merits, and their answers to SPECOPS-DRAFT-manifest-complete-O2 and
 SPECOPS-DRAFT-manifest-complete-O3 shape variable structure.
+
+## Update 2026-11-01 — Progress: records and round trips
+
+This installment charts the plan's progress at commit `4f9c6d4`. The first
+priority of the previous update, structs and round trips, is done, with a
+class in place of the struct SPECOPS-DRAFT-manifest-complete-D4 named, and
+SPECOPS-DRAFT-manifest-complete-O2 and SPECOPS-DRAFT-manifest-complete-O3 are
+answered. The log's update of the same date records the work, with
+SPECOPS-DRAFT-manifest-D32 through SPECOPS-DRAFT-manifest-D35. All fifteen
+suites pass: 258 checks and the PNG verification.
+
+### Progress
+
+Table: State of each Roadmap milestone at commit `4f9c6d4`. Entries new since
+the previous update are marked "new".
+
+| Milestone | State | Done | Remaining |
+|---|---|---|---|
+| 1. Corrections and records | Done | As before | — |
+| 2. Field kinds on read | Partly done | As before | SPECOPS-DRAFT-manifest-complete-O5 for fields without a terminator; writing a buffer sized by another field; a units rule; fixed buffers of LEB elements |
+| 3. Checked reads | Open | — | Read-side region map; the policy of SPECOPS-DRAFT-manifest-complete-O1 |
+| 4. Structs and run-time nested values | Done | New: record classes on request; `(:from record)` in `marshal`; `(:as :record)` in `unmarshal`; canonical round trips of the 1×1 PNG and the GOFF END record, with edited records written consistently | — |
+| 5. Variable structure | Open | The field-plan level; plans nest; new: records and run-time nested values, which repeated sub-manifests return and accept | Repeated sub-manifests; `:case` choosing a sub-manifest; SPECOPS-DRAFT-manifest-complete-O4 |
+| 6. Destinations | Open | — | Buffering (SPECOPS-DRAFT-manifest-complete-D2), which also lets a manifest with a `:length-of` slot write to a function; checksums on streams; overrun checks |
+| 7. Selective reads and stream sources | Open | `known-count` and `known-extent` | Dependency closure and skip mode (SPECOPS-DRAFT-manifest-complete-D3); stream sources |
+| 8. WOFF | Open | — | SPECOPS-DRAFT-manifest-complete-D6, the first test of `:offset-of` |
+| 9. Floats and masque completion | Partly done | Decimal masques in `masque` and `unmasque` | The `:f` class; decimal masques in `unmarshal`; range checks; keyword groups registered for `:case` and `:count` |
+| 10. Packaging | Partly done | As before; new: `field-value` exported | Suites behind `test-op`; a Ref |
+
+### Priorities
+
+1. **Variable structure** (SPECOPS-DRAFT-manifest-complete-D5,
+   SPECOPS-DRAFT-manifest-complete-O4), ending with a PNG of any chunk
+   sequence read and written by one manifest.
+2. **Checked reads** (SPECOPS-DRAFT-manifest-complete-O1).
+3. **Destinations** (SPECOPS-DRAFT-manifest-complete-D2).
+4. **Selective reads and stream sources**
+   (SPECOPS-DRAFT-manifest-complete-D3).
+5. **WOFF** (SPECOPS-DRAFT-manifest-complete-D6).
+6. **Floats and masque completion.**
+7. **Packaging:** `test-op`, then a Ref.
+
+### Dependencies
+
+Records and run-time nested values, which variable structure waited on, are
+in place: a repeated sub-manifest can return a list of records or plists, and
+`marshal` can take one when its code runs. SPECOPS-DRAFT-manifest-complete-O4,
+the naming of repeated instances, remains to be settled before repeated
+sub-manifests are built.
