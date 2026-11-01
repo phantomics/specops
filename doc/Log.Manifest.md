@@ -86,6 +86,7 @@ decisions:
   - SPECOPS-DRAFT-manifest-D69
   - SPECOPS-DRAFT-manifest-D70
   - SPECOPS-DRAFT-manifest-D71
+  - SPECOPS-DRAFT-manifest-D72
 relates-to:
   - SPECOPS-0003
   - SPECOPS-0007
@@ -121,8 +122,8 @@ log carry the record forward: that of 2026-10-30 to commit `653345f`, three
 of 2026-10-31, to commits `738105a`, `d030f5c` and `2e1af03`, ten of
 2026-11-01, to commits `4f9c6d4`, `d7ba27f`, `1cc7600`, `b63b7d2`, `239b2f7`,
 `cb931c8`, `52b81e5`, `e340210`, `5862d3a` and `e4a1f9a`, that of 2026-11-02
-to commit `de25ae7`, tagged `v0.1.0`, and that of 2026-11-11 to commit `adc24c0`,
-tagged `v0.1.1`. The repository restructure that followed
+to commit `de25ae7`, tagged `v0.1.0`, and two of 2026-11-11, to commits
+`adc24c0` and `17bac3c`, tagged `v0.1.1` and `v0.1.2`. The repository restructure that followed
 moved the files this log names (see
 [SPECOPS-0005](Log.Restructure.md)); code references stay pinned
 to the commits that held the work.
@@ -3553,3 +3554,107 @@ New:
 - **Bare numbers as constants,** such as `0` for a zero byte, in place of
   `(masque "h:00")` or `(pad 0 1)`, which the steward has asked to weigh.
 - The other items of the previous updates remain.
+
+## Update 2026-11-11 — Release 0.1.2: constant numbers and `vec`
+
+This installment covers commit `17bac3c`, tagged `v0.1.2`, and the update of
+the [Manifest Reference](Ref.Manifest.md) after it. A manifest may now hold a
+constant as a bare number, or as `(width . value)` for a constant of a given
+width, and a run of constant units as `(vec unit...)`. The steward asked for
+them as more elegant than `(masque "h:00")` or `(pad 0 1)` for a constant, and
+decided their form after weighing it with the assistant. The commit also
+carries the documents of release 0.1.1.
+
+### SPECOPS-DRAFT-manifest-D72 — A constant is a bare number, or `(width . value)`, in the manifest's byte order, and `(vec unit...)` writes units in stream order
+
+**Status:** Proposed
+**Context:** A format's constants, such as a zero byte, a version or a magic
+number, were written as a masque of constant digits, `(masque "h:00")`, which
+is checked on read, or as a pad, `(pad 0 1)`, which is not. Both say less
+plainly what they hold than the number itself. A bare number's width cannot
+come from its digits, since the reader keeps no leading zeros: `#x00010000`,
+sfnt's version, reads as `#x10000`, which needs three bytes. Some constants
+are values, such as WebAssembly's version, 1 in four little-endian bytes;
+others are sequences of units in stream order, such as WebAssembly's magic
+number, `00 61 73 6D`, which a byte order would reverse.
+**Decision:** In `src/manifest/manifest.lisp:defmanifest@17bac3c`:
+
+- **A bare number,** a non-negative integer, is a constant in as few units as
+  it holds, zero in one: `#x010203` is three bytes, or two units of 16 bits.
+- **`(width . value)`** is a constant of WIDTH units, as `serialize` takes a
+  pair; an entry whose first element is an integer is no other form.
+- **Both are written in the manifest's byte order,** as a field or a masque
+  is: `(4 . 1)` is `01 00 00 00` in a little-endian manifest.
+- **`(vec unit...)`** writes its units in the order given, whatever the byte
+  order, each an integer that fits one unit.
+- **Constants are checked on read** as `:constant`, at the unit where the
+  constant begins, with a report naming the constant and the manifest. They
+  hold no field, count in the spans and slots that cover them, and are passed
+  over by selective reads.
+- **Expansion errors:** a negative number, a value wider than its width, a
+  width that is not a positive integer, a pair whose value is not an integer,
+  and a `vec` element that does not fit one unit.
+
+A constant is stored as a masque of constant digits, so it is written,
+checked and passed over by the masque's code.
+**Alternatives:** A pad before a bare number to give its width (not taken:
+the steward chose the pair; a pad is not checked on read, and it divides one
+constant between two entries); bare numbers in stream order, most significant
+unit first, as `serialize` and `str` write (not taken: the steward chose the
+manifest's byte order, which fields and masques follow, so that a constant
+value is written as the field it stands for would be); a bare vector,
+`#(...)`, for units in stream order (not taken: the steward chose `(vec ...)`,
+which matches `str` in form); a bare string for `(str ...)` (not taken by the
+steward: `(str ...)` is not cumbersome, it names the type of what it holds,
+and it and `vec` complement each other in appearance and structure).
+
+### Implementation
+
+- **`src/manifest/manifest.lisp`.** In `defmanifest`, `constant-entry` makes
+  the masque of a constant, with its width checked and its number kept for the
+  report; `process-entry` takes bare numbers and pairs, and passes other
+  entries to `process-form`, which holds the forms of 0.1.1 and the new `vec`
+  directive. `unmarshal` reports a failed constant by its number and manifest.
+- **`test/test-manifest-basics.lisp`.** A section, "Constants: bare numbers and
+  vec", with four probes, among them the WebAssembly header, and six tests,
+  from
+  `test/test-manifest-basics.lisp:bare-numbers-are-constants-in-as-few-units-as-they-need@17bac3c`
+  to
+  `test/test-manifest-basics.lisp:constants-that-cannot-be-written-are-expansion-errors@17bac3c`.
+- **`test/test-manifest-ref.lisp`.** The Reference's example,
+  `test/test-manifest-ref.lisp:ref-constants@17bac3c`.
+- **`specops.asd`.** Version 0.1.2.
+- **`doc/Ref.Manifest.md`.** Written after the commit: version 0.1.2, its code
+  references pinned to `v0.1.2`, the constant forms among a manifest's
+  entries, and a section, "Constants, masques and pads", with the example.
+
+### Verification
+
+Run with `sbcl --non-interactive --eval '(asdf:test-system :specops)'`. At
+`17bac3c` the root suite has 437 tests with 682 assertions; all pass, and each
+test passes alone in three shuffled orders. `manifest.lisp` compiles with no
+warnings. The format systems `specops.format.goff`, `.elf` and `.wasm` and the
+architecture system `specops.arch.wasm` load, and the GOFF script passes.
+
+### Files
+
+Table: Files changed in commit `17bac3c`, and the documents updated after it.
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/manifest/manifest.lisp` | Modified | Constant numbers, `(width . value)` and `vec` |
+| `test/test-manifest-basics.lisp` | Modified | The constants' section |
+| `test/test-manifest-ref.lisp` | Modified | The Reference's example of constants |
+| `specops.asd` | Modified | Version 0.1.2 |
+| `doc/Ref.Manifest.md` | Modified | Release 0.1.1 in the commit; release 0.1.2 and constants after it |
+| `doc/Log.Manifest.md` | Modified | The update for 0.1.1 in the commit; this update after it |
+
+### Metrics
+
+- Tests: 437, with 682 assertions, up from 430 and 657.
+- Regressions at `17bac3c`: 0.
+
+### Outstanding Work
+
+Bare numbers as constants, outstanding since the previous update, are done.
+The other items of the previous updates remain.
