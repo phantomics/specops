@@ -32,8 +32,12 @@ decisions:
   - SPECOPS-DRAFT-manifest-D19
   - SPECOPS-DRAFT-manifest-D20
   - SPECOPS-DRAFT-manifest-D21
+  - SPECOPS-DRAFT-manifest-D22
+  - SPECOPS-DRAFT-manifest-D23
+  - SPECOPS-DRAFT-manifest-D24
 relates-to:
   - SPECOPS-DRAFT-manifest-complete
+  - SPECOPS-DRAFT-restructure
 cites:
   - title:    lisp-binary (Common Lisp binary format library) wiki
     locator:  github.com/j3pic/lisp-binary/wiki — DEFBINARY structs; EVAL type specifier
@@ -56,8 +60,12 @@ binary-format layer: `defmanifest`, which declares the structure of a binary
 record, `marshal`, which writes values into that structure, and `unmarshal`,
 which reads them back out. It covers the path from a freeform `marshal` macro to
 manifest-driven writing and reading, and the PNG test format used to exercise
-it. The chronicled state is commit `10b1568`; the update of 2026-10-30 at the
-end of this log carries the record forward to commit `653345f`.
+it. The chronicled state is commit `10b1568`; the updates at the end of this
+log carry the record forward, that of 2026-10-30 to commit `653345f` and that
+of 2026-10-31 to commit `738105a`. The repository restructure that followed
+moved the files this log names (see
+[SPECOPS-DRAFT-restructure](Log.Restructure.md)); code references stay pinned
+to the commits that held the work.
 
 ## Problem
 
@@ -783,3 +791,181 @@ New items:
   against the manifest's name rather than the field's.
 - **Dead code.** `encode-leb128-unsigned` and `encode-leb128-signed` have no
   callers.
+
+## Update 2026-10-31 — Vector fields on the scan model
+
+This installment covers commits `0b03854` and `738105a`. Vector fields joined
+LEB128 and `:case` fields on the scan model of SPECOPS-DRAFT-manifest-D18, so
+that every variable-length field is now built from a field plan, and each
+macro handles them in one clause. A terminated vector is read in one pass. Two
+rules were settled on the way: how vector elements are encoded on write, and
+where enum decoding happens. The new suite brings the checks from 117 to 135.
+
+Soon after `738105a`, the repository restructure
+([SPECOPS-DRAFT-restructure](Log.Restructure.md)) moved the code this
+installment names: `scan.lisp` to `src/manifest/scan.lisp`, the manifest
+layer of `specops.lisp` to `src/manifest/manifest.lisp`, and `manifest.lisp`
+to `test/manifest.lisp`. It changed no behavior. The references below are
+pinned to `738105a`, where the files had their old paths.
+
+### SPECOPS-DRAFT-manifest-D22 — Vector elements follow the terminator rule, and signed elements are written as raw codes
+
+**Status:** Proposed
+**Context:** On write, an element of a `:vec` field with a codec went through
+the codec whatever its type, and a `defcodetable` function given an integer
+decodes it, so integers in a text field failed. Keyword elements of an
+enumerated vector were not mapped. A negative element of a signed field was
+compared with the terminator as a negative number, while the terminator is a
+raw code: `-1` in an `(:s 1 :vec)` field ended by `#xFF` passed the check,
+was written as `FF`, and would end the field early for a reader.
+**Decision:** Each element of a vector is encoded by the rule
+SPECOPS-DRAFT-manifest-D17 set for terminators. A character goes through the
+codec, or `char-code` without one; a keyword goes through the field's enum,
+and signals an error if the enum lacks it; an integer is a raw code. A
+negative integer in a signed field is checked against the field's width and
+masked to it, so the terminator check and the serializer both see the raw
+code. Data, defaults and terminators thus share one rule, implemented by
+`scan.lisp:disassemble-effector@738105a` on the vector assembler.
+**Alternatives:** Accepting only characters in a codec field (rejected by the
+steward: integers in a text field are legitimate codes, and one rule is
+simpler); comparing signed values with the terminator (rejected: the case of
+`-1` above).
+
+### SPECOPS-DRAFT-manifest-D23 — Each field plan decodes its own enum
+
+**Status:** Proposed
+**Context:** `unmarshal` applied enum decoding to a field's value after
+reading it. For a vector the value is a whole array, whose elements each need
+decoding, and a `:case` field may have a scalar branch and a vector branch,
+so one decoding step outside the plan cannot be right for both.
+**Decision:** The scalar plan, the LEB128 assembler and the vector assembler
+each decode their own enum, through `scan.lisp:enum-decode-form@738105a`;
+the vector assembler decodes each element. `field-plan` passes the field's
+`:enumerate-by` to every plan it builds, and `unmarshal` applies no decoding
+of its own to a field built from a plan. On write, scalar, LEB and `:case`
+values still go through `marshal`'s enum mapping before the plan sees them,
+so that a literal keyword becomes a constant at expansion, which
+`simplify-plan` needs; vector elements are mapped one by one
+(SPECOPS-DRAFT-manifest-D22).
+**Alternatives:** Decoding vector elements in the assembler and other values
+outside it (rejected by the steward: wrong for a `:case` mixing scalar and
+vector branches, and two places to look).
+
+### SPECOPS-DRAFT-manifest-D24 — Vector, LEB and `:case` fields are built from field plans in one clause per macro
+
+**Status:** Proposed
+**Context:** After SPECOPS-DRAFT-manifest-D19, `:case` and LEB fields went
+through field plans, but vectors kept hand-written branches in both macros.
+The read branch scanned a terminated field once to count it and again to
+read it.
+**Decision:** `scan.lisp:field-plan@738105a` builds a scan plan for a `:vec`
+field, with the element width of the field: a terminator rule from
+`:end-by`, encoded by `scan.lisp:terminator-code-form@738105a`, or a count
+rule whose count comes from `:count`, a count field or a `:length-of` slot.
+The vector assembler carries the element's bits, signedness, enum and codec,
+and builds its own decoding and encoding forms. A `:case` branch is built from
+the branch's keys followed by the field's, so a vector branch takes the
+field's `:count`, `:end-by` and `:codec`. In `specops.lisp:marshal@738105a`
+one clause writes all three kinds through `write-effector`; a local
+`vec-source-form` chooses a vector's value: the caller's, a vector or string
+default, an empty string for a terminated field, or a numeric default
+repeated `:count` times, built at expansion as a literal vector. In
+`specops.lisp:unmarshal@738105a` one clause reads all three through
+`read-effector`, and a local `record-read` binds the result. A terminated
+field is read once, element by element.
+**Alternatives:** Keeping the vector branches (the earlier code; two passes on
+read and a second encoding path on write); repeating a numeric default with a
+loop at run time (rejected: the vector is constant).
+
+### Implementation
+
+- **`scan.lisp`.** `scan-plan` gained an element width, used on both sides.
+  The vector assembler's slots became `bits`, `signed`, `enum` and `codec`,
+  and its write side, `scan.lisp:disassemble-effector@738105a`, was added.
+  The scalar plan and the LEB assembler gained an `enum` slot.
+  `scan.lisp:codec-form@738105a` builds a codec wrapper that reports unmapped
+  input, and `terminator-code-form` moved here from `unmarshal`, to serve
+  both macros. The check that a LEB field is one 8-bit unit wide moved into
+  `field-plan`.
+- **`specops.lisp`.** The hand-written `:vec` branches and the separate LEB
+  branch of `marshal` were removed, and `encode-leb128-unsigned` and
+  `encode-leb128-signed` commented out. `marshal`'s local
+  `scalar-value-form` gives the value of a scalar, LEB or `:case` field and
+  sets its selector variable (SPECOPS-DRAFT-manifest-D20).
+- **`manifest.lisp`.** `manifest.lisp:run-vec-scan-demo@738105a` is the new
+  suite.
+
+In review before `0b03854`, the first version of the change did not compile.
+The value helpers in `marshal` were defined outside `generate` and used its
+variables, and returned code that wrote the field rather than its value; the
+scan plan read and wrote each element as one unit; the LEB assembler's
+`with-slots` had no instance; and `record-read` was missing. All were fixed
+before the commit.
+
+### Verification
+
+Run via:
+
+```
+sbcl --non-interactive --eval '(asdf:load-system :specops/demo.png :force t)' \
+  --eval '(specops::run-png-demo)' --eval '(specops::run-unmarshal-demo)' \
+  --eval '(specops::run-chunk-unmarshal-demo)' --eval '(specops::run-masque-demo)' \
+  --eval '(specops::run-string-demo)' --eval '(specops::run-pad-demo)' \
+  --eval '(specops::run-terminated-demo)' --eval '(specops::run-leb-demo)' \
+  --eval '(specops::run-case-demo)' --eval '(specops::run-vec-scan-demo)'
+```
+
+Table: The suite added in this installment, and the totals at commit `738105a`.
+
+| Suite | Function | Checks | Result |
+|---|---|---|---|
+| Vector fields on the scan model | `run-vec-scan-demo` | 18 | 18 pass |
+| All ten suites | from `run-png-demo` to `run-vec-scan-demo` | 135 and the PNG verification | All pass |
+
+The new suite checks that a terminated field's read expands to one
+deserializer call per field; integers, and characters mixed with integers, in
+a CP037 field; signed elements with a `#xFF` terminator, including `-1` and an
+out-of-range `-129`; enumerated elements written from keywords and read back,
+with a keyword outside the enum and one in a field without an enum; an unnamed
+terminated field; a `:case` field whose vector branch inherits `:end-by`, and
+one whose enum decodes a scalar branch and a vector branch; and two-byte
+little-endian elements. The ten suites were run on checkouts of `738105a` and
+of `6660c7f`, the restructured tree, with ASDF limited to each checkout, and
+gave the same results.
+
+### Files
+
+Table: Files changed in commits `0b03854` and `738105a`.
+
+| File | Action | Description |
+|------|--------|-------------|
+| `scan.lisp` | Modified | Vector assembler on both sides, element width, enums in every plan, `codec-form`, `terminator-code-form` |
+| `specops.lisp` | Modified | One clause per macro for vector, LEB and `:case` fields; old branches removed |
+| `manifest.lisp` | Modified | The vector scan suite |
+| `doc/Plan.ManifestComplete.md` | Modified | Progress installment of 2026-10-30 |
+| `doc/Log.Manifest.md` | Modified | This update |
+
+### Metrics
+
+- Test checks: 135 automated checks plus 1 structural PNG verification, up
+  from 117.
+- Regressions at `738105a`: 0.
+
+### Outstanding Work
+
+`:vec` on the scan model, the first new item of the update of 2026-10-30, is
+done. Remaining:
+
+- **Dead code.** `unmarshal`'s `term-code-form` and the `:end-by` branch and
+  optional arguments of its `vec-count-form` are no longer called, and the
+  LEB128 encoders remain as comments.
+- **Agreed but not built:** fixed buffers holding a terminator
+  (SPECOPS-DRAFT-manifest-complete-D7), multi-element terminators
+  (SPECOPS-DRAFT-manifest-complete-D8), and user-defined stop rules with the
+  runtime fallback (SPECOPS-DRAFT-manifest-complete-D9); each adds a rule or
+  an assembler to the scan model.
+- **Vectors of LEB elements.**
+- **Keyword defaults on enumerated fields**, still not mapped through the enum.
+- **Unknown enum codes**, still read as `nil`.
+- **Error wording.** A selector placed after its `:case` field is still
+  reported against the manifest's name.

@@ -61,7 +61,7 @@ assumes the decisions recorded in the
 [Manifest development log, SPECOPS-DRAFT-manifest](Log.Manifest.md) and the
 architecture in [SPECOPS-DRAFT-specops](Arch.SpecOps.md). Progress is charted
 in dated updates at the end of this plan; the latest is the update of
-2026-10-30, at commit `653345f`.
+2026-10-31, at commit `6660c7f`.
 
 ## Problem
 
@@ -581,3 +581,63 @@ Steps 8 and 9 depend on nothing else and can be done whenever convenient.
   SPECOPS-DRAFT-specops-O5; the Ref waits for the public interface of
   SPECOPS-DRAFT-specops-O6.
 - **Independent:** floats, decimal masques, WOFF and overrun checks.
+
+## Update 2026-10-31 — Progress: vector fields on the scan model
+
+This installment charts the plan's progress at commit `6660c7f`. Since the
+update of 2026-10-30, the first priority is done: vector fields are built from
+field plans on the scan model, recorded in the log's update of 2026-10-31
+(SPECOPS-DRAFT-manifest-D22 through SPECOPS-DRAFT-manifest-D24), in commits
+`0b03854` and `738105a`. The repository restructure
+([SPECOPS-DRAFT-restructure](Log.Restructure.md)) then moved the manifest
+layer to `src/manifest/` and its suites to `test/manifest.lisp`, changing no
+behavior, and put `goff.lisp` into an ASDF system. At `6660c7f` all ten
+suites pass: 135 checks and the PNG verification.
+
+### Progress
+
+Table: State of each Roadmap milestone at commit `6660c7f`. Entries new since
+the update of 2026-10-30 are marked "new".
+
+| Milestone | State | Done | Remaining |
+|---|---|---|---|
+| 1. Corrections and records | Partly done | As before; new: the old `:vec` and LEB branches removed, and the LEB128 encoders commented out | Byte orders across nesting; dead code (the static `index`, `unmarshal`'s unused `term-code-form` and the `:end-by` branch of `vec-count-form`, the commented-out encoders); keyword defaults on enumerated fields; unknown enum codes read as `nil`; the selector-order error names the manifest |
+| 2. Field kinds on read | Partly done | As before; new: `:vec` on the scan model, with one-pass terminated reads, elements encoded by the terminator rule, and enums decoded in every plan | SPECOPS-DRAFT-manifest-complete-D7, SPECOPS-DRAFT-manifest-complete-D8 and SPECOPS-DRAFT-manifest-complete-D9; vectors of LEB elements; SPECOPS-DRAFT-manifest-complete-O5 for fields without a terminator |
+| 3. Checked reads | Open | — | Read-side region map; the policy of SPECOPS-DRAFT-manifest-complete-O1 |
+| 4. Structs and run-time nested values | Open | — | SPECOPS-DRAFT-manifest-complete-D4, SPECOPS-DRAFT-manifest-complete-O2, SPECOPS-DRAFT-manifest-complete-O3; round-trip tests |
+| 5. Variable structure | Open | The field-plan level, which now covers every variable-length field | Repeated sub-manifests; `:case` choosing a sub-manifest; SPECOPS-DRAFT-manifest-complete-O4 |
+| 6. Destinations | Open | — | Buffering (SPECOPS-DRAFT-manifest-complete-D2); checksums on streams; overrun checks |
+| 7. Selective reads and stream sources | Open | `known-count` and `known-extent` facts on rules and plans | Dependency closure and skip mode (SPECOPS-DRAFT-manifest-complete-D3); stream sources |
+| 8. WOFF | Open | — | SPECOPS-DRAFT-manifest-complete-D6, the first test of `:offset-of` |
+| 9. Floats and masque completion | Open | — | The `:f` class; decimal (`d:`) masques, begun after `6660c7f` in `masque` and `unmasque`; range checks; keyword groups registered for `:case` and `:count` |
+| 10. Packaging | Partly done | As before; new: `goff.lisp` in the system `specops.format.goff`, with the other format and map modules of the restructure | Suites behind `test-op`; a Ref |
+
+### Priorities
+
+The order of the update of 2026-10-30 stands, with its first step reduced to
+what remains of it:
+
+1. **The rest of the scan model:** fixed buffers with a terminator
+   (SPECOPS-DRAFT-manifest-complete-D7), multi-element terminators
+   (SPECOPS-DRAFT-manifest-complete-D8), vectors of LEB elements, and
+   user-defined stop rules with the runtime fallback
+   (SPECOPS-DRAFT-manifest-complete-D9). Each adds a rule or an assembler;
+   none needs another change to the macros.
+2. **Corrections**, between larger steps.
+3. **Structs and round trips.**
+4. **Variable structure.**
+5. **Checked reads.**
+6. **Destinations.**
+7. **Selective reads and stream sources.**
+8. **WOFF.**
+9. **Floats and masque completion.** Decimal masques were taken up early,
+   after `6660c7f`.
+10. **Packaging:** `test-op`, then a Ref.
+
+### Dependencies
+
+The dependencies listed in the update of 2026-10-30 still hold. The first of
+them, `:vec` on the scan model before
+SPECOPS-DRAFT-manifest-complete-D7, SPECOPS-DRAFT-manifest-complete-D8,
+SPECOPS-DRAFT-manifest-complete-D9 and vectors of LEB elements, is now met.
+`test-op` still follows SPECOPS-DRAFT-specops-O5.
