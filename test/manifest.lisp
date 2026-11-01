@@ -1735,8 +1735,11 @@ Returns T if all checks pass."
         (marshal leb-vec-length-probe buf :v #(1 300))
         (check "leb-vec-length-probe, the length slot holds the vector's bytes on write"
                (coerce buf 'list) '(3 1 #xAC #x02)))
-      (check "leb-vec-length-probe, reading needs :count or :end-by: an expansion error"
-             (signals-error-p (lambda () (macroexpand-1 '(unmarshal leb-vec-length-probe s))))
+      (check "leb-vec-length-probe, read to the end of the 3 bytes its length slot gives"
+             (unmarshal leb-vec-length-probe (->bytes #(3 1 #xAC #x02)))
+             '(:len 3 :v #(1 300)))
+      (check "leb-vec-length-probe, an element crossing the end of the length signals an error"
+             (signals-error-p (lambda () (unmarshal leb-vec-length-probe (->bytes #(2 1 #xAC #x02)))))
              t)
       (check "leb-vec-bounded-probe, a fixed buffer of LEBs is an expansion error on both sides"
              (list (signals-error-p (lambda () (macroexpand-1 '(unmarshal leb-vec-bounded-probe s))))
@@ -2314,6 +2317,16 @@ Returns T if all checks pass."
   (:head :u8 :default 0)
   (manifest :items item-probe :until :end))
 
+;; Instances read until a length slot's bytes are used.
+(defmanifest sized-items-probe (:unit 8 :endian :big)
+  (:size  :u8 :slot (:length-of :items))
+  (manifest :items item-probe :until :length)
+  (:after :u8 :default 0))
+
+;; :until :length with no length slot over the field.
+(defmanifest unsized-items-probe (:unit 8 :endian :big)
+  (manifest :items item-probe :until :length))
+
 ;; Repeats a field plan rejects.
 (defmanifest repeat-both-probe (:unit 8 :endian :big)
   (manifest :items item-probe :count 2 :until (:tag 0)))
@@ -2484,7 +2497,27 @@ Returns T if all checks pass."
                (reverse acc))
              '(9 1 0 5 2 0 6))
 
-      ;; 6. Repeats that are expansion errors.
+      ;; 6. Instances read until a length is used.
+      (check "sized-items-probe, written: the length slot holds the bytes of the instances"
+             (let ((buf (ub8 8)))
+               (marshal sized-items-probe buf
+                        :items (list (list :tag 1 :value 5) (list :tag 2 :value 6)) :after 9)
+               (coerce buf 'list))
+             '(6 1 0 5 2 0 6 9))
+      (check "sized-items-probe, read back to the end of the length, with the field after lined up"
+             (unmarshal sized-items-probe (->bytes #(6 1 0 5 2 0 6 9)))
+             '(:size 6 :items ((:tag 1 :value 5) (:tag 2 :value 6)) :after 9))
+      (check "sized-items-probe, a length of 0 reads no instances"
+             (unmarshal sized-items-probe (->bytes #(0 9)))
+             '(:size 0 :items nil :after 9))
+      (check "sized-items-probe, an instance crossing the end of the length signals an error"
+             (signals-error-p (lambda () (unmarshal sized-items-probe (->bytes #(4 1 0 5 2 0 6 9)))))
+             t)
+      (check "unsized-items-probe, :until :length with no length slot: an expansion error on read"
+             (signals-error-p (lambda () (macroexpand-1 '(unmarshal unsized-items-probe s))))
+             t)
+
+      ;; 7. Repeats that are expansion errors.
       (check "a repeat with :count and :until, an unknown option, or :until on a missing field"
              (mapcar (lambda (form) (signals-error-p (lambda () (macroexpand-1 form))))
                      '((unmarshal repeat-both-probe s)

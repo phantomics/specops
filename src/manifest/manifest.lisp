@@ -779,6 +779,10 @@ as an instance of the manifest's record class."
                                   (:-+sub-lexicon+- ,(list* :cr-sym cursor :pr-sym (qualify name)
                                                             sub-lexicon)
                                    ,@(and (eq as :record) '(:as :record))))))))
+               (length-form (i)
+                 ;; the length in units of field I, from a :length-of slot over it, when one is read
+                 (let ((source (assoc (getf i :name) length-sources)))
+                   (and source (var-of (rest source) (getf i :name)))))
                (record-read (name form)
                  (if name (let ((var (gensym (string name))))
                             (push (cons name var) vars)
@@ -808,7 +812,8 @@ as an instance of the manifest's record class."
                                          (field-plan item :count-form (lambda (i)
                                                                         (vec-count-form (getf i :name)
                                                                                         (getf i :count)
-                                                                                        1)))
+                                                                                        1))
+                                                          :length-form #'length-form)
                                          (list :name name :cursor cursor :src src
                                                :read-manifest #'read-manifest))))
                      (:span
@@ -895,11 +900,13 @@ as an instance of the manifest's record class."
                                                                         (when (and (member :leb (getf i :subtypes))
                                                                                    (not (getf i :count)))
                                                                           (error "unmarshal: vector ~s of LEB ~
-                                                                                  elements needs :count or ~
-                                                                                  :end-by." (getf i :name)))
+                                                                                  elements needs :count, ~
+                                                                                  :end-by or a :length-of ~
+                                                                                  slot." (getf i :name)))
                                                                         (vec-count-form (getf i :name)
                                                                                         (getf i :count)
                                                                                         (getf i :length)))
+                                                                      :length-form #'length-form
                                                                       :unit-bits (ash 1 (+ 3 (getf config
                                                                                                    :unit-spec))))
                                                      (list :name name :cursor cursor :src src

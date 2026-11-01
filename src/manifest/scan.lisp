@@ -30,6 +30,10 @@
 
 (defclass end-rule (stop-rule) ())    ;; the scan ends with the source
 
+(defclass units-rule (stop-rule)
+  ((units :initarg :units             ;; a form giving the field's length in units, from the
+          :reader rule-units)))       ;; :length-of slot over it; the scan ends when it is used
+
 (defclass field-plan () ())
 
 (defclass scalar-plan (field-plan)
@@ -148,6 +152,21 @@ A field's value may be a keyword of its enum or a code, so both sides are compar
 
 (defmethod stop-effector ((r end-rule) ctx)
   (list :before `(>= ,(getf ctx :position) (length ,(getf ctx :src)))))
+
+(defmethod stop-effector ((r units-rule) ctx)
+  ;; elements are read until the length is used; one that crosses its end is an error
+  (destructuring-bind (&key name position &allow-other-keys) ctx
+    (unless (rule-units r)
+      (error "unmarshal: field ~s is read to the end of its length, but no :length-of slot ~
+              gives that length." name))
+    (let ((limit (gensym "LIMIT")))
+      (list :bindings `((,limit (+ ,position ,(rule-units r))))
+            :before `(>= ,position ,limit)
+            :after `(progn (when (> ,position ,limit)
+                             (error "unmarshal: field ~s overruns its length of ~a units."
+                                    ',name ,(rule-units r)))
+                           nil)
+            :keep t))))
 
 ;;; The runtime protocol. A stop rule defined by a user with only these methods works at
 ;;; once: the default effectors below emit calls to them on a fresh instance per field.
@@ -410,6 +429,10 @@ cycling)."
   (declare (ignore ctx))
   nil)
 
+(defmethod frame-effector ((r units-rule) ctx)
+  (declare (ignore ctx))
+  nil)  ; the :length-of slot is computed from what is written
+
 (defmethod frame-effector ((r stop-rule) ctx)
   (destructuring-bind (&key write &allow-other-keys) ctx
     (let ((s (gensym "RULE")) (c (gensym "C")))
@@ -557,7 +580,7 @@ RULE, and writes them with WRITE, an expansion-time function of an element form.
   "The conditions of an :until option, (field value ...), as (field code enum) lists: a
 keyword value is translated through the enum of CHILD's field."
   (unless (and (listp until) (evenp (length until)))
-    (error "Field ~s: :until takes :end or a list of fields and values, not ~s." name until))
+    (error "Field ~s: :until takes :end, :length or a list of fields and values, not ~s." name until))
   (loop :for (field value) :on until :by #'cddr
         :collect (let* ((item (labels ((walk (items)
                                          (loop :for i :in items
@@ -591,7 +614,7 @@ initargs. The class must be defined when the field's code is expanded."
       (setf (rule-initargs rule) initargs)
       rule)))
 
-(defun field-plan (item &key selector-form enum-of count-form (unit-bits 8))
+(defun field-plan (item &key selector-form enum-of count-form length-form (unit-bits 8))
   (destructuring-bind (&key name type actual length signed subtypes count end-by codec enumerate-by
                          stop-by type-indicator type-conditions &allow-other-keys) item
     (when (and stop-by (or end-by count))
@@ -613,6 +636,11 @@ initargs. The class must be defined when the field's code is expanded."
                                                                (funcall count-form
                                                                         (list :name name :count count)))))
                                  ((eq until :end) (make-instance 'end-rule))
+                                 ;; until the length a :length-of slot gives is used
+                                 ((eq until :length)
+                                  (make-instance 'units-rule
+                                                 :units (and length-form
+                                                             (funcall length-form (list :name name)))))
                                  (t (make-instance 'until-rule
                                                    :conditions (until-conditions name child until))))
                      :element element
@@ -642,6 +670,9 @@ initargs. The class must be defined when the field's code is expanded."
                                            :n (and count-form (funcall count-form item))))
                            (end-by
                             (make-instance 'terminator-rule :codes (terminator-code-forms name end-by codec)))
+                           ;; LEB elements vary in width, so a :length-of slot bounds them in units
+                           ((and leb (not count) length-form (funcall length-form item))
+                            (make-instance 'units-rule :units (funcall length-form item)))
                            (t (make-instance 'count-rule :n (and count-form (funcall count-form item)))))
                ;; LEB elements are read and written by an inner plan, which handles their sign;
                ;; the vector compares and collects their integer values and decodes the enum
