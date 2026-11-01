@@ -345,6 +345,18 @@ in PAIRS from RECORD, a plist or a manifest's record, when the code runs."
                        ((and from from-record field)
                         `(or (field-value ,from ',field) ,(or default (missing-form field))))
                        (t default))))
+             (write-manifest (child ctx)
+               ;; expand the sub-manifest CHILD in the shared environment, its fields given by
+               ;; literal pairs, then by a record form bound once, when the code runs
+               (destructuring-bind (&key name literal record &allow-other-keys) ctx
+                 (let* ((child-record (and record (gensym "REC")))
+                        (expansion (macroexpand
+                                    (append (list 'marshal child destination)
+                                            (and child-record `((:from ,child-record)))
+                                            (list :-+sub-lexicon+-
+                                                  (list* :pr-sym (qualify name) sub-lexicon))
+                                            literal))))
+                   (if child-record `(let ((,child-record ,record)) ,expansion) expansion))))
              (masque-binder (b)
                (if (eq :binding (first b))
                    (second b)
@@ -433,29 +445,24 @@ in PAIRS from RECORD, a plist or a manifest's record, when the code runs."
                                          (cons ,length (masque ,actual ,@(mapcar #'masque-binder bindings)))
                                          ,enter)))
                      (:manifest
-                      ;; with a :from record, the child's fields come from the record's value for
-                      ;; this field, bound once; literal pairs given for the child still win
-                      (let* ((child-record (and from name (gensym "REC")))
-                             (child (macroexpand (append (list 'marshal (first actual) destination)
-                                                         (and child-record `((:from ,child-record)))
-                                                         (list :-+sub-lexicon+-
-                                                               (list* :pr-sym (qualify name) sub-lexicon))
-                                                         (rest actual)
-                                                         (getf pairs name)))))
                       (append
                        `((push (list ,qname ,index ,index) ,map))
                        (loop :for closure :in context
                              :collect `(unless (assoc ,closure ,map)
                                          (push (list ,closure ,index ,index) ,map)))
-                       (list name (if child-record
-                                      `(let ((,child-record (field-value ,from ',name))) ,child)
-                                      child))
+                       (list name (write-effector
+                                   (field-plan item)
+                                   ;; literal pairs given for the child win over the record's
+                                   ;; value for this field, which is read when the code runs
+                                   (list :name name :literal (getf pairs name)
+                                         :record (and from name `(field-value ,from ',name))
+                                         :write-manifest #'write-manifest)))
                        `((setf (third (assoc ,qname ,map)) ,index))
                        (loop :for closure :in context
                              :collect `(setf (third (assoc ,closure ,map)) ,index))
                        (loop :for slot-of :in (getf slots-of qname)
                              :when (not (eq :checksum-of (second slot-of)))
-                               :collect (apply #'resolve-region qname slot-of)))))
+                               :collect (apply #'resolve-region qname slot-of))))
                      (:span
                       ;; push a fresh per-instance region at the span's start so that
                       ;; repeated span names across sibling sub-manifests don't collide
@@ -714,6 +721,20 @@ as an instance of the manifest's record class."
                         `(floor ,(var-of (rest (assoc name length-sources)) name) ,length))
                        (t (error "unmarshal: no element count for vector field ~a ~
                    (give :count, a :length-of slot or :end-by)." name))))
+               (read-manifest (child ctx)
+                 ;; expand the sub-manifest CHILD at the cursor in CTX, sharing the source, as a
+                 ;; record when one is asked for and CHILD has a record class
+                 (destructuring-bind (&key name cursor &allow-other-keys) ctx
+                   (let ((child-spec (gethash child *manifests*)))
+                     (unless child-spec
+                       (error "unmarshal: sub-manifest ~a is not defined." child))
+                     (unless (eql (getf (first child-spec) :unit-spec) (getf config :unit-spec))
+                       (error "unmarshal: sub-manifest ~a uses a different unit than ~a." child name))
+                     (macroexpand
+                      `(unmarshal ,child ,src
+                                  (:-+sub-lexicon+- ,(list* :cr-sym cursor :pr-sym (qualify name)
+                                                            sub-lexicon)
+                                   ,@(and (eq as :record) '(:as :record))))))))
                (record-read (name form)
                  (if name (let ((var (gensym (string name))))
                             (push (cons name var) vars)
@@ -739,21 +760,9 @@ as an instance of the manifest's record class."
                    (case type
                      (:pad (push `(incf ,cursor ,(pad-count-form mode n cursor base)) reads))
                      (:manifest
-                      (let* ((sub-name (first actual))
-                             (sub-spec (gethash sub-name *manifests*))
-                             (var      (gensym (string (or name sub-name)))))
-                        (unless sub-spec
-                          (error "unmarshal: sub-manifest ~a is not defined." sub-name))
-                        (unless (eql (getf (first sub-spec) :unit-spec) (getf config :unit-spec))
-                          (error "unmarshal: sub-manifest ~a uses a different unit than ~a." sub-name name))
-                        (when name (push (cons name var) vars))
-                        (push `(setf ,var
-                                     ,(macroexpand
-                                       `(unmarshal ,sub-name ,src
-                                                   (:-+sub-lexicon+- ,(list* :pr-sym (qualify name)
-                                                                             sub-lexicon)
-                                                    ,@(and (eq as :record) '(:as :record))))))
-                              reads)))
+                      (record-read name (read-effector (field-plan item)
+                                                       (list :name name :cursor cursor
+                                                             :read-manifest #'read-manifest))))
                      (:span
                       (loop :for item :in items :do (process-item item)))
                      (:string

@@ -38,6 +38,10 @@
    (element   :initarg  :element      ;; a plan that reads and writes each element, when
               :initform nil)))        ;; elements are not raw codes of a fixed width
 
+(defclass manifest-plan (field-plan)
+  ((manifest :initarg :manifest       ;; the name of the sub-manifest
+             :reader plan-manifest)))
+
 (defclass case-plan   (field-plan)
   ((selector :initarg :selector)   ;; form yielding the selector
    (branches :initarg :branches))) ;; ((keys . plan) …), keys or OTHERWISE
@@ -459,6 +463,16 @@ RULE, and writes them with WRITE, an expansion-time function of an element form.
                `((otherwise (error "Field ~s: no branch for selector value ~s."
                                    ',(getf ctx :name) ,s)))))))))
 
+;;; A sub-manifest is expanded by the macro that reads or writes its parent, which keeps the
+;;; shared environment and region map; the macro passes the expanding function in CTX, as
+;;; :read-manifest or :write-manifest, a function of the sub-manifest's name and CTX.
+
+(defmethod read-effector ((p manifest-plan) ctx)
+  (funcall (getf ctx :read-manifest) (plan-manifest p) ctx))
+
+(defmethod write-effector ((p manifest-plan) ctx)
+  (funcall (getf ctx :write-manifest) (plan-manifest p) ctx))
+
 (defmethod read-effector  ((p case-plan) ctx) (case-clauses p ctx #'read-effector))
 
 (defmethod write-effector ((p case-plan) ctx) (case-clauses p ctx #'write-effector))
@@ -490,11 +504,13 @@ initargs. The class must be defined when the field's code is expanded."
       rule)))
 
 (defun field-plan (item &key selector-form enum-of count-form (unit-bits 8))
-  (destructuring-bind (&key name length signed subtypes count end-by codec enumerate-by stop-by
-                         type-indicator type-conditions &allow-other-keys) item
+  (destructuring-bind (&key name type actual length signed subtypes count end-by codec enumerate-by
+                         stop-by type-indicator type-conditions &allow-other-keys) item
     (when (and stop-by (or end-by count))
       (error "Field ~s: :stop-by cannot be combined with :end-by or :count." name))
-    (cond ((member :case subtypes)
+    (cond ((eq type :manifest)
+           (make-instance 'manifest-plan :manifest (first actual)))
+          ((member :case subtypes)
            (let ((enum (funcall enum-of type-indicator)))
              (make-instance 'case-plan
                :selector (funcall selector-form type-indicator name)
