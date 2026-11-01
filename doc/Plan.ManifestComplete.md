@@ -351,6 +351,12 @@ nothing could run a rule without effectors).
   When a checksum field is reached, recompute the checksum over its region and
   compare; check each `:length-of` value against the bytes its region covered.
   The response to a mismatch is SPECOPS-DRAFT-manifest-complete-O1.
+
+  Note: built without a map threaded through the sub-lexicon or recorded at
+  run time. A region table built at expansion decides which positions to keep,
+  in local variables bound by each expansion, so each repeated instance is
+  checked against its own regions (SPECOPS-DRAFT-manifest-D43 in the log). A
+  mismatch signals a condition with restarts (SPECOPS-DRAFT-manifest-D42).
 - **Selective reads** per SPECOPS-DRAFT-manifest-complete-D3, including a
   skip mode for sub-manifests outside the closure.
 - **Stream sources.** `unmarshal` reads only vectors and integers today. Add
@@ -889,7 +895,7 @@ the previous update are marked "new".
 
 | Milestone | State | Done | Remaining |
 |---|---|---|---|
-| 1. Corrections and records | Done | As before | New: the byte orders of sub-manifests chosen by `:case` |
+| 1. Corrections and records | Partly done | As before | New: the byte orders of sub-manifests chosen by `:case` |
 | 2. Field kinds on read | Partly done | As before | SPECOPS-DRAFT-manifest-complete-O5 for fields without a terminator; writing a buffer sized by another field; fixed buffers of LEB elements; trailing `:length-of` and `:count-of` slots |
 | 3. Checked reads | Done | New: `manifest-check-failed`, with `continue` and `use-value` restarts (SPECOPS-DRAFT-manifest-complete-O1); checksum, length, offset and count slots checked, within each repeated instance; constants signal the same condition; `(:check nil)`; checksums over integer sources | — |
 | 4. Structs and run-time nested values | Done | As before | — |

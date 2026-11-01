@@ -1821,7 +1821,9 @@ of elements in the field it covers. A count check is left out when the covered
 field is counted by the slot's own field, since the two then agree. Nested
 expansions bind their own variables, so each repeated instance is checked
 against its own regions with no allocation. A slot over a region the manifest
-lacks, or a checksum without `:by`, is an expansion error.
+lacks, or a checksum without `:by`, is an expansion error. Note that the
+implementation currently only supports writes where a checksum comes after
+its region.
 **Alternatives:** A list of regions built at run time, as `marshal` does
 (rejected: it allocates for every region of every instance); a table holding
 only what checks need (rejected by the steward: the general table costs nothing
@@ -1840,8 +1842,8 @@ units numbered from the most significant, as `deserializer-for` numbers them.
 The buffer is made at most once per top-level `unmarshal` and shared with
 nested expansions through the sub-lexicon. The variable that holds it is bound
 only when the manifest or a manifest nested in it, as a field, a repeat or a
-`:case` branch, has a checksum, which
-`src/manifest/manifest.lisp:manifest-checksums-p@1cc7600` decides at
+`:case` branch, has a checksum and checks aren't toggled off by `(:check nil)`,
+which `src/manifest/manifest.lisp:manifest-checksums-p@1cc7600` decides at
 expansion. A bare integer has as many units as its value needs, so leading zero
 units are lost, as they are for reading.
 **Alternatives:** Skipping checksum checks for integer sources, or rejecting
@@ -1854,8 +1856,9 @@ each instance of a repeat).
 **Status:** Proposed
 **Context:** A `:checksum-of` slot calls its function as `(fn buffer start
 end)` (SPECOPS-DRAFT-manifest-D9), which `checksum.lisp:crc@10b1568` follows.
-`adler32-checksum` takes its bounds as keyword arguments, so it failed as a
-`:by` function, and checked reads call these functions on every read.
+`adler32-checksum` takes its bounds as keyword arguments, so it would fail
+as a `:by` function if called by a manifest, and checked reads call these
+functions on every read for manifests with a checksum slot.
 **Decision:** `src/checksum.lisp:adler32@1cc7600` wraps `adler32-checksum`
 with the slot signature, beside `crc`.
 **Alternatives:** Changing `adler32-checksum` (rejected by the steward: it
