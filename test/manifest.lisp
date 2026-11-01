@@ -2155,7 +2155,55 @@ Returns T if all checks pass."
                                                                      (marshal rec-redefined d
                                                                        (:from ,r))))
                                                      d))))))
-             '(1 2 (1 2))))
+             '(1 2 (1 2)))
+
+      ;; 8. Records out of unmarshal.
+      (let ((buf (ub8 21)))
+        (marshal rec-chunk buf :body (:width 7 :height 9 :color-type :rgb))
+        (let ((r (unmarshal rec-chunk buf (:as :record))))
+          (check "rec-chunk, read as a record holding a record"
+                 (list (class-name (class-of r)) (rec-chunk-record-length r)
+                       (class-name (class-of (rec-chunk-record-body r)))
+                       (rec-ihdr-width (rec-chunk-record-body r))
+                       (rec-ihdr-color-type (rec-chunk-record-body r))
+                       (= (rec-chunk-record-crc r) (crc buf 4 17)))
+                 '(rec-chunk-record 9 rec-ihdr 7 :rgb t))
+          (check "rec-chunk, without :as the same bytes still read as a plist"
+                 (unmarshal rec-chunk buf)
+                 (list :length 9 :body '(:width 7 :height 9 :color-type :rgb)
+                       :crc (rec-chunk-record-crc r)))
+          (check "rec-chunk, a record read and written back reproduces the bytes"
+                 (let ((again (ub8 21)))
+                   (marshal rec-chunk again (:from r))
+                   again)
+                 buf)
+          (check "rec-chunk, a record edited and written back gets a new CRC, which checks"
+                 (let ((again (ub8 21)))
+                   (setf (rec-ihdr-height (rec-chunk-record-body r)) 10)
+                   (marshal rec-chunk again (:from r))
+                   (let ((r2 (unmarshal rec-chunk again (:as :record))))
+                     (list (rec-ihdr-height (rec-chunk-record-body r2))
+                           (= (rec-chunk-record-crc r2) (crc again 4 17))
+                           (/= (rec-chunk-record-crc r2) (rec-chunk-record-crc r)))))
+                 '(10 t t))))
+      (let ((buf (ub8 14)))
+        (marshal rec-parent buf :a 5 :child (:width 1 :height 1 :color-type :rgb))
+        (check "rec-parent, read as a record holding a plist for a child without a record type"
+               (let ((r (unmarshal rec-parent buf (:as :record))))
+                 (list (rec-parent-a r) (rec-parent-child r)))
+               '(5 (:width 1 :height 1 :bit-depth 8 :color-type :rgb
+                    :compression 0 :filter 0 :interlace :none))))
+      (check "rec-masque, masque groups read into a record"
+             (let ((r (unmarshal rec-masque (->bytes #(6 #xFD 7)) (:as :record))))
+               (list (rec-masque-mode r) (rec-masque-delta r) (rec-masque-tail r)))
+             '(:rgba -3 7))
+      (check "unmarshal options: :as :record with keys, without a record class, an unknown :as or option"
+             (mapcar (lambda (form) (signals-error-p (lambda () (macroexpand-1 form))))
+                     '((unmarshal rec-ihdr s (:as :record) :width)
+                       (unmarshal png-ihdr s (:as :record))
+                       (unmarshal rec-ihdr s (:as :struct))
+                       (unmarshal rec-ihdr s (:format :record))))
+             '(t t t t)))
     (let ((pass (every #'identity results)))
       (format t "~&record checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
               pass (count t results) (length results))

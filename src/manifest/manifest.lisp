@@ -646,9 +646,16 @@ no such code, so that a record holding a code the enum lacks can be read and wri
         :finally (return value)))
 
 (defmacro unmarshal (name source &optional params &rest keys)
+  "Read the fields of the manifest NAME from SOURCE. With KEYS, return their values in
+order; otherwise return every named field, as a plist or, given (:as :record) in PARAMS,
+as an instance of the manifest's record class."
   (let* ((spec (gethash name *manifests*))
          (config (and (eq :config (getf (first spec) :type))
                       (first spec)))
+         (nested (getf params :-+sub-lexicon+-))
+         (as (getf params :as :plist))
+         ;; a nested manifest without a record class is read as a plist inside a record
+         (record-class (and (eq as :record) (getf config :record)))
          ;; (all-keys (loop :for item :in (rest spec) :when (getf item :name) :collect (getf item :name)))
          (all-keys (manifest-field-names (rest spec)))
          (length-sources
@@ -667,6 +674,16 @@ no such code, so that a record holding a code the enum lacks can be read and wri
          (base (gensym "BA")) (dsym (gensym "DS"))
          raws sub-lexicon prefix cursor)
     
+    (loop :for (key) :on params :by #'cddr
+          :unless (member key '(:as :-+sub-lexicon+-))
+            :do (error "unmarshal: unknown option ~s for manifest ~s." key name))
+    (unless (member as '(:plist :record))
+      (error "unmarshal: :as must be :plist or :record, not ~s." as))
+    (when (and (eq as :record) in-keys)
+      (error "unmarshal: (:as :record) returns the whole record; it takes no keys."))
+    (when (and (eq as :record) (not nested) (not record-class))
+      (error "unmarshal: manifest ~s has no record class; give it (:record t)." name))
+
     (if (getf params :-+sub-lexicon+-)
         (destructuring-bind (&key cr-sym pr-sym &allow-other-keys) (getf params :-+sub-lexicon+-)
           (setf cursor cr-sym prefix pr-sym sub-lexicon (getf params :-+sub-lexicon+-)))
@@ -734,7 +751,8 @@ no such code, so that a record holding a code the enum lacks can be read and wri
                                      ,(macroexpand
                                        `(unmarshal ,sub-name ,src
                                                    (:-+sub-lexicon+- ,(list* :pr-sym (qualify name)
-                                                                             sub-lexicon)))))
+                                                                             sub-lexicon)
+                                                    ,@(and (eq as :record) '(:as :record))))))
                               reads)))
                      (:span
                       (loop :for item :in items :do (process-item item)))
@@ -861,9 +879,13 @@ no such code, so that a record holding a code the enum lacks can be read and wri
                 ,@(mapcar #'rest vars)
                 ,@(mapcar #'rest raws))
            ,@(reverse reads)
-           ,(cons (if in-keys 'values 'list)
-                  (if in-keys (mapcar (lambda (k) (rest (assoc k vars))) keys)
-                      (loop :for key :in all-keys :append (list key (rest (assoc key vars)))))))))))
+           ,(cond (in-keys
+                   (cons 'values (mapcar (lambda (k) (rest (assoc k vars))) keys)))
+                  (record-class
+                   `(make-instance ',record-class
+                                   ,@(loop :for key :in all-keys :append (list key (rest (assoc key vars))))))
+                  (t (cons 'list
+                           (loop :for key :in all-keys :append (list key (rest (assoc key vars))))))))))))
 
 #|
 
