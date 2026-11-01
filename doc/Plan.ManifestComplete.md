@@ -31,6 +31,7 @@ open-questions:
   - SPECOPS-DRAFT-manifest-complete-O3
   - SPECOPS-DRAFT-manifest-complete-O4
   - SPECOPS-DRAFT-manifest-complete-O5
+  - SPECOPS-DRAFT-manifest-complete-O6
 cites:
   - title:    lisp-binary (Common Lisp binary format library) wiki
     locator:  github.com/j3pic/lisp-binary/wiki — DEFBINARY structs; EVAL type specifier
@@ -490,6 +491,20 @@ A `:str` field with `:count n` may be given a string shorter or longer than
 GOFF) or NUL bytes. The field could signal an error, pad with a declared fill
 code and strip it on read, or truncate.
 
+### SPECOPS-DRAFT-manifest-complete-O6 — Do buffered destinations and checksummed stream sources share one reusable buffer?
+
+Both directions need bytes kept that a stream cannot give back. Writing, a
+destination that cannot be patched is written through an internal vector
+(SPECOPS-DRAFT-manifest-complete-D2). Reading a stream source, the bytes of a
+checksummed region must be kept until its checksum is computed
+(SPECOPS-DRAFT-manifest-D43). A buffer made for each call puts pressure on the
+garbage collector when many records are read or written, while a durable
+buffer reused across calls must be owned by something: the caller, through an
+option to `marshal` and `unmarshal`, or a special variable, which raises
+reentrancy and threads. Whether one buffer serves both directions, how large it
+grows (the largest checksummed region, or the whole record), and who owns it
+are open.
+
 ## Prior Art
 
 Table: Prior systems and what this plan draws from each.
@@ -926,5 +941,6 @@ that the previous update said checked reads and selective reads share; the
 dependency closure of SPECOPS-DRAFT-manifest-complete-D3 extends it. Checksums
 over stream sources need the bytes of each checksummed region kept, as
 buffering (SPECOPS-DRAFT-manifest-complete-D2) keeps them for stream
-destinations; one buffer reused across reads would serve both. The rest are
-as in the update of 2026-10-30.
+destinations; whether one reusable buffer serves both is
+SPECOPS-DRAFT-manifest-complete-O6, which buffering, the first priority, meets
+first. The rest are as in the update of 2026-10-30.

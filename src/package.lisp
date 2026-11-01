@@ -83,6 +83,14 @@
    #:check-actual
    #:check-position
 
+   ;; -- Destinations: the reusable buffer, and the condition of a vector too small
+   #:make-manifest-buffer
+   #:manifest-buffer
+   #:manifest-overrun
+   #:overrun-manifest
+   #:overrun-size
+   #:overrun-position
+
    ;; -- Stop rules for :stop-by fields: the runtime protocol and the effectors
    #:stop-rule
    #:done-p

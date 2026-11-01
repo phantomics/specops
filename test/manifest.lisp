@@ -1078,6 +1078,11 @@ Returns T if all checks pass."
   (:head :u8 :default 0)
   (manifest :inner case-enum-probe))
 
+;; A :case branch whose sub-manifest uses a byte order its big-endian parent lacks.
+(defmanifest case-le-branch-probe (:unit 8 :endian :big)
+  (:kind :u8 :default 0)
+  (:body (:case :kind (0 (manifest le-child-probe)) (otherwise :u8))))
+
 ;; Two plain fields, for checking each value form is evaluated once.
 (defmanifest eval-once-probe (:unit 8 :endian :big)
   (:a :u8 :default 0)
@@ -1217,6 +1222,12 @@ Returns T if all checks pass."
       (check "case-nest-probe, read back"
              (unmarshal case-nest-probe (->bytes #(7 2 #xFF #xFF #xFF #xFE 9)))
              '(:head 7 :inner (:kind :long :v -2 :after 9)))
+      (check "case-le-branch-probe, a little-endian sub-manifest branch in a big-endian parent"
+             (let* ((k 0)
+                    (bytes (to-list (lambda (d) (marshal case-le-branch-probe d :kind k
+                                                         :body (list :x #x0102))))))
+               (list bytes (unmarshal case-le-branch-probe (->bytes bytes))))
+             '((0 2 1) (:kind 0 :body (:x #x0102))))
 
       ;; 6. Value forms are evaluated once.
       (check "eval-once-probe, each value form is evaluated once"
@@ -2798,5 +2809,156 @@ the CONTINUE and USE-VALUE restarts and the (:check nil) option. Returns T if al
              '(t t t)))
     (let ((pass (every #'identity results)))
       (format t "~&checked read checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
+              pass (count t results) (length results))
+      pass)))
+
+;;; ===========================================================================
+;;; Part T — destinations: functions and streams through a buffer, overruns
+;;; ===========================================================================
+
+(defun collect-units (thunk)
+  "Call THUNK with a function destination, and return the units it was given and THUNK's value."
+  (let ((acc nil))
+    (let ((value (funcall thunk (lambda (u) (push u acc)))))
+      (values (->bytes (nreverse acc)) value))))
+
+(defun file-units (path)
+  (with-open-file (in path :element-type '(unsigned-byte 8))
+    (let ((v (make-array (file-length in) :element-type '(unsigned-byte 8))))
+      (read-sequence v in)
+      v)))
+
+(defparameter *destination-file* "/tmp/specops-manifest-destination.bin")
+
+(defun run-destination-demo ()
+  "Marshal manifests with slots and checksums to functions and streams, through a fresh or a
+reusable buffer, and check vector destinations for overruns. Returns T if all checks pass."
+  (let ((results nil))
+    (flet ((check (label got want)
+             (let ((ok (equalp got want)))
+               (push ok results)
+               (format t "~&  ~:[FAIL~;ok  ~]  ~a~%" ok label)
+               (unless ok
+                 (format t "~&          got  ~s~%          want ~s~%" got want)))))
+      (format t "~&destination checks:~%")
+      (let* ((png (make-1x1-png))
+             (plist (unmarshal png-file png))
+             (ancillary (png-with-ancillary-chunks))
+             (chunks (unmarshal png-any ancillary)))
+
+        ;; 1. Functions: lengths, checksums and counts resolved in the buffer.
+        (check "png-file to a function: the bytes written to a vector, and the end position"
+               (multiple-value-list (collect-units (lambda (d) (marshal png-file d (:from plist)))))
+               (list png 72))
+        (check "png-any to a function: the PNG with a tEXt chunk and two IDATs"
+               (collect-units (lambda (d) (marshal png-any d (:from chunks))))
+               ancillary)
+        (check "count-of-items-probe and checked-offset-probe to a function: count and offset slots"
+               (list (coerce (collect-units (lambda (d) (marshal count-of-items-probe d
+                                                              :items (list (list :tag 1 :value 5)
+                                                                           (list :tag 2 :value 6))
+                                                              :after 9)))
+                             'list)
+                     (coerce (collect-units (lambda (d) (marshal checked-offset-probe d :x 7 :body 5)))
+                             'list))
+               '((2 1 0 5 2 0 6 9) (2 7 0 5)))
+        (let ((data (->bytes (loop :for i :below 300 :collect (mod i 251)))))
+          (check "png-idat-chunk to a function, 312 bytes: the buffer grows past its first 256"
+                 (let ((buf (ub8 312)))
+                   (marshal png-idat-chunk buf :data data)
+                   (equalp buf (collect-units (lambda (d) (marshal png-idat-chunk d :data data)))))
+                 t))
+
+        ;; 2. Streams, which are never read back or sought.
+        (flet ((to-file (header thunk)
+                 (with-open-file (out *destination-file* :direction :output :if-exists :supersede
+                                                         :element-type '(unsigned-byte 8))
+                   (write-sequence header out)
+                   (funcall thunk out))
+                 (file-units *destination-file*)))
+          (check "png-file to a file stream opened for output only"
+                 (to-file #() (lambda (s) (marshal png-file s (:from plist))))
+                 png)
+          (check "png-file to a file stream after a 16-byte header: slots land in the record"
+                 (to-file (->bytes (make-array 16 :initial-element #xAA))
+                          (lambda (s) (marshal png-file s (:from plist))))
+                 (concatenate '(vector (unsigned-byte 8)) (make-array 16 :initial-element #xAA) png))
+          (check "png-any to a file stream after a header, read back with no failed check"
+                 (let ((file (to-file (->bytes #(1 2 3)) (lambda (s) (marshal png-any s (:from chunks))))))
+                   (list (equalp (subseq file 3) ancillary)
+                         (failed-checks (lambda () (unmarshal png-any (subseq file 3))))))
+                 '(t nil))
+          (check "sized-items-probe, a length slot and no checksum, to a stream after a header"
+                 (to-file (->bytes #(7 7)) (lambda (s) (marshal sized-items-probe s
+                                                         :items (list (list :tag 1 :value 5)) :after 9)))
+                 (->bytes #(7 7 3 1 0 5 9)))
+          (check "item-probe, with no slots, to a stream after a header: written directly"
+                 (to-file (->bytes #(9)) (lambda (s) (marshal item-probe s :tag 1 :value 5)))
+                 (->bytes #(9 1 0 5))))
+        (check "only a manifest with a slot, here or nested, is written through a buffer"
+               (mapcar (lambda (form) (tree-mentions-p 'grow-buffer (macroexpand-1 form)))
+                       '((marshal png-file d (:from r)) (marshal png-any d (:from r)) (marshal item-probe d)
+                         (marshal counted-items-probe d)))
+               '(t t nil nil))
+
+        ;; 3. A reusable buffer.
+        (let ((holder (make-manifest-buffer)))
+          (check "a manifest-buffer keeps its array across calls, and the bytes are the same"
+                 (let* ((first (collect-units (lambda (d) (marshal png-file d (:from plist :buffer holder)))))
+                        (array (manifest-buffer-array holder))
+                        (second (collect-units (lambda (d) (marshal png-any d (:from chunks :buffer holder))))))
+                   (list (equalp first png) (equalp second ancillary)
+                         (eq array (manifest-buffer-array holder))))
+                 '(t t t))
+          (check "a manifest-buffer keeps the grown array, and a vector destination leaves it alone"
+                 (let ((data (->bytes (make-array 300 :initial-element 7))))
+                   (collect-units (lambda (d) (marshal png-idat-chunk d (:buffer holder) :data data)))
+                   (let ((grown (manifest-buffer-array holder)))
+                     (marshal png-idat-chunk (ub8 312) (:buffer holder) :data data)
+                     (list (>= (length grown) 312) (eq grown (manifest-buffer-array holder)))))
+                 '(t t)))
+
+        ;; 4. Vector destinations too small.
+        (check "png-file into 50 bytes signals manifest-overrun with the size and position"
+               (handler-case (progn (marshal png-file (ub8 50) (:from plist)) :no-error)
+                 (manifest-overrun (c) (list (typep c 'error) (overrun-manifest c) (overrun-size c)
+                                             (overrun-position c)
+                                             (and (search "runs past the end of its destination"
+                                                          (format nil "~a" c))
+                                                  t))))
+               '(t png-file 50 50 t))
+        (check "item-probe, with no slots, into 2 bytes overruns too; 3 bytes is enough"
+               (list (handler-case (marshal item-probe (ub8 2) :tag 1 :value 5)
+                       (manifest-overrun (c) (overrun-position c)))
+                     (marshal item-probe (ub8 3) :tag 1 :value 5))
+               '(2 3))
+        (check "a vector with a fill pointer, and one of general elements, receive the PNG through a buffer"
+               (let ((v (make-array 72 :element-type '(unsigned-byte 8) :fill-pointer 0 :adjustable t))
+                     (g (make-array 72)))
+                 (list (marshal png-file v (:from plist)) (fill-pointer v)
+                       (equalp (loop :for i :below 72 :collect (aref v i)) (coerce png 'list))
+                       (marshal png-file g (:from plist)) (equalp g png)))
+               '(72 0 t 72 t))
+        (check "a vector with a fill pointer is bounded by its size: an overrun writes nothing"
+               (let ((v (make-array 50 :element-type '(unsigned-byte 8) :fill-pointer 0
+                                       :initial-element 0)))
+                 (list (handler-case (marshal png-file v (:from plist))
+                         (manifest-overrun (c) (list (overrun-size c) (overrun-position c))))
+                       (every #'zerop (loop :for i :below 50 :collect (aref v i)))))
+               '((50 50) t))
+        (check "item-probe, with no slots, into a vector with a fill pointer: in place, fill pointer kept"
+               (let ((v (make-array 3 :element-type '(unsigned-byte 8) :fill-pointer 1)))
+                 (marshal item-probe v :tag 1 :value 5)
+                 (list (fill-pointer v) (loop :for i :below 3 :collect (aref v i))))
+               '(1 (1 0 5)))
+        (check "a destination that is not a vector, a stream or a function signals an error"
+               (list (signals-error-p (lambda () (marshal item-probe 'nowhere :tag 1)))
+                     (signals-error-p (lambda () (marshal png-file 'nowhere (:from plist)))))
+               '(t t))
+        (check "an unknown option of marshal is an expansion error"
+               (signals-error-p (lambda () (macroexpand-1 '(marshal png-file d (:buffers b)))))
+               t)))
+    (let ((pass (every #'identity results)))
+      (format t "~&destination checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
               pass (count t results) (length results))
       pass)))

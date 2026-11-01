@@ -1930,7 +1930,8 @@ and `.wasm`, and the three format systems, load with the new exports.
 
 ### Files
 
-Table: Files changed in commit `1cc7600`, and the documents updated after it.
+Table: Files changed in commit `1cc7600`, and the documents updated in commits
+`1b6cafe` and `68285f1`.
 
 | File | Action | Description |
 |------|--------|-------------|

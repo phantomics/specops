@@ -237,16 +237,47 @@ field-value method. The derived names are interned in CLASS's package."
                                  :append `(,n (,a ,record)))))))
        ',class)))
 
+(defun walk-manifest (function items)
+  "Call FUNCTION on each of ITEMS, a manifest's stored fields, and on the stored fields of
+every manifest nested in them: inside spans, as sub-manifest fields and repeats, and as
+:case branches, whose code shares the top-level manifest's environment. Each nested
+manifest is walked once."
+  (let ((visited nil))
+    (labels ((child (name)
+               (unless (member name visited)
+                 (push name visited)
+                 (let ((spec (gethash name *manifests*)))
+                   (when spec (walk (rest spec))))))
+             (walk (items)
+               (dolist (item items)
+                 (funcall function item)
+                 (case (getf item :type)
+                   (:span (walk (getf item :items)))
+                   (:manifest (child (first (getf item :actual)))))
+                 (dolist (b (getf item :type-conditions))
+                   (when (eq :manifest (getf b :type))
+                     (child (first (getf b :actual))))))))
+      (walk items))))
+
 (defun manifest-swap-specs (items)
-  "The byte orders used by ITEMS, a manifest's stored fields, including those inside spans
-and nested manifests, whose code shares the top-level manifest's serializers."
-  (remove-duplicates
-   (loop :for item :in items
-         :append (case (getf item :type)
-                   (:span (manifest-swap-specs (getf item :items)))
-                   (:manifest (let ((child (gethash (first (getf item :actual)) *manifests*)))
-                                (and child (manifest-swap-specs (rest child)))))
-                   (t (let ((s (getf item :swap-by))) (and s (list s))))))))
+  "The byte orders used by ITEMS, a manifest's stored fields, and by every manifest nested
+in them, whose code shares the top-level manifest's serializers."
+  (let ((specs nil))
+    (walk-manifest (lambda (item)
+                     (let ((s (getf item :swap-by)))
+                       (when s (pushnew s specs))))
+                   items)
+    specs))
+
+(defun manifest-slots-p (items &optional kind)
+  "True when ITEMS, a manifest's stored fields, or a manifest nested in them, has a slot
+field: one of KIND, such as :checksum-of, when KIND is given."
+  (walk-manifest (lambda (item)
+                   (let ((slot (getf item :slot)))
+                     (when (and slot (or (null kind) (eq kind (first slot))))
+                       (return-from manifest-slots-p t))))
+                 items)
+  nil)
 
 (defun find-in-manifest (spec handler)
   (let ((output))
@@ -272,10 +303,45 @@ and nested manifests, whose code shares the top-level manifest's serializers."
                     (case-selectors (getf i :items))
                     (and (member :case (getf i :subtypes)) (list (getf i :type-indicator))))))
 
+(define-condition manifest-overrun (error)
+  ((manifest :initarg :manifest :reader overrun-manifest)
+   (size     :initarg :size     :reader overrun-size)
+   (position :initarg :position :reader overrun-position))
+  (:report (lambda (c stream)
+             (format stream "marshal: manifest ~s runs past the end of its destination, ~a units ~
+                             long, at unit ~a."
+                     (overrun-manifest c) (overrun-size c) (overrun-position c))))
+  (:documentation "Signalled by marshal when a vector destination is too small: the unit
+at POSITION would lie past SIZE, the vector's allocated size. A fill pointer is neither read
+nor set, so a caller that wants a vector to grow sizes it or grows it itself."))
+
+(defun signal-overrun (manifest size position)
+  (error 'manifest-overrun :manifest manifest :size size :position position))
+
+(defstruct (manifest-buffer (:constructor make-manifest-buffer ()) (:copier nil))
+  "A buffer that marshal, given (:buffer B), writes a function or stream destination
+through and keeps, grown as needed, so that later calls allocate none."
+  (array nil))
+
+(defun reusable-buffer (holder type)
+  "The array HOLDER, a manifest-buffer, keeps, when its elements are of TYPE; else NIL."
+  (let ((array (manifest-buffer-array holder)))
+    (and array (equal (array-element-type array) (upgraded-array-element-type type)) array)))
+
+(defun grow-buffer (buffer position)
+  "A simple array of BUFFER's element type, holding BUFFER's elements, at least twice as
+long and long enough to hold the unit at POSITION."
+  (replace (make-array (max (* 2 (length buffer)) (1+ position) 16)
+                       :element-type (array-element-type buffer))
+           buffer))
+
 (defmacro marshal (name destination &body pairs)
-  "Write the fields of the manifest NAME to DESTINATION. PAIRS give field values as keywords
-and forms, and may begin with a list of options: (:from RECORD) takes every field not given
-in PAIRS from RECORD, a plist or a manifest's record, when the code runs."
+  "Write the fields of the manifest NAME to DESTINATION, a vector, a stream or a function
+of one unit, and return the position after the last unit. PAIRS give field values as
+keywords and forms, and may begin with a list of options: (:from RECORD) takes every field
+not given in PAIRS from RECORD, a plist or a manifest's record, when the code runs, and
+(:buffer B) keeps in B, a manifest-buffer, the buffer through which a manifest with slots is
+written to a stream or a function. A vector too small signals manifest-overrun."
   (let* ((options (and (consp (first pairs)) (first pairs)))
          (pairs (if options (rest pairs) pairs))
          (from (and (getf options :from) (gensym "REC")))
@@ -285,19 +351,26 @@ in PAIRS from RECORD, a plist or a manifest's record, when the code runs."
          (base (gensym "BA"))
          (selvars (mapcar (lambda (s) (cons s (gensym (string s))))
                           (case-selectors (rest spec))))
-         regions slots slots-of swap-specs offset access enter index tell write prefix counts
+         (nested (getf pairs :-+sub-lexicon+-))
+         ;; a manifest with a slot anywhere in it is patched, so a function or a stream is
+         ;; written through a buffer; the top-level expansion decides
+         (patching (and (not nested) (manifest-slots-p (rest spec))))
+         (unit-type `(unsigned-byte ,(ash 1 (+ 3 (or (getf params :unit-spec) 0)))))
+         (holder (and (not nested) (getf options :buffer) (gensym "HOLDER")))
+         (dest (gensym "DEST")) (in-place (gensym "IN-PLACE")) (limit (gensym "LIMIT"))
+         regions slots slots-of swap-specs offset access enter index write prefix counts
          values length serializers map b i sub-lexicon written)
 
     (loop :for (key) :on options :by #'cddr
-          :unless (member key '(:from))
+          :unless (member key '(:from :buffer))
             :do (error "marshal: unknown option ~s for manifest ~s." key name))
 
     ;; populate the symbol lexicon or import it from an enclosing marshal macro
     (if (getf pairs :-+sub-lexicon+-)
-        (destructuring-bind (&key ac-sym en-sym ba-sym in-sym tl-sym wr-sym pr-sym
+        (destructuring-bind (&key ac-sym en-sym ba-sym in-sym wr-sym pr-sym
                                vl-sym ln-sym sr-sym mp-sym ct-sym b-sym i-sym)
             (getf pairs :-+sub-lexicon+-)
-          (setf access ac-sym enter en-sym base ba-sym index in-sym tell tl-sym write wr-sym prefix pr-sym
+          (setf access ac-sym enter en-sym base ba-sym index in-sym write wr-sym prefix pr-sym
                 values vl-sym length ln-sym serializers sr-sym map mp-sym counts ct-sym
                 b b-sym i i-sym
                 ;; propagate the same lexicon to deeper sub-manifests so nested
@@ -306,7 +379,6 @@ in PAIRS from RECORD, a plist or a manifest's record, when the code runs."
         (setf access (gensym "AC")
               enter (gensym "EN")
               index (gensym "IN")
-              tell (gensym "TL")
               write (gensym "WR")
               values (gensym "VL")
               length (gensym "LN")
@@ -316,7 +388,7 @@ in PAIRS from RECORD, a plist or a manifest's record, when the code runs."
               b (gensym "BB")
               i (gensym "II")
               sub-lexicon (list :ac-sym access :en-sym enter :ba-sym base :in-sym index
-                                :tl-sym tell :wr-sym write
+                                :wr-sym write
                                 :vl-sym values :ln-sym length
                                 :sr-sym serializers :mp-sym map :ct-sym counts :b-sym b :i-sym i)))
 
@@ -682,28 +754,45 @@ in PAIRS from RECORD, a plist or a manifest's record, when the code runs."
                           ,@(if (getf params :length) `((,length ,(getf params :length))))
                           ;; ,@(loop :for c :in (case-selectors (rest spec)) :collect (list c '(gensym)))
                           ,@(mapcar (lambda (p) (list (rest p) nil)) selvars)
-                          (,enter) (,tell) (,write) (,map) (,counts)
-                           (,serializers (make-array ,(1+ (reduce #'max swap-specs :initial-value 0)) :initial-element nil)))
-
-                     (typecase ,access
-                       (function (setf ,enter (lambda (,b) (funcall ,access ,b) (incf ,index))
-                                       ,tell  (lambda () ,index)))
-                       (vector   (setf ,enter (lambda (,b) (setf (aref ,access ,index) ,b) (incf ,index))
-                                       ,tell  (lambda () ,index)
-                                       ,write (lambda (serializer datum position)
-                                                (let ((opos ,index))
-                                                  (setf ,index position)
-                                                  (funcall serializer datum ,enter)
-                                                  (setf ,index opos)))))
-                       (stream   (setf ,enter (lambda (,b) (incf ,index) (write-byte ,b ,access))
-                                       ,tell  (lambda () (file-position ,access))
-                                       ,write (lambda (serializer datum position)
-                                                (let ((opos (file-position ,access)))
-                                                  (file-position ,access position)
-                                                  (setf ,index position)
-                                                  (funcall serializer datum ,enter)
-                                                  (file-position ,access opos)
-                                                  (setf ,index opos))))))))
+                          (,enter) (,write) (,map) (,counts)
+                           (,serializers (make-array ,(1+ (reduce #'max swap-specs :initial-value 0)) :initial-element nil))
+                           ,@(and patching `((,dest nil)))
+                           ,@(and holder `((,holder ,(getf options :buffer)))))
+                     ,@(and holder (not patching) `((declare (ignore ,holder))))
+                     ;; a vector is written in place, with every unit checked against its size
+                     (flet ((,in-place (,limit)
+                              (setf ,enter (lambda (,b)
+                                             (when (>= ,index ,limit)
+                                               (signal-overrun ',manifest-name ,limit ,index))
+                                             (setf (aref ,access ,index) ,b)
+                                             (incf ,index))
+                                    ,write (lambda (serializer datum position)
+                                             (let ((opos ,index))
+                                               (setf ,index position)
+                                               (funcall serializer datum ,enter)
+                                               (setf ,index opos))))))
+                       (typecase ,access
+                         ,@(if patching
+                               ;; slots are resolved and checksums computed in place only in a
+                               ;; simple array of units, which checksum functions can read;
+                               ;; otherwise in a buffer, passed on once the record is complete
+                               `(((simple-array ,unit-type (*))
+                                  (,in-place (array-dimension ,access 0)))
+                                 ((or vector function stream)
+                                  (,in-place most-positive-fixnum) ; for its patching WRITE
+                                  (setf ,dest ,access
+                                        ,access (or ,(and holder `(reusable-buffer ,holder ',unit-type))
+                                                    (make-array 256 :element-type ',unit-type))
+                                        ,enter (lambda (,b)
+                                                 (when (>= ,index (length ,access))
+                                                   (setf ,access (grow-buffer ,access ,index)))
+                                                 (setf (aref ,access ,index) ,b)
+                                                 (incf ,index)))))
+                               `((vector   (,in-place (array-dimension ,access 0)))
+                                 (function (setf ,enter (lambda (,b) (funcall ,access ,b) (incf ,index))))
+                                 (stream   (setf ,enter (lambda (,b) (write-byte ,b ,access) (incf ,index))))))
+                         (t (error "marshal: manifest ~s cannot be written to ~s, which is not a vector, ~
+                                    a stream or a function." ',manifest-name ,access))))))
 
               (unless (getf pairs :-+sub-lexicon+-)
                 (mapcar #'assign-serializer swap-specs))
@@ -712,6 +801,21 @@ in PAIRS from RECORD, a plist or a manifest's record, when the code runs."
                     (error "Manifest not found."))
 
               ;; `((print (list :mmm ,map)))
+
+              (and patching
+                   (let ((u (gensym "U")))
+                     `((when ,dest
+                         (etypecase ,dest
+                           (function (loop :for ,u :from ,base :below ,index
+                                           :do (funcall ,dest (aref ,access ,u))))
+                           (stream (write-sequence ,access ,dest :start ,base :end ,index))
+                           ;; by AREF, which a fill pointer does not bound
+                           (vector (when (> ,index (array-dimension ,dest 0))
+                                     (signal-overrun ',manifest-name (array-dimension ,dest 0)
+                                                     (array-dimension ,dest 0)))
+                                   (loop :for ,u :from ,base :below ,index
+                                         :do (setf (aref ,dest ,u) (aref ,access ,u)))))
+                         ,@(and holder `((when ,holder (setf (manifest-buffer-array ,holder) ,access))))))))
               
               (list index)
               ))))
@@ -787,21 +891,6 @@ function form). Regions inside sub-manifests belong to their own tables."
                     :collect (getf s :field))))
       (values (nreverse regions) (nreverse slots)))))
 
-(defun manifest-checksums-p (items &optional visited)
-  "True when ITEMS, a manifest's stored fields, or a manifest nested in them as a field, a
-repeat or a :case branch, has a :checksum-of slot."
-  (labels ((nested-p (child)
-             (and (not (member child visited))
-                  (manifest-checksums-p (rest (gethash child *manifests*)) (cons child visited)))))
-    (loop :for item :in items
-          :thereis (or (eq :checksum-of (first (getf item :slot)))
-                       (case (getf item :type)
-                         (:span (manifest-checksums-p (getf item :items) visited))
-                         (:manifest (nested-p (first (getf item :actual)))))
-                       (loop :for b :in (getf item :type-conditions)
-                             :thereis (and (eq :manifest (getf b :type))
-                                           (nested-p (first (getf b :actual)))))))))
-
 (defun source-units (source unit-spec)
   "SOURCE, an integer or a (units . integer) pair that unmarshal reads, as a vector of its
 units, numbered from the most significant as deserializer-for numbers them, so that a
@@ -862,7 +951,7 @@ and constants are checked as they are read, and a failure signals manifest-check
         (destructuring-bind (&key cr-sym pr-sym bf-sym &allow-other-keys) (getf params :-+sub-lexicon+-)
           (setf cursor cr-sym prefix pr-sym buffer bf-sym sub-lexicon (getf params :-+sub-lexicon+-)))
         (setf cursor (gensym "CR")
-              buffer (and check (manifest-checksums-p (rest spec)) (gensym "BUF"))
+              buffer (and check (manifest-slots-p (rest spec) :checksum-of) (gensym "BUF"))
               sub-lexicon (list :cr-sym cursor :ds-sym dsym :bf-sym buffer)))
           
     ;; (loop :for item :in (rest spec) :do (setf (getf fields (getf item :name)) item))
