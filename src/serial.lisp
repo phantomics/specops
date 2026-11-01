@@ -223,7 +223,7 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
          (assignments (if (not params) assignments (rest assignments)))
          (processor (rest (assoc :with-processor params))))
     (multiple-value-bind (base _ segments symbols) (quantify-mask-string string params)
-      ;; the factor is not needed information for masking so it's bound to _
+      (declare (ignore _)) ;; the factor is not needed information for masking so it's bound to _
       ;; (format t "~v,'0B~%" 16 (ash (1- (ash 1 length)) (nth index segments)))
 
       (if processor

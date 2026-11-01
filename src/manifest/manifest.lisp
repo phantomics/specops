@@ -171,7 +171,7 @@
                                                       (list 'list :binding (list 'quote b)))
                                                   bindings-out))
                                           
-                                          (let* ((masque-width (nth-value 3 (quantify-mask-string
+                                          (let* ((masque-width (nth-value 4 (quantify-mask-string
                                                                              spec-string nil)))
                                                  (unit-width
                                                    (+ (ash masque-width (- (+ 3 unit-spec)))
@@ -235,10 +235,6 @@
                           (case-selectors (rest spec))))
          regions slots slots-of swap-specs offset access enter index tell write prefix
          values length serializers map b i olength sub-lexicon written)
-         ;; (access (gensym "AC")) (enter (gensym "EN")) (index (gensym "IN"))
-         ;; (tell (gensym "TL")) (write (gensym "WR")) (bindings-sym (gensym "BN"))
-         ;; (values (gensym "VL")) (length (gensym "LN")) (serializers (gensym "SR"))
-         ;; (map (gensym "MP")) (b (gensym "BB")) (i (gensym "II"))
 
     ;; populate the symbol lexicon or import it from an enclosing marshal macro
     (if (getf pairs :-+sub-lexicon+-)
@@ -411,10 +407,7 @@
                               (loop :for slot-of :in (getf slots-of qname)
                                     :when (not (eq :checksum-of (second slot-of)))
                                       :collect (apply #'resolve-region qname slot-of))))
-                     (t (let (;; (length-form (if (not type-indicator)
-                              ;;                  length `(caddr (assoc (getf ,values ,(qualify type-indicator))
-                              ;;                                        ',type-conditions))))
-                              (length-form length))
+                     (t (let ((length-form length))
                           ;; (print (list :oo name type-indicator type-conditions))
                           `(,qname
                             (push (list ,qname ,index ,index) ,map)
@@ -613,7 +606,7 @@
          raws sub-lexicon prefix cursor)
     
     (if (getf params :-+sub-lexicon+-)
-        (destructuring-bind (&key ba-sym cr-sym pr-sym &allow-other-keys) (getf params :-+sub-lexicon+-)
+        (destructuring-bind (&key cr-sym pr-sym &allow-other-keys) (getf params :-+sub-lexicon+-)
           (setf cursor cr-sym prefix pr-sym sub-lexicon (getf params :-+sub-lexicon+-)))
         (setf cursor (gensym "CR")
               sub-lexicon (list :cr-sym cursor :ds-sym dsym)))
@@ -719,7 +712,8 @@
                                 reads))
                         (push `(incf ,cursor ,(+ (length actual) (if end-by 1 0))) reads)))
                      (:masque
-                      (multiple-value-bind (base segments symbols bits) (quantify-mask-string actual nil)
+                      (multiple-value-bind (base _ segments symbols bits) (quantify-mask-string actual nil)
+                        (declare (ignore _))
                         (when (= 1 (first segments))
                           (error "unmarshal: decimal masque strings like ~s aren't supported yet." actual))
                         (let ((raw (gensym "MQ"))
