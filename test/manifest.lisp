@@ -2962,3 +2962,139 @@ reusable buffer, and check vector destinations for overruns. Returns T if all ch
       (format t "~&destination checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
               pass (count t results) (length results))
       pass)))
+
+;;; ===========================================================================
+;;; Part U — stream sources: units read as needed, records read in sequence
+;;; ===========================================================================
+
+;; A fixed buffer at the end of a record, whose units after its terminator are not read.
+(defmanifest stream-buffer-probe (:unit 8 :endian :big)
+  (:name (:u 1 :vec) :count 5 :end-by 0))
+
+(defparameter *source-file* "/tmp/specops-manifest-source.bin")
+
+(defun with-source-file (units function)
+  "Write UNITS to a file, then call FUNCTION with a stream reading it, returning its value."
+  (with-open-file (out *source-file* :direction :output :if-exists :supersede
+                                     :element-type '(unsigned-byte 8))
+    (write-sequence units out))
+  (with-open-file (in *source-file* :element-type '(unsigned-byte 8))
+    (funcall function in)))
+
+(defun tree-count (symbol tree)
+  "The number of times SYMBOL appears in TREE."
+  (cond ((eq symbol tree) 1)
+        ((consp tree) (+ (tree-count symbol (car tree)) (tree-count symbol (cdr tree))))
+        (t 0)))
+
+(defun run-stream-source-demo ()
+  "Unmarshal from streams: units read as far as each read needs and kept for checksums, a
+record read to its end and no further, and a reusable buffer. Returns T if all checks pass."
+  (let ((results nil))
+    (flet ((check (label got want)
+             (let ((ok (equalp got want)))
+               (push ok results)
+               (format t "~&  ~:[FAIL~;ok  ~]  ~a~%" ok label)
+               (unless ok
+                 (format t "~&          got  ~s~%          want ~s~%" got want)))))
+      (format t "~&stream source checks:~%")
+      (let* ((png (make-1x1-png))
+             (ancillary (png-with-ancillary-chunks))
+             (header (->bytes #(1 2 3))))
+
+        ;; 1. Whole files, at the stream's start and after a header.
+        (check "png-file from a stream reads as from a vector, and leaves the stream at its end"
+               (with-source-file png (lambda (in)
+                                       (list (equalp (unmarshal png-file in) (unmarshal png-file png))
+                                             (file-position in))))
+               '(t 72))
+        (check "png-any after a 3-byte header: positions count from where reading began"
+               (with-source-file (concatenate '(vector (unsigned-byte 8)) header ancillary)
+                 (lambda (in)
+                   (read-sequence (make-array 3 :element-type '(unsigned-byte 8)) in)
+                   (list (equalp (unmarshal png-any in) (unmarshal png-any ancillary))
+                         (file-position in))))
+               '(t 108))
+        (check "png-any from a stream as records, written back to the same bytes"
+               (with-source-file ancillary
+                 (lambda (in)
+                   (collect-units (lambda (d) (marshal png-any d (:from (unmarshal png-any in (:as :record))))))))
+               ancillary)
+
+        ;; 2. Records read in sequence from one stream.
+        (check "item-probe twice, then png-file, from one stream"
+               (with-source-file (concatenate '(vector (unsigned-byte 8)) #(1 0 5 2 0 6) png)
+                 (lambda (in)
+                   (list (unmarshal item-probe in) (unmarshal item-probe in)
+                         (getf (getf (getf (unmarshal png-file in) :ihdr) :png-ihdr) :width)
+                         (file-position in))))
+               '((:tag 1 :value 5) (:tag 2 :value 6) 1 78))
+        (let ((end (ub8 80)))
+          (marshal goff-end-probe end :t-tag 3 :record-count 7)
+          (check "goff-end-probe twice: each read takes its 80 units, trailing pad included"
+                 (with-source-file (concatenate '(vector (unsigned-byte 8)) end end #(9))
+                   (lambda (in)
+                     (list (getf (unmarshal goff-end-probe in) :record-count) (file-position in)
+                           (getf (unmarshal goff-end-probe in) :record-count) (file-position in)
+                           (read-byte in))))
+                 '(7 80 7 160 9)))
+        (check "pad-length and stream-buffer-probe: a record ending in a pad or a buffer is read to its end"
+               (with-source-file (->bytes #(2 7 8 0 0 0 0 0 0 0 0 0 0 0 0 0  65 0 9 9 9  42))
+                 (lambda (in)
+                   (list (unmarshal pad-length in) (file-position in)
+                         (unmarshal stream-buffer-probe in) (read-byte in))))
+               '((:len 2 :data #(7 8)) 16 (:name #(65)) 42))
+
+        ;; 3. The end of the stream.
+        (check "rest-items-probe, instances to the end of the stream"
+               (with-source-file (->bytes #(9 1 0 5 2 0 6 3 0 7))
+                 (lambda (in) (length (getf (unmarshal rest-items-probe in) :items))))
+               3)
+        (check "png-any from a stream that ends before IEND signals an error"
+               (with-source-file (subseq ancillary 0 93)
+                 (lambda (in) (signals-error-p (lambda () (unmarshal png-any in)))))
+               t)
+        (check "a terminated LEB vector read element by element from a stream"
+               (with-source-file (->bytes #(#x81 #x01 5 0 9 4))
+                 (lambda (in) (list (unmarshal leb-vec-terminated-probe in) (read-byte in))))
+               '((:v #(129 5) :after 9) 4))
+
+        ;; 4. Checks over the units kept.
+        (let ((bad (copy-seq png)))
+          (setf (aref bad 57) (logxor (aref bad 57) 1))
+          (check "png-file from a stream: a corrupt IDAT CRC fails its check, at the same unit"
+                 (with-source-file bad
+                   (lambda (in) (mapcar (lambda (s) (list (first s) (second s) (sixth s)))
+                                        (failed-checks (lambda () (unmarshal png-file in))))))
+                 '((:checksum :crc 56))))
+
+        ;; 5. A reusable buffer, shared with marshal.
+        (let ((holder (make-manifest-buffer)))
+          (check "a manifest-buffer keeps its array across reads, and across a write"
+                 (with-source-file (concatenate '(vector (unsigned-byte 8)) png png)
+                   (lambda (in)
+                     (unmarshal png-file in (:buffer holder))
+                     (let ((array (manifest-buffer-array holder)))
+                       (collect-units (lambda (d) (marshal png-any d (:from (unmarshal png-any ancillary)
+                                                                      :buffer holder))))
+                       (list (equalp (unmarshal png-file in (:buffer holder)) (unmarshal png-file png))
+                             (eq array (manifest-buffer-array holder))))))
+                 '(t t))
+          (check "a manifest-buffer grows to a record longer than its first 256 units"
+                 (let ((idat (ub8 312)))
+                   (marshal png-idat-chunk idat :data (->bytes (make-array 300 :initial-element 7)))
+                   (with-source-file idat
+                     (lambda (in)
+                       (list (length (getf (unmarshal png-idat-chunk in (:buffer holder)) :data))
+                             (>= (length (manifest-buffer-array holder)) 312)))))
+                 '(300 t)))
+
+        ;; 6. Expansion.
+        (check "only the top-level expansion wraps a stream, however deep the nesting"
+               (list (tree-count 'make-stream-source (macroexpand-1 '(unmarshal png-any s)))
+                     (tree-count 'fill-stream-source (macroexpand-1 '(unmarshal png-any s))))
+               '(1 1))))
+    (let ((pass (every #'identity results)))
+      (format t "~&stream source checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
+              pass (count t results) (length results))
+      pass)))

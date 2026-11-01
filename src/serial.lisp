@@ -292,6 +292,42 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                 `(if (/= ,base (logand ,variant-mask ,test-value))
                      nil (let ,pairs ,@body))))))))
 
+(defun grow-buffer (buffer position)
+  "A simple array of BUFFER's element type, holding BUFFER's elements, at least twice as
+long and long enough to hold the unit at POSITION."
+  (replace (make-array (max (* 2 (length buffer)) (1+ position) 16)
+                       :element-type (array-element-type buffer))
+           buffer))
+
+(defstruct (stream-source (:constructor make-stream-source (stream array)) (:copier nil))
+  "A stream read as a source by deserializer-for. The first COUNT elements of ARRAY, a
+simple array of units, hold the units read from STREAM so far, numbered from 0 where
+reading began. The stream is read only as far as reads need, and never sought."
+  stream array (count 0 :type fixnum))
+
+(defun fill-stream-source (source end &optional (eof-error-p t))
+  "Read from SOURCE's stream until SOURCE holds END units, and return T. When the stream
+ends first, signal an error, or return NIL when EOF-ERROR-P is NIL."
+  (let ((count (stream-source-count source)))
+    (or (>= count end)
+        (let ((array (stream-source-array source)))
+          (when (> end (length array))
+            (setf array (grow-buffer array (1- end))
+                  (stream-source-array source) array))
+          (let ((got (read-sequence array (stream-source-stream source) :start count :end end)))
+            (setf (stream-source-count source) got)
+            (cond ((>= got end) t)
+                  (eof-error-p
+                   (error "unmarshal: the source stream ends after ~a units, where unit ~a is needed."
+                          got (1- end)))
+                  (t nil)))))))
+
+(defun source-end-p (source position)
+  "True when SOURCE, a vector or a stream source, holds no unit at POSITION."
+  (typecase source
+    (stream-source (not (fill-stream-source source (1+ position) nil)))
+    (t (>= position (length source)))))
+
 (defun deserializer-for (&optional (unit-power 0) (swap-by 0))
   (let ((unit (ash 1 (+ 3 unit-power))))
     (labels ((finish (raw length signed)
@@ -320,7 +356,18 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                  ;;                ;; (ldb (byte (* unit length) (* unit start)) value)
                  ;;                (ash length unit-power)
                  ;;                swap-by)
-                 )))
+                 ))
+             (from-vector (collected index length signed)
+               ;; length is intrinsic; compose elements MSB-first, then unswap
+               (let* ((raw 0)
+                      (vtype (array-element-type collected))
+                      (vunit (if (listp vtype) (second vtype)
+                                 (error "Incompatible type for collection array."))))
+                 (when (/= unit vunit)
+                   (error "Mismatched unit widths.")) ;; add handler later
+                 (loop :for i :below length
+                       :do (setf raw (logior (ash raw unit) (aref collected (+ index i)))))
+                 (finish raw length signed))))
       (lambda (index length signed collected)
         (typecase collected
           ;; (units . integer): explicit unit count, so leading zero units are kept
@@ -333,16 +380,7 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
           ;; bare integer: unit count inferred, so leading zero units are lost —
           ;; only reliable when the first unit is nonzero
           (integer (extract collected (find-width collected unit) index length signed))
-          ;; vector: length is intrinsic; compose elements MSB-first, then unswap
-          (vector
-           (let* ((raw 0)
-                  (vtype (array-element-type collected))
-                  (vunit (if (listp vtype) (second vtype)
-                             (error "Incompatible type for collection array."))))
-             (when (/= unit vunit)
-               (error "Mismatched unit widths.")) ;; add handler later
-             (loop :for i :below length
-                   :do (setf raw (logior (ash raw unit) (aref collected (+ index i)))))
-             ;; (swap-segments raw (ash length unit-power) swap-by)
-             (finish raw length signed)
-             )))))))
+          (vector (from-vector collected index length signed))
+          ;; a stream: its units are read as far as this read needs, and kept
+          (stream-source (fill-stream-source collected (+ index length))
+                         (from-vector (stream-source-array collected) index length signed)))))))

@@ -151,7 +151,7 @@ A field's value may be a keyword of its enum or a code, so both sides are compar
   (list :after (until-test-form (getf ctx :element) (rule-conditions r)) :keep t))
 
 (defmethod stop-effector ((r end-rule) ctx)
-  (list :before `(>= ,(getf ctx :position) (length ,(getf ctx :src)))))
+  (list :before `(source-end-p ,(getf ctx :src) ,(getf ctx :position))))
 
 (defmethod stop-effector ((r units-rule) ctx)
   ;; elements are read until the length is used; one that crosses its end is an error

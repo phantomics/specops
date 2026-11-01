@@ -328,13 +328,6 @@ through and keeps, grown as needed, so that later calls allocate none."
   (let ((array (manifest-buffer-array holder)))
     (and array (equal (array-element-type array) (upgraded-array-element-type type)) array)))
 
-(defun grow-buffer (buffer position)
-  "A simple array of BUFFER's element type, holding BUFFER's elements, at least twice as
-long and long enough to hold the unit at POSITION."
-  (replace (make-array (max (* 2 (length buffer)) (1+ position) 16)
-                       :element-type (array-element-type buffer))
-           buffer))
-
 (defmacro marshal (name destination &body pairs)
   "Write the fields of the manifest NAME to DESTINATION, a vector, a stream or a function
 of one unit, and return the position after the last unit. PAIRS give field values as
@@ -903,11 +896,13 @@ checksum function can read it. A bare integer has as many units as its value nee
       (setf (aref buffer i) (ldb (byte unit (* unit (- units i 1))) value)))))
 
 (defmacro unmarshal (name source &optional params &rest keys)
-  "Read the fields of the manifest NAME from SOURCE. With KEYS, return their values in
-order; otherwise return every named field, as a plist or, given (:as :record) in PARAMS,
-as an instance of the manifest's record class. Checksums, length, offset and count slots,
-and constants are checked as they are read, and a failure signals manifest-check-failed;
-(:check nil) in PARAMS leaves the checks out."
+  "Read the fields of the manifest NAME from SOURCE: a vector, an integer, a (units .
+integer) pair, or a stream, which is read to the end of the record and no further. With
+KEYS, return their values in order; otherwise return every named field, as a plist or,
+given (:as :record) in PARAMS, as an instance of the manifest's record class. Checksums,
+length, offset and count slots, and constants are checked as they are read, and a failure
+signals manifest-check-failed; (:check nil) in PARAMS leaves the checks out. (:buffer B)
+keeps in B, a manifest-buffer, the units read from a stream."
   (let* ((spec (gethash name *manifests*))
          (manifest-name name)
          (config (and (eq :config (getf (first spec) :type))
@@ -933,12 +928,15 @@ and constants are checked as they are read, and a failure signals manifest-check
          (keys (or keys all-keys))
          (dvector (make-array 4 :initial-element nil))
          (base (gensym "BA")) (dsym (gensym "DS"))
+         ;; a manifest-buffer that a stream source keeps its units in, given (:buffer b)
+         (holder (and (not nested) (getf params :buffer) (gensym "HOLDER")))
+         (unit-type `(unsigned-byte ,(ash 1 (+ 3 (or (getf config :unit-spec) 0)))))
          raws sub-lexicon prefix cursor
          ;; a buffer of an integer source's units, made at most once, for checksums
          buffer)
     
     (loop :for (key) :on params :by #'cddr
-          :unless (member key '(:as :check :-+sub-lexicon+-))
+          :unless (member key '(:as :check :buffer :-+sub-lexicon+-))
             :do (error "unmarshal: unknown option ~s for manifest ~s." key name))
     (unless (member as '(:plist :record))
       (error "unmarshal: :as must be :plist or :record, not ~s." as))
@@ -1043,10 +1041,13 @@ and constants are checked as they are read, and a failure signals manifest-check
                                 :enumerate-by)))
                    (and e (gethash e *enums*))))
                (buffer-form ()
-                 ;; what a checksum function reads: the source, or its units when an integer
+                 ;; what a checksum function reads: the source, the units read from a stream,
+                 ;; or the units of an integer
                  (let ((units `(source-units ,src ,(getf config :unit-spec))))
-                   `(if (vectorp ,src) ,src
-                        ,(if buffer `(or ,buffer (setf ,buffer ,units)) units))))
+                   `(typecase ,src
+                      (vector ,src)
+                      (stream-source (stream-source-array ,src))
+                      (t ,(if buffer `(or ,buffer (setf ,buffer ,units)) units)))))
                (check-form (s)
                  ;; a form checking the slot S against the region it covers
                  (destructuring-bind (&key field kind region by) s
@@ -1261,7 +1262,17 @@ and constants are checked as they are read, and a failure signals manifest-check
         ;; (dolist (k keys)
         ;;   (unless (assoc k vars) (error "unmarshal: no field ~a in manifest ~a." k name)))
 
-        `(let* ((,src ,source)
+        `(let* (,@(and holder `((,holder ,(getf params :buffer))))
+                ;; at the top level a stream is wrapped, so that its units are kept as read
+                (,src ,(if nested
+                           source
+                           (let ((s (gensym "S")))
+                             `(let ((,s ,source))
+                                (if (streamp ,s)
+                                    (make-stream-source
+                                     ,s (or ,(and holder `(reusable-buffer ,holder ',unit-type))
+                                            (make-array 256 :element-type ',unit-type)))
+                                    ,s)))))
                 (,base ,(if (getf params :-+sub-lexicon+-) cursor 0))
                 (,dsym (vector ,@(coerce dvector 'list)))
                 ,@(and (not (getf params :-+sub-lexicon+-))
@@ -1274,6 +1285,14 @@ and constants are checked as they are read, and a failure signals manifest-check
                 ,@(mapcar #'rest vars)
                 ,@(mapcar #'rest raws))
            ,@(reverse reads)
+           ;; a stream is read to the end of the record, past trailing pads, so that the next
+           ;; record can be read from it
+           ,@(and (not nested)
+                  `((when (stream-source-p ,src)
+                      (fill-stream-source ,src ,cursor)
+                      ,@(and holder `((when ,holder
+                                        (setf (manifest-buffer-array ,holder)
+                                              (stream-source-array ,src))))))))
            ,(cond (in-keys
                    (cons 'values (mapcar (lambda (k) (rest (assoc k vars))) keys)))
                   (record-class
