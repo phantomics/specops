@@ -61,8 +61,8 @@ a struct interface, destinations that cannot be patched, and packaging. It
 assumes the decisions recorded in the
 [Manifest development log, SPECOPS-DRAFT-manifest](Log.Manifest.md) and the
 architecture in [SPECOPS-DRAFT-specops](Arch.SpecOps.md). Progress is charted
-in dated updates at the end of this plan; the latest is the fourth update of
-2026-11-01, at commit `b63b7d2`.
+in dated updates at the end of this plan; the latest is the fifth update of
+2026-11-01, at commit `239b2f7`.
 
 ## Problem
 
@@ -371,6 +371,12 @@ nothing could run a rule without effectors).
   should agree with the one disassembly needs
   ([SPECOPS-DRAFT-specops-O4](Arch.SpecOps.md#specops-draft-specops-o4--what-reader-protocol-does-disassembly-offer)).
 
+  Note: built as SPECOPS-DRAFT-manifest-D50 in the log. Streams are read in
+  order, never sought, whether or not they could be, as a fourth kind of
+  source for `deserializer-for`, and a read takes exactly one record
+  (SPECOPS-DRAFT-manifest-D51). Whether the stream source suits disassembly is
+  left to SPECOPS-DRAFT-specops-O4.
+
 ## Variable structure
 
 Repeated and tag-dispatched sub-manifests per
@@ -438,6 +444,9 @@ region map that differ per instance
   pluggable (SPECOPS-DRAFT-manifest-D9).
 - **Text front ends and disassembly** belong to the architecture's roadmap,
   not this plan.
+- **Key paths into sub-manifests** for selective reads, such as
+  `(:ihdr :width)`, are deferred by the steward: a key that names a
+  sub-manifest field returns the whole sub-record.
 
 ## Open Questions
 
@@ -514,7 +523,9 @@ are open.
 Answered for writing in the log by SPECOPS-DRAFT-manifest-D47: the caller owns
 a `manifest-buffer`, passed as `(:buffer b)`, which grows to the largest record
 written through it; stream sources are to accept the same object, and whether
-one instance serves both directions is the caller's choice.
+one instance serves both directions is the caller's choice. Answered for
+reading by SPECOPS-DRAFT-manifest-D52: `unmarshal` takes the same object in
+its params, and keeps a stream's units for the whole record in it.
 
 ## Prior Art
 
@@ -1006,3 +1017,55 @@ as SPECOPS-DRAFT-manifest-D47 intends, so the read side of
 SPECOPS-DRAFT-manifest-complete-O6 is settled when they are built. Selective
 reads extend the region table of SPECOPS-DRAFT-manifest-D43. The rest are as
 in the update of 2026-10-30.
+
+## Update 2026-11-01 — Progress: stream sources
+
+This installment charts the plan's progress at commit `239b2f7`, which builds
+the first half of the first priority of the previous update: `unmarshal` reads
+from streams, as far as each read needs, keeping the units for checksums and
+taking exactly one record. SPECOPS-DRAFT-manifest-complete-O6 is now answered
+for reading as well as writing. The log's update of the same date records the
+work, with SPECOPS-DRAFT-manifest-D50 through SPECOPS-DRAFT-manifest-D52. All
+nineteen suites pass: 348 checks and the PNG verification.
+
+### Progress
+
+Table: State of each Roadmap milestone at commit `239b2f7`. Entries new since
+the previous update are marked "new".
+
+| Milestone | State | Done | Remaining |
+|---|---|---|---|
+| 1. Corrections and records | Partly done | As before | Checksums over `unmarshal` sources that are not simple byte arrays |
+| 2. Field kinds on read | Partly done | As before | SPECOPS-DRAFT-manifest-complete-O5 for fields without a terminator; writing a buffer sized by another field; fixed buffers of LEB elements; trailing `:length-of` and `:count-of` slots |
+| 3. Checked reads | Done | As before | — |
+| 4. Structs and run-time nested values | Done | As before | — |
+| 5. Variable structure | Done | As before | Instances addressed from outside a repeat, should a format need it |
+| 6. Destinations | Done | As before | Writing a buffer out in pieces, should a record grow too large to hold whole |
+| 7. Selective reads and stream sources | Partly done | `known-count` and `known-extent`; the region table built at expansion; new: stream sources, read in order and never sought (SPECOPS-DRAFT-manifest-D50); a read from a stream takes one record (SPECOPS-DRAFT-manifest-D51); a `manifest-buffer` for their units (SPECOPS-DRAFT-manifest-D52) | Dependency closure and skip mode (SPECOPS-DRAFT-manifest-complete-D3); new: units kept for the whole record, should one grow too large to hold |
+| 8. WOFF | Open | `:count-of` slots; `:offset-of` written and read back by a probe | SPECOPS-DRAFT-manifest-complete-D6 |
+| 9. Floats and masque completion | Partly done | Decimal masques in `masque` and `unmasque` | The `:f` class; decimal masques in `unmarshal`; range checks; keyword groups registered for `:case` and `:count` |
+| 10. Packaging | Partly done | As before | Suites behind `test-op`; a Ref; the checksum functions exported |
+
+### Priorities
+
+1. **Selective reads** (SPECOPS-DRAFT-manifest-complete-D3), as the steward
+   has settled them: fields are read past rather than sought on streams; a
+   selective read of a stream still takes the whole record
+   (SPECOPS-DRAFT-manifest-D51); and only the slots whose field and region lie
+   in the part read are checked. Key paths into sub-manifests are deferred
+   (Scope and Non-Goals).
+2. **WOFF** (SPECOPS-DRAFT-manifest-complete-D6).
+3. **Floats and masque completion.**
+4. **Packaging:** `test-op`, then a Ref.
+
+Checksums over sources that are not simple byte arrays remain a small
+correction between larger steps.
+
+### Dependencies
+
+Selective reads skip fields on a stream by reading past them, which stream
+sources now provide, and take the rest of a stream's record by the same skips,
+so the skipping of SPECOPS-DRAFT-manifest-complete-D3 must cover every field
+kind, not only those before the last key. They extend the region table of
+SPECOPS-DRAFT-manifest-D43 with what each field needs to be read or skipped.
+The rest are as in the update of 2026-10-30.

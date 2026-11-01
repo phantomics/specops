@@ -60,6 +60,9 @@ decisions:
   - SPECOPS-DRAFT-manifest-D47
   - SPECOPS-DRAFT-manifest-D48
   - SPECOPS-DRAFT-manifest-D49
+  - SPECOPS-DRAFT-manifest-D50
+  - SPECOPS-DRAFT-manifest-D51
+  - SPECOPS-DRAFT-manifest-D52
 relates-to:
   - SPECOPS-DRAFT-manifest-complete
   - SPECOPS-DRAFT-restructure
@@ -87,9 +90,9 @@ which reads them back out. It covers the path from a freeform `marshal` macro to
 manifest-driven writing and reading, and the PNG test format used to exercise
 it. The chronicled state is commit `10b1568`; the updates at the end of this
 log carry the record forward: that of 2026-10-30 to commit `653345f`, three
-of 2026-10-31, to commits `738105a`, `d030f5c` and `2e1af03`, and four of
-2026-11-01, to commits `4f9c6d4`, `d7ba27f`, `1cc7600` and `b63b7d2`. The
-repository restructure that followed
+of 2026-10-31, to commits `738105a`, `d030f5c` and `2e1af03`, and five of
+2026-11-01, to commits `4f9c6d4`, `d7ba27f`, `1cc7600`, `b63b7d2` and
+`239b2f7`. The repository restructure that followed
 moved the files this log names (see
 [SPECOPS-DRAFT-restructure](Log.Restructure.md)); code references stay pinned
 to the commits that held the work.
@@ -2182,3 +2185,170 @@ done, as are the byte orders of `:case` branches. New:
   patched, should a record grow too large to hold whole.
 - The other items of the previous updates remain, among them the checksum
   functions, which are not exported.
+
+## Update 2026-11-01 — Stream sources
+
+This installment covers commit `239b2f7`, the first half of the Manifest
+Completion Plan's seventh milestone: `unmarshal` reads from streams. A stream
+is read only as far as each read needs, its units are kept so that checksums
+can read them again, and a read takes exactly one record, so that records can
+be read from one stream in sequence. The buffer the units are kept in may be
+the caller's, which answers the reading side of the plan's
+SPECOPS-DRAFT-manifest-complete-O6. The second half of the milestone,
+selective reads, follows in its own installment. A new suite brings the checks
+from 335 to 348.
+
+### SPECOPS-DRAFT-manifest-D50 — A stream is a source of `deserializer-for`, read as far as each read needs and kept
+
+**Status:** Proposed
+**Context:** `unmarshal` read vectors, integers and `(units . integer)` pairs
+(SPECOPS-DRAFT-manifest-D12), at any index. Every field is read at or after
+the cursor, but a checksum reads its region again (SPECOPS-DRAFT-manifest-D43),
+so a stream's units must be kept at least until the record's checksums are
+done. Three places used the source other than through the deserializers: the
+end rule took its `length`, `emit-scan` checked vectors for overruns, and
+checksums read it. Each nested expansion builds its own deserializers, so a
+wrapper around those of the top-level expansion would not reach the
+sub-manifests.
+**Decision:** `src/serial.lisp:stream-source@239b2f7` holds a stream and the
+units read from it so far, in a simple array numbered from 0 where reading
+began, as positions are on the write side. It is a fourth kind of source for
+`src/serial.lisp:deserializer-for@239b2f7`, tested after vectors, which pay
+nothing for it. A read first calls
+`src/serial.lisp:fill-stream-source@239b2f7`, which reads with
+`read-sequence` up to the last unit the read needs and no further, and
+signals an error when the stream ends first. The stream is never sought, as
+destinations are not (SPECOPS-DRAFT-manifest-D46), and every unit of the
+record is kept. `src/serial.lisp:source-end-p@239b2f7` tells the end rule
+whether a vector or a stream has a unit at a position, reading one unit ahead
+of a stream only then. The top-level `unmarshal` wraps a stream in a
+`stream-source`; nested expansions share it, and checksums read its array.
+**Alternatives:** Wrapping the deserializers in `unmarshal` (rejected: nested
+expansions build their own); seeking a file stream to skip or to read a region
+again (rejected by the steward for the reasons of
+SPECOPS-DRAFT-manifest-D46); reading a stream in blocks ahead of need
+(rejected: the stream would be left past the end of the record); dropping
+units no check still needs (deferred: the record is kept whole, as it is when
+written through a buffer).
+
+### SPECOPS-DRAFT-manifest-D51 — A read from a stream takes exactly one record
+
+**Status:** Proposed
+**Context:** A trailing pad, the rest of a fixed buffer after its terminator,
+and fields of known size move the cursor without reading units. A stream read
+only as far as reads need would be left inside such a record, and formats such
+as GOFF hold records one after another in one stream.
+**Decision:** When the top-level `unmarshal` has read a record from a stream,
+it reads on to the record's final cursor, and no further, so that the stream
+is left at the start of whatever follows. Selective reads of streams will also
+take the whole record, which the steward has decided for the second half of
+this milestone.
+**Alternatives:** Leaving the stream where the last read stopped (rejected:
+the next read would begin inside the record's padding or buffer).
+
+### SPECOPS-DRAFT-manifest-D52 — `unmarshal` keeps a stream's units in the `manifest-buffer` that `marshal` uses
+
+**Status:** Proposed
+**Context:** SPECOPS-DRAFT-manifest-D47 let a caller keep `marshal`'s buffer
+across calls and intended stream sources to accept the same object, which
+SPECOPS-DRAFT-manifest-complete-O6 asked about for reading.
+**Decision:** `(:buffer b)` in `unmarshal`'s params gives a stream source the
+array a `manifest-buffer` holds, when its elements are of the manifest's unit
+type, and the grown array is stored back when the record is read. One type
+serves both directions, and one instance may serve both, since each call
+leaves the buffer free when it returns.
+**Alternatives:** A separate buffer type for reading (rejected: SPECOPS-DRAFT-manifest-D47
+intended one); passing the array itself (rejected there: a grown array would be
+lost to the caller).
+
+### Implementation
+
+- **`src/serial.lisp`.** `stream-source`, `fill-stream-source` and
+  `source-end-p`, per SPECOPS-DRAFT-manifest-D50, placed before
+  `deserializer-for`, whose vector case became a local `from-vector` that the
+  stream case shares. `src/serial.lisp:grow-buffer@239b2f7` moved here from
+  `manifest.lisp`, since both directions use it.
+- **`src/manifest/manifest.lisp`.** In
+  `src/manifest/manifest.lisp:unmarshal@239b2f7`: the `:buffer` option; the
+  top-level binding of the source, which wraps a stream; the checksum's buffer,
+  chosen by the kind of source; and the read to the record's end, which also
+  stores the grown array back, per SPECOPS-DRAFT-manifest-D51 and
+  SPECOPS-DRAFT-manifest-D52.
+- **`src/manifest/scan.lisp`.** The end rule,
+  `src/manifest/scan.lisp:stop-effector@239b2f7` on `end-rule`, asks
+  `source-end-p`.
+- **`test/manifest.lisp`.** `test/manifest.lisp:run-stream-source-demo@239b2f7`
+  and its helper `test/manifest.lisp:with-source-file@239b2f7`; the probe
+  `stream-buffer-probe`, a record ending in a fixed buffer.
+
+### Verification
+
+The run command is that of the update of 2026-10-31 for the scan model, with
+`(specops::run-record-demo)`, `(specops::run-variable-demo)`,
+`(specops::run-checked-read-demo)`, `(specops::run-destination-demo)` and
+`(specops::run-stream-source-demo)` added.
+
+Table: The suite added in this installment, and the totals at commit `239b2f7`.
+
+| Suite | Function | Checks | Result |
+|---|---|---|---|
+| Stream sources | `run-stream-source-demo` | 13 | 13 pass |
+| All nineteen suites | from `run-png-demo` to `run-stream-source-demo` | 348 and the PNG verification | All pass |
+
+The new suite checks, among other things:
+
+- **Whole files:** the 1×1 PNG read from a file stream as from a vector,
+  leaving the stream at its end; the PNG with ancillary chunks read after a
+  3-byte header, and read as records and written back.
+- **Records in sequence:** two `item-probe` records and a PNG from one stream;
+  two 80-byte GOFF END records, each read with its trailing pad, and the unit
+  after them; records ending in a pad and in a fixed buffer, read to their
+  ends.
+- **The end of the stream:** a repeat to the end of the stream; a stream that
+  ends before IEND, which signals an error; a terminated LEB vector read
+  element by element.
+- **Checks:** a corrupt IDAT CRC caught on a stream, at the unit it is caught
+  at on a vector.
+- **Buffers:** a `manifest-buffer` keeping its array across two reads and a
+  write between them, and growing past its first 256 units.
+- **Expansion:** only the top-level expansion wraps the stream.
+
+The manifest layer has no style warnings, and the five test scripts in `test/`
+pass. The architecture systems `specops.arch.6502`, `.s390x`, `.x86`, `.z80`
+and `.wasm`, and the three format systems, load.
+
+### Files
+
+Table: Files changed in commit `239b2f7`, and the documents updated after it.
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/serial.lisp` | Modified | The stream source as a source of `deserializer-for`; `grow-buffer` |
+| `src/manifest/manifest.lisp` | Modified | Streams in `unmarshal`: the wrapper, the `:buffer` option, the read to the record's end |
+| `src/manifest/scan.lisp` | Modified | The end rule asks `source-end-p` |
+| `test/manifest.lisp` | Modified | The stream sources suite |
+| `doc/Log.Manifest.md` | Modified | This update |
+| `doc/Plan.ManifestComplete.md` | Modified | Progress installment for stream sources; SPECOPS-DRAFT-manifest-complete-O6 answered for reading; key paths deferred |
+
+### Metrics
+
+- Test checks: 348 automated checks plus 1 structural PNG verification, up
+  from 335.
+- Regressions at `239b2f7`: 0.
+
+### Outstanding Work
+
+Stream sources, outstanding since this log began, are done. New:
+
+- **Selective reads**, the second half of the milestone, next. Key paths into
+  sub-manifests, such as `(:ihdr :width)`, are deferred by the steward: a key
+  that names a sub-manifest field returns the whole sub-record.
+- **Units kept for the whole record.** A record read from a stream is held
+  whole, as SPECOPS-DRAFT-manifest-D50 decided; dropping units no check still
+  needs would serve records too large to hold.
+- **A stream's element type** must match the manifest's unit; a character
+  stream cannot be read.
+- **The reader protocol of the architecture.** The stream source is a
+  candidate base for the protocol that SPECOPS-DRAFT-specops-O4 asks
+  disassembly to offer; that question remains open.
+- The other items of the previous updates remain.
