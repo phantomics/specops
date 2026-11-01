@@ -26,7 +26,7 @@
 (defenum png-interlace  nil :none 0 :adam7 1)
 
 ;; IHDR body — 13 bytes.
-(defmanifest png-ihdr (:unit 8 :endian :big)
+(defmanifest png-ihdr (:unit 8 :endian :big :record t)
   (:width       (:u 4) :default 0)
   (:height      (:u 4) :default 0)
   (:bit-depth   :u8    :default 8)
@@ -37,7 +37,7 @@
 
 ;; IHDR chunk: [length][type "IHDR"][IHDR body via sub-manifest][crc over type+data].
 ;; length measures the sub-manifest body (13); crc covers type+data.
-(defmanifest png-ihdr-chunk (:unit 8 :endian :big)
+(defmanifest png-ihdr-chunk (:unit 8 :endian :big :record t)
   (:length (:u 4) :slot (:length-of :png-ihdr))
   (span :type+data
     (str "IHDR")
@@ -45,7 +45,7 @@
   (:crc (:u 4) :default 0 :slot (:checksum-of :type+data :by #'crc)))
 
 ;; IDAT chunk: [length][type "IDAT"][opaque data][crc over type+data].
-(defmanifest png-idat-chunk (:unit 8 :endian :big)
+(defmanifest png-idat-chunk (:unit 8 :endian :big :record t)
   (:length (:u 4) :slot (:length-of :data))
   (span :type+data
     (str "IDAT")
@@ -53,7 +53,7 @@
   (:crc (:u 4) :default 0 :slot (:checksum-of :type+data :by #'crc)))
 
 ;; IEND chunk: [length=0][type "IEND"][empty data][crc over type].
-(defmanifest png-iend-chunk (:unit 8 :endian :big)
+(defmanifest png-iend-chunk (:unit 8 :endian :big :record t)
   (:length (:u 4) :slot (:length-of :data))
   (span :type+data
     (str "IEND")
@@ -61,7 +61,7 @@
   (:crc (:u 4) :default 0 :slot (:checksum-of :type+data :by #'crc)))
 
 ;; Whole file: signature + chunks (each a sub-manifest instance).
-(defmanifest png-file (:unit 8 :endian :big)
+(defmanifest png-file (:unit 8 :endian :big :record t)
   (:signature (:u 1 :vec) :count 8)
   (manifest :ihdr png-ihdr-chunk)
   (manifest :idat png-idat-chunk)
@@ -1961,7 +1961,7 @@ Returns T if all checks pass."
 ;; A record whose sub-manifest has no record type, so that field holds a plist.
 (defmanifest rec-parent (:unit 8 :endian :big :record t)
   (:a     :u8 :default 0)
-  (manifest :child png-ihdr))
+  (manifest :child unmarshal-probe))
 
 ;; Masque keyword groups are fields of the record.
 (defmanifest rec-masque (:unit 8 :endian :big :record t)
@@ -2130,10 +2130,10 @@ Returns T if all checks pass."
                                         :length 999 :crc 0
                                         :body (make-rec-ihdr :width 7 :height 9 :color-type :rgb))))
         (check "rec-chunk, a record holding a record; length and CRC recomputed" from literal))
-      (let ((literal (ub8 14)) (from (ub8 14)))
-        (marshal rec-parent literal :a 5 :child (:width 1 :height 1 :color-type :rgb))
-        (marshal rec-parent from (:from (make-rec-parent :a 5 :child (list :width 1 :height 1
-                                                                            :color-type :rgb))))
+      (let ((literal (ub8 10)) (from (ub8 10)))
+        (marshal rec-parent literal :a 5 :child (:a -2 :b #x0102 :c -300 :d 7))
+        (marshal rec-parent from (:from (make-rec-parent :a 5 :child (list :a -2 :b #x0102
+                                                                            :c -300 :d 7))))
         (check "rec-parent, a record holding a plist for a child without a record type"
                from literal))
       (check "rec-masque, masque groups from a record"
@@ -2186,13 +2186,12 @@ Returns T if all checks pass."
                            (= (rec-chunk-record-crc r2) (crc again 4 17))
                            (/= (rec-chunk-record-crc r2) (rec-chunk-record-crc r)))))
                  '(10 t t))))
-      (let ((buf (ub8 14)))
-        (marshal rec-parent buf :a 5 :child (:width 1 :height 1 :color-type :rgb))
+      (let ((buf (ub8 10)))
+        (marshal rec-parent buf :a 5 :child (:a -2 :b #x0102 :c -300 :d 7))
         (check "rec-parent, read as a record holding a plist for a child without a record type"
                (let ((r (unmarshal rec-parent buf (:as :record))))
                  (list (rec-parent-a r) (rec-parent-child r)))
-               '(5 (:width 1 :height 1 :bit-depth 8 :color-type :rgb
-                    :compression 0 :filter 0 :interlace :none))))
+               '(5 (:a -2 :b #x0102 :c -300 :d 7))))
       (check "rec-masque, masque groups read into a record"
              (let ((r (unmarshal rec-masque (->bytes #(6 #xFD 7)) (:as :record))))
                (list (rec-masque-mode r) (rec-masque-delta r) (rec-masque-tail r)))
@@ -2200,10 +2199,63 @@ Returns T if all checks pass."
       (check "unmarshal options: :as :record with keys, without a record class, an unknown :as or option"
              (mapcar (lambda (form) (signals-error-p (lambda () (macroexpand-1 form))))
                      '((unmarshal rec-ihdr s (:as :record) :width)
-                       (unmarshal png-ihdr s (:as :record))
+                       (unmarshal unmarshal-probe s (:as :record))
                        (unmarshal rec-ihdr s (:as :struct))
                        (unmarshal rec-ihdr s (:format :record))))
-             '(t t t t)))
+             '(t t t t))
+
+      ;; 9. Round trips of whole files and records.
+      (let ((png (make-1x1-png)))
+        (check "the 1x1 PNG, read as a plist and written back, is reproduced"
+               (let ((buf (ub8 72)))
+                 (marshal png-file buf (:from (unmarshal png-file png)))
+                 buf)
+               png)
+        (check "the 1x1 PNG, read as records and written back, is reproduced"
+               (let ((buf (ub8 72)) (r (unmarshal png-file png (:as :record))))
+                 (marshal png-file buf (:from r))
+                 (list (class-name (class-of r))
+                       (class-name (class-of (png-ihdr-chunk-png-ihdr (png-file-ihdr r))))
+                       (equalp buf png)))
+               '(png-file png-ihdr t))
+        (check "the 1x1 PNG, IHDR edited to Adam7 interlacing: its CRC is recomputed and verifies"
+               (let ((buf (ub8 72)) (r (unmarshal png-file png (:as :record))))
+                 (setf (png-ihdr-interlace (png-ihdr-chunk-png-ihdr (png-file-ihdr r))) :adam7)
+                 (marshal png-file buf (:from r))
+                 (list (aref buf 28)
+                       (/= (rd-u32-be buf 29) (rd-u32-be png 29))
+                       (let ((*standard-output* (make-broadcast-stream))) (verify-png buf))))
+               '(1 t t))
+        (check "the 1x1 PNG, IDAT edited to a green pixel, matches a PNG built green"
+               (let ((buf (ub8 72)) (r (unmarshal png-file png (:as :record))))
+                 (setf (png-idat-chunk-data (png-file-idat r)) (zlib-store (->bytes #(0 0 255 0))))
+                 (marshal png-file buf (:from r))
+                 buf)
+               (make-1x1-png :r 0 :g 255 :b 0)))
+      (let ((goff (ub8 80)))
+        (marshal goff-end-probe goff :t-tag #x40 :entry-flag 1 :amode 2
+                                     :record-count 3 :entry-esdid 5 :entry-offset #x1000)
+        (check "goff-end-probe, an 80-byte GOFF END record, read and written back, is reproduced"
+               (let ((buf (ub8 80)))
+                 (marshal goff-end-probe buf (:from (unmarshal goff-end-probe goff)))
+                 buf)
+               goff))
+
+      ;; 10. Sources that are not canonical are written back canonical, not reproduced.
+      (check "pad-probe, pad bytes other than the fill value are rewritten"
+             (let ((buf (ub8 13)))
+               (marshal pad-probe buf (:from (unmarshal pad-probe
+                                                        (->bytes #(1 7 #xBB #xBB #x11 5 5 5 5 5 5 5 #x22)))))
+               (coerce buf 'list))
+             '(1 7 #xAA #xAA #x11 0 0 0 0 0 0 0 #x22))
+      (check "bounded-probe, bytes after the terminator are rewritten as terminators"
+             (let ((rec (unmarshal bounded-probe (->bytes #(97 0 122 122 122 9)))))
+               (to-list (lambda (d) (marshal bounded-probe d (:from rec)))))
+             '(97 0 0 0 0 9))
+      (check "case-unnamed-probe, an unnamed field is rewritten with its default"
+             (let ((rec (unmarshal case-unnamed-probe (->bytes #(1 0 0 0 7 9)))))
+               (to-list (lambda (d) (marshal case-unnamed-probe d (:from rec)))))
+             '(1 0 0 0 0 9)))
     (let ((pass (every #'identity results)))
       (format t "~&record checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
               pass (count t results) (length results))
