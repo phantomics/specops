@@ -60,8 +60,8 @@ a struct interface, destinations that cannot be patched, and packaging. It
 assumes the decisions recorded in the
 [Manifest development log, SPECOPS-DRAFT-manifest](Log.Manifest.md) and the
 architecture in [SPECOPS-DRAFT-specops](Arch.SpecOps.md). Progress is charted
-in dated updates at the end of this plan; the latest is the second update of
-2026-11-01, at commit `d7ba27f`.
+in dated updates at the end of this plan; the latest is the third update of
+2026-11-01, at commit `1cc7600`.
 
 ## Problem
 
@@ -436,6 +436,10 @@ Constants signal an error today. Signalling by default with a parameter that
 turns checks off, such as `(:no-validate t)` in `unmarshal`'s `params`, would
 keep corrupt data from passing silently while still allowing damaged files to
 be inspected.
+
+Answered in the log by SPECOPS-DRAFT-manifest-D42: a failed check signals
+`manifest-check-failed`, with a `continue` restart and, for slot fields, a
+`use-value` restart; `(:check nil)` in `params` leaves the checks out.
 
 ### SPECOPS-DRAFT-manifest-complete-O2 — Where do `unmarshal`'s output options go?
 
@@ -867,3 +871,54 @@ Checked reads and selective reads both need a read-side region map, which
 also has to give each repeated instance fresh regions, as the write side does
 (SPECOPS-DRAFT-manifest-D39). WOFF's dependency on count fields computed on
 write is met. The rest are as in the update of 2026-10-30.
+
+## Update 2026-11-01 — Progress: checked reads
+
+This installment charts the plan's progress at commit `1cc7600`. The first
+priority of the previous update, checked reads, is done:
+SPECOPS-DRAFT-manifest-complete-O1 is answered with a condition and restarts,
+and `unmarshal` checks checksums, length, offset and count slots, inside
+repeated instances too. The log's update of the same date records the work,
+with SPECOPS-DRAFT-manifest-D42 through SPECOPS-DRAFT-manifest-D45. All
+seventeen suites pass: 315 checks and the PNG verification.
+
+### Progress
+
+Table: State of each Roadmap milestone at commit `1cc7600`. Entries new since
+the previous update are marked "new".
+
+| Milestone | State | Done | Remaining |
+|---|---|---|---|
+| 1. Corrections and records | Done | As before | New: the byte orders of sub-manifests chosen by `:case` |
+| 2. Field kinds on read | Partly done | As before | SPECOPS-DRAFT-manifest-complete-O5 for fields without a terminator; writing a buffer sized by another field; fixed buffers of LEB elements; trailing `:length-of` and `:count-of` slots |
+| 3. Checked reads | Done | New: `manifest-check-failed`, with `continue` and `use-value` restarts (SPECOPS-DRAFT-manifest-complete-O1); checksum, length, offset and count slots checked, within each repeated instance; constants signal the same condition; `(:check nil)`; checksums over integer sources | — |
+| 4. Structs and run-time nested values | Done | As before | — |
+| 5. Variable structure | Done | As before | Instances addressed from outside a repeat, should a format need it |
+| 6. Destinations | Open | — | Buffering (SPECOPS-DRAFT-manifest-complete-D2), which also lets a manifest with a `:length-of` or `:count-of` slot write to a function; checksums on streams; overrun checks |
+| 7. Selective reads and stream sources | Open | `known-count` and `known-extent`; new: the region table built at expansion (SPECOPS-DRAFT-manifest-D43) | Dependency closure and skip mode (SPECOPS-DRAFT-manifest-complete-D3); stream sources, with checksums over them |
+| 8. WOFF | Open | `:count-of` slots; new: `:offset-of` written and read back by a probe | SPECOPS-DRAFT-manifest-complete-D6 |
+| 9. Floats and masque completion | Partly done | Decimal masques in `masque` and `unmasque` | The `:f` class; decimal masques in `unmarshal`; range checks; keyword groups registered for `:case` and `:count` |
+| 10. Packaging | Partly done | As before; new: the condition and its readers exported | Suites behind `test-op`; a Ref; new: the checksum functions exported |
+
+### Priorities
+
+1. **Destinations** (SPECOPS-DRAFT-manifest-complete-D2): buffering,
+   checksums on stream destinations, overrun checks.
+2. **Selective reads and stream sources**
+   (SPECOPS-DRAFT-manifest-complete-D3).
+3. **WOFF** (SPECOPS-DRAFT-manifest-complete-D6).
+4. **Floats and masque completion.**
+5. **Packaging:** `test-op`, then a Ref.
+
+The byte orders of `:case` branches are a small correction, to be taken
+between larger steps.
+
+### Dependencies
+
+The region table of SPECOPS-DRAFT-manifest-D43 is the read-side region map
+that the previous update said checked reads and selective reads share; the
+dependency closure of SPECOPS-DRAFT-manifest-complete-D3 extends it. Checksums
+over stream sources need the bytes of each checksummed region kept, as
+buffering (SPECOPS-DRAFT-manifest-complete-D2) keeps them for stream
+destinations; one buffer reused across reads would serve both. The rest are
+as in the update of 2026-10-30.

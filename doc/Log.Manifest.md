@@ -52,6 +52,10 @@ decisions:
   - SPECOPS-DRAFT-manifest-D39
   - SPECOPS-DRAFT-manifest-D40
   - SPECOPS-DRAFT-manifest-D41
+  - SPECOPS-DRAFT-manifest-D42
+  - SPECOPS-DRAFT-manifest-D43
+  - SPECOPS-DRAFT-manifest-D44
+  - SPECOPS-DRAFT-manifest-D45
 relates-to:
   - SPECOPS-DRAFT-manifest-complete
   - SPECOPS-DRAFT-restructure
@@ -79,8 +83,8 @@ which reads them back out. It covers the path from a freeform `marshal` macro to
 manifest-driven writing and reading, and the PNG test format used to exercise
 it. The chronicled state is commit `10b1568`; the updates at the end of this
 log carry the record forward: that of 2026-10-30 to commit `653345f`, three
-of 2026-10-31, to commits `738105a`, `d030f5c` and `2e1af03`, and two of
-2026-11-01, to commits `4f9c6d4` and `d7ba27f`. The repository restructure that followed
+of 2026-10-31, to commits `738105a`, `d030f5c` and `2e1af03`, and three of
+2026-11-01, to commits `4f9c6d4`, `d7ba27f` and `1cc7600`. The repository restructure that followed
 moved the files this log names (see
 [SPECOPS-DRAFT-restructure](Log.Restructure.md)); code references stay pinned
 to the commits that held the work.
@@ -1752,4 +1756,206 @@ done, and with it reading a vector of LEB elements by a length slot. New:
   the placement rejected at expansion.
 - **Fixed buffers of LEB elements**, which still need a way to skip unread
   elements.
+- The other items of the previous updates remain.
+
+## Update 2026-11-01 — Checked reads
+
+This installment covers commit `1cc7600`, which makes `unmarshal` check what it
+reads. Checksums, length, offset and count slots are compared with the regions
+they cover, including inside repeated instances, and constants are checked as
+before. A failed check signals a condition that the caller can answer with a
+restart. The work answers the Manifest Completion Plan's open question
+SPECOPS-DRAFT-manifest-complete-O1. A new suite brings the checks from 292 to
+315.
+
+### SPECOPS-DRAFT-manifest-D42 — A failed check signals a condition with restarts, and `(:check nil)` leaves the checks out
+
+**Status:** Proposed
+**Context:** `unmarshal` read checksum, length and offset slots as plain values,
+so a corrupt file passed silently, while a constant that did not match
+signalled a plain error, which ended the read.
+SPECOPS-DRAFT-manifest-complete-O1 asked what a failed check should do. A
+caller reading trusted data wants no cost; a caller reading a damaged file
+wants to see its contents anyway; most callers want corruption reported.
+**Decision:** A failed check signals `manifest-check-failed`, a subclass of
+`simple-error`, through
+`src/manifest/manifest.lisp:check-failed@1cc7600`. The condition holds the
+manifest, the field, the kind of check (`:checksum`, `:length`, `:offset`,
+`:count` or `:constant`), the expected and actual values and the position, with
+exported readers. A `continue` restart accepts the value read and reads on. For
+a slot field, a `use-value` restart substitutes another value for the field, so
+a caller can take the recomputed checksum and get a consistent record. A
+constant has no field to substitute, so it offers `continue` only; its message
+is unchanged. Checks are on by default. `(:check nil)` in `unmarshal`'s params
+leaves every check out of the expansion, including those of nested manifests,
+since a restart cannot spare the cost of computing a checksum. After a length
+fails, `continue` reads on from where the field ended.
+**Alternatives:** A plain error with an option to turn checks off, as
+SPECOPS-DRAFT-manifest-complete-O1 suggested (rejected by the steward: a
+damaged file could be read only in a separate mode, and the record could not be
+repaired as it is read); returning a status with the values (rejected: a caller
+that ignores it lets corrupt data pass); restarts with no option (rejected by
+the steward: the checks' work could not be skipped).
+
+### SPECOPS-DRAFT-manifest-D43 — Checks are placed at expansion from a region table, with variables only for the regions they need
+
+**Status:** Proposed
+**Context:** `marshal` records regions in a list built as its code runs,
+pushing an entry for every region of every instance
+(SPECOPS-DRAFT-manifest-D8). Read the same way, a file of many chunks would
+allocate for each of them. Slots inside a repeated instance must resolve
+within it (SPECOPS-DRAFT-manifest-D39), and selective reads
+(SPECOPS-DRAFT-manifest-complete-D3) will need to know which fields and spans
+lie where.
+**Decision:** `src/manifest/manifest.lisp:manifest-regions@1cc7600` builds a
+region table at expansion: each named field and span, with the span holding it
+and the slots that cover it, and each slot, with its kind, its region and its
+checksum function. In `src/manifest/manifest.lisp:unmarshal@1cc7600` the table
+decides which variables to bind: a start and an end for each region a check
+needs, and a position for each checked slot field. Nothing else is emitted.
+Each check is emitted once its slot field has been read and its region closed,
+so a slot may come before or after its region. A length is compared with the
+region's end less its start, an offset with its start, a checksum with the
+slot's function over the source from start to end, and a count with the number
+of elements in the field it covers. A count check is left out when the covered
+field is counted by the slot's own field, since the two then agree. Nested
+expansions bind their own variables, so each repeated instance is checked
+against its own regions with no allocation. A slot over a region the manifest
+lacks, or a checksum without `:by`, is an expansion error.
+**Alternatives:** A list of regions built at run time, as `marshal` does
+(rejected: it allocates for every region of every instance); a table holding
+only what checks need (rejected by the steward: the general table costs nothing
+when the code runs, and selective reads can extend it).
+
+### SPECOPS-DRAFT-manifest-D44 — An integer source is checksummed through a buffer of its units, made once
+
+**Status:** Proposed
+**Context:** `unmarshal` reads integers and `(units . integer)` pairs as well
+as vectors (SPECOPS-DRAFT-manifest-D12), but a checksum function reads a
+buffer. Integer sources are mostly packed values, rarely checksummed. Whether
+the source is an integer is known only when the code runs.
+**Decision:** When the source is not a vector, a checksum check reads
+`src/manifest/manifest.lisp:source-units@1cc7600`, a vector of the source's
+units numbered from the most significant, as `deserializer-for` numbers them.
+The buffer is made at most once per top-level `unmarshal` and shared with
+nested expansions through the sub-lexicon. The variable that holds it is bound
+only when the manifest or a manifest nested in it, as a field, a repeat or a
+`:case` branch, has a checksum, which
+`src/manifest/manifest.lisp:manifest-checksums-p@1cc7600` decides at
+expansion. A bare integer has as many units as its value needs, so leading zero
+units are lost, as they are for reading.
+**Alternatives:** Skipping checksum checks for integer sources, or rejecting
+them (rejected by the steward: the check would be lost, or a source the reader
+accepts refused); a fresh buffer for each check (rejected: repeated work in
+each instance of a repeat).
+
+### SPECOPS-DRAFT-manifest-D45 — Every checksum function takes a buffer, a start and an end
+
+**Status:** Proposed
+**Context:** A `:checksum-of` slot calls its function as `(fn buffer start
+end)` (SPECOPS-DRAFT-manifest-D9), which `checksum.lisp:crc@10b1568` follows.
+`adler32-checksum` takes its bounds as keyword arguments, so it failed as a
+`:by` function, and checked reads call these functions on every read.
+**Decision:** `src/checksum.lisp:adler32@1cc7600` wraps `adler32-checksum`
+with the slot signature, beside `crc`.
+**Alternatives:** Changing `adler32-checksum` (rejected by the steward: it
+keeps the interface of the library it came from, and the PNG test's
+`zlib-store` calls it); calling functions with keyword bounds from the macros
+(rejected: two conventions for one slot).
+
+### Implementation
+
+- **`src/manifest/manifest.lisp`.**
+  - The condition `manifest-check-failed` and
+    `src/manifest/manifest.lisp:check-failed@1cc7600`, per
+    SPECOPS-DRAFT-manifest-D42.
+  - `manifest-regions`, `manifest-checksums-p` and `source-units`, per
+    SPECOPS-DRAFT-manifest-D43 and SPECOPS-DRAFT-manifest-D44.
+  - In `src/manifest/manifest.lisp:unmarshal@1cc7600`, the `:check` option,
+    passed to nested expansions with `:as`; the buffer's variable in the
+    sub-lexicon; a local `process-item` that records where a region begins and
+    ends around `read-item`, the former body; `check-form`, which builds a
+    slot's check, and `emit-ready-checks`, which places it; and
+    `constant-failed`, which the constant checks of strings, terminators and
+    masques now call. A string reports its first differing unit only.
+- **`src/checksum.lisp`.** `adler32`, per SPECOPS-DRAFT-manifest-D45.
+- **`src/package.lisp`.** Exports `manifest-check-failed` and its readers
+  `check-manifest`, `check-field`, `check-kind`, `check-expected`,
+  `check-actual` and `check-position`.
+- **`test/manifest.lisp`.** `test/manifest.lisp:run-checked-read-demo@1cc7600`
+  and its helper `test/manifest.lisp:failed-checks@1cc7600`, which answers each
+  failure with a restart and collects what it reported.
+
+### Verification
+
+The run command is that of the update of 2026-10-31 for the scan model, with
+`(specops::run-record-demo)`, `(specops::run-variable-demo)` and
+`(specops::run-checked-read-demo)` added.
+
+Table: The suite added in this installment, and the totals at commit `1cc7600`.
+
+| Suite | Function | Checks | Result |
+|---|---|---|---|
+| Checked reads | `run-checked-read-demo` | 23 | 23 pass |
+| All seventeen suites | from `run-png-demo` to `run-checked-read-demo` | 315 and the PNG verification | All pass |
+
+The new suite checks, among other things:
+
+- **Sound files:** the 1×1 PNG, through `png-file` and `png-any`, and the PNG
+  with ancillary chunks, read with no failed check.
+- **Checksums:** a corrupt IDAT CRC, with the condition's kind, field,
+  manifest, position and message; `continue` keeping the stored CRC;
+  `use-value` giving the computed one, in a plist and in a record; a changed
+  byte in the second of two IDATs, failing that chunk alone; and Adler-32
+  through the wrapper.
+- **Lengths, offsets and counts:** an IHDR length of 14 over its 13-byte body;
+  a length of 3 over two-byte elements; `:offset-of` written and read back, its
+  first test in either direction, and a wrong offset; a `:count-of` slot over a
+  repeat to the end of the source, and no check where the count cannot disagree.
+- **Integer sources:** a sound and a corrupt checksum, a `(units . integer)`
+  pair with a leading zero unit, and the numbering of `source-units`.
+- **Constants:** a changed chunk type failing as a constant and then its CRC
+  failing, with `use-value` not offered for the constant; a missing terminator
+  and a wrong masque group, each read on with `continue`.
+- **The option and the errors:** `(:check nil)` reading each of these with no
+  failure and leaving every check out of the expansion; a slot over a region
+  the manifest lacks, a checksum without `:by`, and an unknown option.
+
+The manifest layer has no style warnings, and the five test scripts in `test/`
+pass. The architecture systems `specops.arch.6502`, `.s390x`, `.x86`, `.z80`
+and `.wasm`, and the three format systems, load with the new exports.
+
+### Files
+
+Table: Files changed in commit `1cc7600`, and the documents updated after it.
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/manifest/manifest.lisp` | Modified | The condition and its restarts, the region table, checked reads in `unmarshal`, integer sources |
+| `src/checksum.lisp` | Modified | `adler32`, with the slot signature |
+| `src/package.lisp` | Modified | Exports the condition and its readers |
+| `test/manifest.lisp` | Modified | The checked reads suite |
+| `doc/Log.Manifest.md` | Modified | This update |
+| `doc/Plan.ManifestComplete.md` | Modified | Progress installment for checked reads; SPECOPS-DRAFT-manifest-complete-O1 answered |
+
+### Metrics
+
+- Test checks: 315 automated checks plus 1 structural PNG verification, up
+  from 292.
+- Regressions at `1cc7600`: 0.
+
+### Outstanding Work
+
+Validation inside `unmarshal`, outstanding since this log began, is done. New:
+
+- **Byte orders of `:case` branches.**
+  `src/manifest/manifest.lisp:manifest-swap-specs@1cc7600` collects the byte
+  orders of nested manifests but not of sub-manifests chosen by `:case`, so a
+  branch whose manifest uses a byte order its parent lacks would index past
+  `marshal`'s serializers.
+- **Checksum functions are not exported.** A manifest written in another
+  package names them as `specops::crc` and `specops::adler32`.
+- **Checksums on stream sources** wait on stream sources: a stream cannot be
+  read back, so the bytes of a checksummed region must be kept, perhaps in a
+  buffer reused across reads.
 - The other items of the previous updates remain.
