@@ -895,10 +895,91 @@ checksum function can read it. A bare integer has as many units as its value nee
     (dotimes (i units buffer)
       (setf (aref buffer i) (ldb (byte unit (* unit (- units i 1))) value)))))
 
+(defun manifest-leaves (items)
+  "The fields of ITEMS, a manifest's stored fields, in order, with the fields of spans in
+place of the spans: a list of (field . top), TOP being the position among ITEMS of the
+item that is or holds the field."
+  (let ((leaves nil))
+    (loop :for item :in items :for top :from 0
+          :do (labels ((walk (it)
+                         (if (eq :span (getf it :type))
+                             (mapc #'walk (getf it :items))
+                             (push (cons it top) leaves))))
+                (walk item)))
+    (nreverse leaves)))
+
+(defun leaf-names (item)
+  "The names under which ITEM, a stored field, is read: a masque's keyword groups, or the
+field's name."
+  (if (eq :masque (getf item :type))
+      (loop :for b :in (getf item :bindings) :when (getf b :name) :collect (getf b :name))
+      (and (getf item :name) (list (getf item :name)))))
+
+(defun field-dependencies (item mode length-slot)
+  "The fields that must be read before ITEM, a stored field, to read it when MODE is :READ
+or to pass over it when MODE is :SKIP. LENGTH-SLOT is the field of a :length-of slot over
+ITEM read before it, or NIL; a field it covers is passed over by its length."
+  (destructuring-bind (&key type subtypes count actual end-by stop-by type-indicator
+                       &allow-other-keys)
+      item
+    (if (and (eq mode :skip) length-slot (not (eq type :pad)))
+        (list length-slot)
+        (let* ((options (and (eq type :manifest) (rest actual)))
+               (count (if (eq type :manifest) (getf options :count) count)))
+          (remove nil (list (and (keywordp count) count)
+                            (and (member :case subtypes) type-indicator)
+                            (and length-slot
+                                 (or (eq :length (getf options :until))
+                                     (member :case subtypes)
+                                     (and (member :vec subtypes) (not count) (not end-by)
+                                          (not stop-by))))))))))
+
+(defun manifest-selection (items keys length-sources check-slots)
+  "What a selective read of KEYS from ITEMS, a manifest's stored fields, does with each
+field, worked out at expansion. LENGTH-SOURCES maps a field to the field of the :length-of
+slot over it; CHECK-SLOTS, the manifest's slots when reads are checked. Returns the modes,
+an alist of each field and :READ or :SKIP; the boundary, the position among ITEMS of the
+item holding the last key, or -1; and the slots checked, those whose field and region lie
+in the items up to the boundary."
+  (let* ((leaves (manifest-leaves items))
+         (known (loop :for (leaf) :in leaves :append (leaf-names leaf))))
+    (dolist (k keys)
+      (unless (member k known)
+        (error "unmarshal: ~s is not a field of the manifest." k)))
+    (labels ((holds (item name)
+               (or (member name (leaf-names item)) (eq name (getf item :name))
+                   (and (eq :span (getf item :type))
+                        (some (lambda (i) (holds i name)) (getf item :items)))))
+             (top-of (name)
+               ;; the position of the item that is or holds the field or span NAME
+               (position-if (lambda (item) (holds item name)) items))
+             (position-of (name)
+             (position-if (lambda (l) (member name (leaf-names (first l)))) leaves)))
+      (let* ((boundary (loop :for (leaf . top) :in leaves
+                             :when (intersection keys (leaf-names leaf)) :maximize top
+                             :into b :finally (return (or b -1))))
+             (checked (loop :for s :in check-slots
+                            :when (let ((f (top-of (getf s :field))) (r (top-of (getf s :region))))
+                                    (and f r (<= f boundary) (<= r boundary)))
+                              :collect s))
+             (needed (append keys (mapcar (lambda (s) (getf s :field)) checked)))
+             (modes nil))
+        (loop :for (leaf) :in (reverse leaves)
+              :for at :downfrom (1- (length leaves))
+              :do (let* ((mode (if (intersection needed (leaf-names leaf)) :read :skip))
+                         (slot (rest (assoc (getf leaf :name) length-sources)))
+                         (slot-at (and slot (position-of slot))))
+                    (push (cons leaf mode) modes)
+                    (setf needed (append (field-dependencies leaf mode (and slot-at (< slot-at at) slot))
+                                         needed))))
+        (values modes boundary checked)))))
+
 (defmacro unmarshal (name source &optional params &rest keys)
   "Read the fields of the manifest NAME from SOURCE: a vector, an integer, a (units .
 integer) pair, or a stream, which is read to the end of the record and no further. With
-KEYS, return their values in order; otherwise return every named field, as a plist or,
+KEYS, return their values in order, decoding only those fields and the ones that locate
+them, and passing over the rest; a key that names a sub-manifest gives its whole record.
+Otherwise return every named field, as a plist or,
 given (:as :record) in PARAMS, as an instance of the manifest's record class. Checksums,
 length, offset and count slots, and constants are checked as they are read, and a failure
 signals manifest-check-failed; (:check nil) in PARAMS leaves the checks out. (:buffer B)
@@ -925,6 +1006,11 @@ keeps in B, a manifest-buffer, the units read from a stream."
                (scan (rest spec)))
              acc))
          (in-keys keys)
+         ;; the fields a selective read decodes: the keys at the top level, or what a parent
+         ;; asks of a nested manifest (NIL to pass over it); :ALL for a full read
+         (select (cond (nested (getf params :-+select+- :all))
+                       (in-keys in-keys)
+                       (t :all)))
          (keys (or keys all-keys))
          (dvector (make-array 4 :initial-element nil))
          (base (gensym "BA")) (dsym (gensym "DS"))
@@ -936,7 +1022,7 @@ keeps in B, a manifest-buffer, the units read from a stream."
          buffer)
     
     (loop :for (key) :on params :by #'cddr
-          :unless (member key '(:as :check :buffer :-+sub-lexicon+-))
+          :unless (member key '(:as :check :buffer :-+sub-lexicon+- :-+select+-))
             :do (error "unmarshal: unknown option ~s for manifest ~s." key name))
     (unless (member as '(:plist :record))
       (error "unmarshal: :as must be :plist or :record, not ~s." as))
@@ -962,9 +1048,16 @@ keeps in B, a manifest-buffer, the units read from a stream."
           ;; slot covers begins and ends, each made only when a check uses it; (field . at),
           ;; where each checked slot field begins; the checks not yet emitted; and the
           ;; names of the fields read and regions closed so far
-          (region-vars) (slot-starts) (pending) (done))
-      (when check
-        (multiple-value-bind (regions slots) (manifest-regions (rest spec))
+          (region-vars) (slot-starts) (pending) (done)
+          ;; for selective reads: each field's mode, :READ or :SKIP, and the position of the
+          ;; item holding the last field asked for
+          (modes) (boundary -1))
+      (multiple-value-bind (regions slots) (manifest-regions (rest spec))
+        ;; a selective read checks only the slots whose field and region lie in the part read
+        (when (listp select)
+          (multiple-value-setq (modes boundary slots)
+            (manifest-selection (rest spec) select length-sources (and check slots))))
+        (when check
           (dolist (s slots)
             (destructuring-bind (&key field kind region by) s
               (unless (find region regions :key (lambda (r) (getf r :name)))
@@ -1010,9 +1103,10 @@ keeps in B, a manifest-buffer, the units read from a stream."
                         `(floor ,(var-of (rest (assoc name length-sources)) name) ,length))
                        (t (error "unmarshal: no element count for vector field ~a ~
                    (give :count, a :length-of slot or :end-by)." name))))
-               (read-manifest (child ctx)
+               (read-manifest (child ctx &key (select :all))
                  ;; expand the sub-manifest CHILD at the cursor in CTX, sharing the source, as a
-                 ;; record when one is asked for and CHILD has a record class
+                 ;; record when one is asked for and CHILD has a record class; given SELECT, a
+                 ;; list of its fields, read only those, as a plist, and pass over the rest
                  (destructuring-bind (&key name cursor &allow-other-keys) ctx
                    (let ((child-spec (gethash child *manifests*)))
                      (unless child-spec
@@ -1023,8 +1117,57 @@ keeps in B, a manifest-buffer, the units read from a stream."
                       `(unmarshal ,child ,src
                                   (:-+sub-lexicon+- ,(list* :cr-sym cursor :pr-sym (qualify name)
                                                             sub-lexicon)
-                                   ,@(and (eq as :record) '(:as :record))
+                                   ,@(and (eq as :record) (eq select :all) '(:as :record))
+                                   ,@(and (listp select) `(:-+select+- ,select))
                                    ,@(and (not check) '(:check nil))))))))
+               (skip-manifest (child ctx)
+                 ;; pass over the sub-manifest CHILD, reading only what finding its end needs
+                 (read-manifest child ctx :select nil))
+               (select-manifest (child ctx fields)
+                 (read-manifest child ctx :select fields))
+               (mode-of (item)
+                 ;; :READ to decode ITEM, :SKIP to pass over it
+                 (if (listp select) (or (rest (assoc item modes :test #'eq)) :skip) :read))
+               (item-plan (item)
+                 ;; the field plan of ITEM, a sub-manifest or a :vec, :leb or :case field
+                 (if (eq :manifest (getf item :type))
+                     (field-plan item :count-form (lambda (i)
+                                                    (vec-count-form (getf i :name) (getf i :count) 1))
+                                      :length-form #'length-form)
+                     (field-plan item :selector-form #'selector-form
+                                      :enum-of #'enum-of
+                                      :count-form
+                                      (lambda (i)
+                                        ;; a length slot counts bytes, not elements of varying width
+                                        (when (and (member :leb (getf i :subtypes))
+                                                   (not (getf i :count)))
+                                          (error "unmarshal: vector ~s of LEB elements needs :count, ~
+                                                  :end-by or a :length-of slot." (getf i :name)))
+                                        (vec-count-form (getf i :name) (getf i :count) (getf i :length)))
+                                      :length-form #'length-form
+                                      :unit-bits (ash 1 (+ 3 (getf config :unit-spec))))))
+               (item-ctx (item)
+                 (let ((swap-by (or (getf item :swap-by) 0)))
+                   (list :name (getf item :name) :cursor cursor :src src
+                         :read-manifest #'read-manifest :skip-manifest #'skip-manifest
+                         :select-manifest #'select-manifest
+                         :read-at (lambda (at w sg)
+                                    `(funcall (aref ,dsym ,swap-by) ,at ,w ,sg ,src)))))
+               (skip-item (item)
+                 ;; pass over ITEM: by the length a slot read before it gives, by its known
+                 ;; width, or by its plan, which reads only what finding its end needs
+                 (destructuring-bind (&key name type subtypes length actual end-by mode n
+                                      &allow-other-keys)
+                     item
+                   (let* ((slot (and name (rest (assoc name length-sources))))
+                          (len (and slot (not (eq type :pad)) (rest (assoc slot vars)))))
+                     (push (cond ((eq type :pad) `(incf ,cursor ,(pad-count-form mode n cursor base)))
+                                 (len `(incf ,cursor ,len))
+                                 ((eq type :string) `(incf ,cursor ,(+ (length actual) (if end-by 1 0))))
+                                 ((or (eq type :manifest) (intersection '(:vec :leb :case) subtypes))
+                                  (skip-effector (item-plan item) (item-ctx item)))
+                                 (t `(incf ,cursor ,length)))  ; scalars and masques
+                           reads))))
                (length-form (i)
                  ;; the length in units of field I, from a :length-of slot over it, when one is read
                  (let ((source (assoc (getf i :name) length-sources)))
@@ -1093,10 +1236,15 @@ keeps in B, a manifest-buffer, the units read from a stream."
                  ;; read ITEM, recording where it begins and ends when a check needs it
                  (let* ((rname (getf item :name))
                         (rv (and rname (rest (assoc rname region-vars))))
-                        (at (and rname (rest (assoc rname slot-starts)))))
+                        (at (and rname (rest (assoc rname slot-starts))))
+                        (swap-by (or (getf item :swap-by) 0)))
+                   (unless (aref dvector swap-by)
+                     (setf (aref dvector swap-by) `(deserializer-for ,(getf config :unit-spec) ,swap-by)))
                    (when (first rv) (push `(setf ,(first rv) ,cursor) reads))
                    (when at (push `(setf ,at ,cursor) reads))
-                   (read-item item)
+                   (if (and (not (eq :span (getf item :type))) (eq :skip (mode-of item)))
+                       (skip-item item)
+                       (read-item item))
                    (when (second rv) (push `(setf ,(second rv) ,cursor) reads))
                    (when (and rname pending)
                      (push rname done)
@@ -1115,14 +1263,7 @@ keeps in B, a manifest-buffer, the units read from a stream."
                    (case type
                      (:pad (push `(incf ,cursor ,(pad-count-form mode n cursor base)) reads))
                      (:manifest
-                      (record-read name (read-effector
-                                         (field-plan item :count-form (lambda (i)
-                                                                        (vec-count-form (getf i :name)
-                                                                                        (getf i :count)
-                                                                                        1))
-                                                          :length-form #'length-form)
-                                         (list :name name :cursor cursor :src src
-                                               :read-manifest #'read-manifest))))
+                      (record-read name (read-effector (item-plan item) (item-ctx item))))
                      (:span
                       (loop :for item :in items :do (process-item item)))
                      (:string
@@ -1213,30 +1354,7 @@ keeps in B, a manifest-buffer, the units read from a stream."
                      (t
                       (cond
                         ((intersection '(:vec :leb :case) subtypes)
-                         (record-read name ;; enumerate-by subtypes
-                                      (read-effector (field-plan item :selector-form #'selector-form
-                                                                      :enum-of #'enum-of
-                                                                      :count-form
-                                                                      (lambda (i)
-                                                                        ;; a length slot counts bytes,
-                                                                        ;; not elements of varying width
-                                                                        (when (and (member :leb (getf i :subtypes))
-                                                                                   (not (getf i :count)))
-                                                                          (error "unmarshal: vector ~s of LEB ~
-                                                                                  elements needs :count, ~
-                                                                                  :end-by or a :length-of ~
-                                                                                  slot." (getf i :name)))
-                                                                        (vec-count-form (getf i :name)
-                                                                                        (getf i :count)
-                                                                                        (getf i :length)))
-                                                                      :length-form #'length-form
-                                                                      :unit-bits (ash 1 (+ 3 (getf config
-                                                                                                   :unit-spec))))
-                                                     (list :name name :cursor cursor :src src
-                                                           :read-manifest #'read-manifest
-                                                           :read-at (lambda (at w sg)
-                                                                      `(funcall (aref ,dsym ,swap-by)
-                                                                                ,at ,w ,sg ,src))))))
+                         (record-read name (read-effector (item-plan item) (item-ctx item))))
                         (t
                          (when name
                            (let ((var (gensym (string name))))
@@ -1254,7 +1372,18 @@ keeps in B, a manifest-buffer, the units read from a stream."
                                        reads))))
                          (push (list 'incf cursor length) reads))))))))
         
-        (dolist (item (rest spec)) (process-item item))
+        ;; a selective read at the top level stops after the item holding its last key; the
+        ;; items after it are passed over only when the source is a stream, to take its record
+        (let ((tail nil))
+          (loop :for item :in (rest spec) :for top :from 0
+                :do (if (and (listp select) (not nested) (> top boundary))
+                        (push item tail)
+                        (process-item item)))
+          (when tail
+            (let ((main reads))
+              (setf reads nil)
+              (dolist (item (reverse tail)) (process-item item))
+              (setf reads (cons `(when (stream-source-p ,src) ,@(reverse reads)) main)))))
         (when pending
           (error "unmarshal: the slots of fields ~s in manifest ~s cover regions that are not read."
                  (mapcar (lambda (s) (getf s :field)) pending) name))
@@ -1295,6 +1424,9 @@ keeps in B, a manifest-buffer, the units read from a stream."
                                               (stream-source-array ,src))))))))
            ,(cond (in-keys
                    (cons 'values (mapcar (lambda (k) (rest (assoc k vars))) keys)))
+                  ;; a nested manifest read in part gives a plist of what was asked of it
+                  ((listp select)
+                   (cons 'list (loop :for key :in select :append (list key (rest (assoc key vars))))))
                   (record-class
                    `(make-instance ',record-class
                                    ,@(loop :for key :in all-keys :append (list key (rest (assoc key vars))))))

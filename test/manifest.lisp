@@ -3098,3 +3098,158 @@ record read to its end and no further, and a reusable buffer. Returns T if all c
       (format t "~&stream source checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
               pass (count t results) (length results))
       pass)))
+
+;;; ===========================================================================
+;;; Part V — selective reads: only the fields asked for, and what locates them
+;;; ===========================================================================
+
+;; Instances repeated until a condition, then a field: passing over the repeat reads only
+;; the field its condition tests.
+(defmanifest until-then-probe (:unit 8 :endian :big)
+  (manifest :items item-probe :until (:tag 0))
+  (:after :u8 :default 0))
+
+(defmacro each-key-agrees (manifest source &rest keys)
+  "A list with one boolean per key of KEYS: whether reading MANIFEST from SOURCE with that
+key alone gives what a full read gives for it."
+  (let ((src (gensym "SRC")) (full (gensym "FULL")))
+    `(let* ((,src ,source) (,full (unmarshal ,manifest ,src)))
+       (list ,@(mapcar (lambda (k) `(equalp (unmarshal ,manifest ,src nil ,k) (getf ,full ,k)))
+                       keys)))))
+
+(defun reads-outside-guard (form)
+  "The number of deserializer calls, (funcall (aref ...) ...), in FORM, an expansion, outside
+the code that passes over the rest of a stream's record."
+  (cond ((atom form) 0)
+        ((and (eq 'when (first form)) (consp (second form))
+              (eq 'stream-source-p (first (second form))))
+         0)
+        ((and (eq 'funcall (first form)) (consp (second form)) (eq 'aref (first (second form))))
+         (1+ (reads-outside-guard (rest form))))
+        (t (+ (reads-outside-guard (car form)) (reads-outside-guard (cdr form))))))
+
+(defun run-selective-read-demo ()
+  "Unmarshal selected fields: the values a full read gives, read without decoding the fields
+passed over, checking only the slots in the part read, and taking a stream's whole record.
+Returns T if all checks pass."
+  (let ((results nil))
+    (flet ((check (label got want)
+             (let ((ok (equalp got want)))
+               (push ok results)
+               (format t "~&  ~:[FAIL~;ok  ~]  ~a~%" ok label)
+               (unless ok
+                 (format t "~&          got  ~s~%          want ~s~%" got want)))))
+      (format t "~&selective read checks:~%")
+      (let* ((png (make-1x1-png))
+             (ancillary (png-with-ancillary-chunks))
+             (ihdr (subseq png 8 33))
+             (all-t (lambda (bs) (every #'identity bs))))
+
+        ;; 1. Each key alone gives what a full read gives, for every kind of field passed over.
+        (check "PNGs: png-file, png-any, and png-chunk over an IHDR and an IDAT chunk"
+               (mapcar all-t (list (each-key-agrees png-file png :signature :ihdr :idat :iend)
+                                   (each-key-agrees png-any ancillary :signature :chunks)
+                                   (each-key-agrees png-chunk ihdr :length :type :data :crc)
+                                   (each-key-agrees png-chunk (subseq png 33 60) :length :type :data :crc)))
+               '(t t t t))
+        (check "terminated, multi-element, user-rule and fixed-buffer fields passed over"
+               (mapcar all-t (list (each-key-agrees cstring-probe (->bytes #(72 105 0 9)) :s :after)
+                                   (each-key-agrees crlf-probe (->bytes #(65 66 13 10 9)) :line :after)
+                                   (each-key-agrees quic-probe (->bytes #(#x25 #x7B #xBD 9)) :a :b :after)
+                                   (each-key-agrees bounded-probe (->bytes #(65 0 9 9 9 7)) :name :after)
+                                   (each-key-agrees stop-at-probe
+                                                    (collect-units (lambda (d) (marshal stop-at-probe d
+                                                                                       :v #(1 2) :after 9)))
+                                                    :v :after)))
+               '(t t t t t))
+        (check "LEB, LEB vector, :case and masque fields passed over"
+               (mapcar all-t (list (each-key-agrees leb-probe (->bytes #(#x81 #x01 9)) :n :after)
+                                   (each-key-agrees leb-vec-counted-probe (->bytes #(2 #x81 #x01 5 9))
+                                                    :n :v :after)
+                                   (each-key-agrees leb-vec-terminated-probe (->bytes #(#x81 #x01 5 0 9))
+                                                    :v :after)
+                                   (each-key-agrees case-probe (->bytes #(1 0 5 9)) :kind :v :after)
+                                   (each-key-agrees case-probe (->bytes #(4 #x81 #x01 9)) :kind :v :after)
+                                   (each-key-agrees case-enum-probe (->bytes #(1 0 5 9)) :kind :v :after)
+                                   (each-key-agrees masque-probe (->bytes #(1 3 5 9)) :lead :kind :tail)))
+               '(t t t t t t t))
+        (check "repeats, sub-manifests, pads and slots passed over"
+               (mapcar all-t (list (each-key-agrees counted-items-probe (->bytes #(2 1 0 5 2 0 6)) :n :items)
+                                   (each-key-agrees fixed-items-probe (->bytes #(1 0 5 2 0 6 9)) :items :after)
+                                   (each-key-agrees sized-items-probe (->bytes #(6 1 0 5 2 0 6 9))
+                                                    :size :items :after)
+                                   (each-key-agrees rest-items-probe (->bytes #(9 1 0 5 2 0 6 3 0 7)) :head :items)
+                                   (each-key-agrees until-then-probe (->bytes #(1 0 5 0 0 6 9)) :items :after)
+                                   (each-key-agrees checked-count-probe (->bytes #(2 1 0 5 2 0 6)) :n :items)
+                                   (each-key-agrees nest-probe
+                                                    (collect-units (lambda (d) (marshal nest-probe d :marker 1
+                                                                                       :ihdr (:width 1 :height 1)
+                                                                                       :trailer 9)))
+                                                    :marker :ihdr :trailer)
+                                   (each-key-agrees pad-probe
+                                                    (collect-units (lambda (d) (marshal pad-probe d :len 2
+                                                                                       :data #(1 2) :x 3 :y 4)))
+                                                    :len :data :x :y)
+                                   (each-key-agrees goff-end-probe
+                                                    (let ((v (ub8 80)))
+                                                      (marshal goff-end-probe v :t-tag 3 :record-count 7)
+                                                      v)
+                                                    :t-tag :entry-flag :record-count :entry-offset)))
+               '(t t t t t t t t t))
+        (check "several keys come back in the order asked, and a sub-manifest key gives its whole record"
+               (list (multiple-value-list (unmarshal png-chunk ihdr nil :crc :type))
+                     (equalp (unmarshal png-file png nil :ihdr) (getf (unmarshal png-file png) :ihdr)))
+               (list (list (rd-u32-be ihdr 21) :ihdr) t))
+
+        ;; 2. Fields passed over are not decoded; fields after the last key are not reached.
+        (check "deserializer calls in selective expansions, outside the stream's tail"
+               (mapcar (lambda (form) (reads-outside-guard (macroexpand-1 form)))
+                       '((unmarshal png-file s nil :signature)    ; the signature's loop
+                         (unmarshal png-chunk s nil :type)        ; :length, :type; :data by its length
+                         (unmarshal nest-probe s nil :trailer)    ; the IHDR body by its fixed widths
+                         (unmarshal nest-probe s)                 ; a full read, for comparison
+                         (unmarshal masque-probe s nil :tail)
+                         (unmarshal cstring-probe s nil :after))) ; the scan to the terminator, :after
+               '(1 2 1 9 1 2))
+        (check "a vector cut short after the fields asked for still reads them"
+               (list (unmarshal png-file (subseq png 0 8) nil :signature)
+                     (unmarshal png-chunk (subseq ihdr 0 8) nil :type))
+               (list +png-signature+ :ihdr))
+
+        ;; 3. Checks: only the slots whose field and region lie in the part read.
+        (let ((bad (copy-seq ihdr)))
+          (setf (aref bad 21) (logxor (aref bad 21) 1))   ; the CRC
+          (check "a corrupt CRC: unchecked reading :type, which precedes it, and caught reading :crc"
+                 (list (failed-checks (lambda () (unmarshal png-chunk bad nil :type)))
+                       (mapcar #'first (failed-checks (lambda () (unmarshal png-chunk bad nil :crc)))))
+                 '(nil (:checksum))))
+        (let ((bad (copy-seq ihdr)))
+          (setf (aref bad 7) (char-code #\X))             ; "IHDR" becomes "IHDX"
+          (check "a changed chunk type passed over is not checked as a constant; the CRC over it is"
+                 (list (failed-checks (lambda () (unmarshal png-ihdr-chunk bad nil :length)))
+                       (mapcar #'first (failed-checks (lambda () (unmarshal png-ihdr-chunk bad nil :crc)))))
+                 '(nil (:checksum))))
+        (check "a key the manifest lacks is an expansion error"
+               (signals-error-p (lambda () (macroexpand-1 '(unmarshal png-file s nil :nope))))
+               t)
+
+        ;; 4. Streams: a selective read takes the whole record, unchecked past the last key.
+        (let ((bad (copy-seq png)))
+          (setf (aref bad 57) (logxor (aref bad 57) 1))   ; the IDAT CRC
+          (check "png-file :signature from a stream: the record taken, its CRCs unchecked, the next read whole"
+                 (with-source-file (concatenate '(vector (unsigned-byte 8)) bad png)
+                   (lambda (in)
+                     (list (failed-checks (lambda () (unmarshal png-file in nil :signature)))
+                           (file-position in)
+                           (equalp (unmarshal png-file in) (unmarshal png-file png)))))
+                 '(nil 72 t)))
+        (check "png-any :signature and until-then-probe :after from streams, taking each record"
+               (with-source-file (concatenate '(vector (unsigned-byte 8)) ancillary #(1 0 5 0 0 6 9 42))
+                 (lambda (in)
+                   (list (unmarshal png-any in nil :signature) (file-position in)
+                         (unmarshal until-then-probe in nil :after) (read-byte in))))
+               (list +png-signature+ 105 9 42))))
+    (let ((pass (every #'identity results)))
+      (format t "~&selective read checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
+              pass (count t results) (length results))
+      pass)))

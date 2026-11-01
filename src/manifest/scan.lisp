@@ -326,6 +326,7 @@ advances the variable. WIDTH is the element width in units when it is fixed, els
                                   ,overrun))))
                      (let* ((,e ,(funcall read-element pos))
                             ,@(and after `((,stop ,after))))
+                       (declare (ignorable ,e))  ; a skip collects nothing
                        (incf ,k)
                        ,@(cond ((or (not after) (eq t keep)) collect)
                                ((eq :dynamic keep) `((unless (eq ,stop :drop) ,@collect)))
@@ -567,6 +568,60 @@ RULE, and writes them with WRITE, an expansion-time function of an element form.
   (funcall (getf ctx :write-manifest) (plan-manifest p) ctx))
 
 (defmethod read-effector  ((p case-plan) ctx) (case-clauses p ctx #'read-effector))
+
+;;; Skipping, for selective reads: a field outside the fields asked for is passed over,
+;;; reading no more of it than finding its end needs.
+
+(defclass null-assembler (assembler) ())  ;; collects nothing: the elements are passed over
+
+(defmethod assemble-effector ((a null-assembler) ctx)
+  (declare (ignore ctx))
+  (list :collect nil :result nil))
+
+(defgeneric rule-reads-elements-p (rule)
+  (:documentation "True when RULE decides where its field ends by the elements' values, so
+that skipping the field still reads them; NIL when the count, the position or the source's
+end decides it.")
+  (:method ((r stop-rule)) t)
+  (:method ((r count-rule)) nil)
+  (:method ((r end-rule)) nil)
+  (:method ((r units-rule)) nil))
+
+(defgeneric skip-effector (plan ctx)
+  (:documentation "A form that moves the cursor in CTX past the field PLAN reads, reading
+no more of it than finding its end needs, and returns nothing of use."))
+
+(defmethod skip-effector ((p scalar-plan) ctx)
+  `(incf ,(getf ctx :cursor) ,(slot-value p 'width)))
+
+(defmethod skip-effector ((p manifest-plan) ctx)
+  ;; the sub-manifest is expanded to read only what finding its own end needs
+  (funcall (getf ctx :skip-manifest) (plan-manifest p) ctx))
+
+(defmethod skip-effector ((p case-plan) ctx) (case-clauses p ctx #'skip-effector))
+
+(defmethod skip-effector ((p scan-plan) ctx)
+  (destructuring-bind (&key name read-at cursor src &allow-other-keys) ctx
+    (with-slots (rule width element) p
+      (let ((extent (known-extent p))
+            (count (known-count rule)))
+        (cond (extent `(incf ,cursor ,extent))
+              ;; a count known before reading, of elements of one width
+              ((and count (not element)) `(incf ,cursor (* ,count ,width)))
+              (t (emit-scan name rule (make-instance 'null-assembler)
+                            (cond ((not element)
+                                   (lambda (pos) `(prog1 ,(funcall read-at pos width nil)
+                                                    (incf ,pos ,width))))
+                                  ((not (rule-reads-elements-p rule))
+                                   (lambda (pos) (skip-effector element (list* :cursor pos ctx))))
+                                  ;; an :until condition reads only the fields it tests
+                                  ((and (typep element 'manifest-plan) (typep rule 'until-rule))
+                                   (lambda (pos)
+                                     (funcall (getf ctx :select-manifest) (plan-manifest element)
+                                              (list* :cursor pos ctx)
+                                              (mapcar #'first (rule-conditions rule)))))
+                                  (t (lambda (pos) (read-effector element (list* :cursor pos ctx)))))
+                            cursor src :width (and (not element) width))))))))
 
 (defmethod write-effector ((p case-plan) ctx) (case-clauses p ctx #'write-effector))
 
