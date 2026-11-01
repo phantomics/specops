@@ -1246,3 +1246,124 @@ Returns T if all checks pass."
       (format t "~&vector scan checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
               pass (count t results) (length results))
       pass)))
+
+;;; ===========================================================================
+;;; Part M — fixed buffers holding a terminator (:count with :end-by)
+;;; ===========================================================================
+
+;; A five-byte NUL-terminated buffer, tar-style: a full buffer needs no terminator.
+(defmanifest bounded-probe (:unit 8 :endian :big)
+  (:name  (:u 1 :vec) :count 5 :end-by 0)
+  (:after :u8 :default 0))
+
+;; An EBCDIC buffer whose character terminator goes through the codec.
+(defmanifest bounded-ebcdic-probe (:unit 8 :endian :big)
+  (:name (:u 1 :vec) :count 4 :end-by #\$
+         :codec #'specops.map.ebcdic:ebcdic-code-cp037))
+
+;; Two-byte little-endian elements: the buffer is three elements, six bytes.
+(defmanifest bounded-wide-probe (:unit 8 :endian :big)
+  (:s (:u 2 :vec) :count 3 :end-by 0 :endian :little))
+
+;; A length slot over a span counts the whole buffer.
+(defmanifest bounded-span-probe (:unit 8 :endian :big)
+  (:len :u8 :slot (:length-of :body))
+  (span :body
+    (:name (:u 1 :vec) :count 4 :end-by 0)
+    (:k    :u8 :default 0)))
+
+;; The buffer's size comes from an earlier field.
+(defmanifest bounded-counted-probe (:unit 8 :endian :big)
+  (:n     :u8 :default 0)
+  (:name  (:u 1 :vec) :count :n :end-by 0)
+  (:after :u8 :default 0))
+
+(defun run-bounded-demo ()
+  "Marshal and unmarshal fixed buffers that hold a terminator.
+Returns T if all checks pass."
+  (let ((results nil))
+    (flet ((check (label got want)
+             (let ((ok (equalp got want)))
+               (push ok results)
+               (format t "~&  ~:[FAIL~;ok  ~]  ~a~%" ok label)
+               (unless ok
+                 (format t "~&          got  ~s~%          want ~s~%" got want))))
+           (to-list (manifest-thunk)
+             (let ((acc nil))
+               (funcall manifest-thunk (lambda (b) (push b acc)))
+               (reverse acc))))
+      (format t "~&bounded buffer checks:~%")
+
+      ;; 1. Writing: short, full and empty buffers.
+      (check "bounded-probe, short data is followed by terminators to the buffer's end"
+             (to-list (lambda (d) (marshal bounded-probe d :name "ab" :after 9)))
+             '(97 98 0 0 0 9))
+      (check "bounded-probe, data filling the buffer has no terminator"
+             (to-list (lambda (d) (marshal bounded-probe d :name "abcde" :after 9)))
+             '(97 98 99 100 101 9))
+      (check "bounded-probe, no value fills the buffer with terminators"
+             (to-list (lambda (d) (marshal bounded-probe d :after 9)))
+             '(0 0 0 0 0 9))
+      (check "bounded-probe, data longer than the buffer signals an error"
+             (signals-error-p (lambda () (to-list (lambda (d) (marshal bounded-probe d :name "abcdef")))))
+             t)
+      (check "bounded-probe, data containing the terminator signals an error"
+             (signals-error-p
+              (lambda () (to-list (lambda (d) (marshal bounded-probe d :name (vector 97 0 98))))))
+             t)
+
+      ;; 2. Reading: stop at the terminator or the buffer's end, move past the buffer.
+      (check "bounded-probe, a short buffer read back"
+             (unmarshal bounded-probe (->bytes #(97 98 0 0 0 9)))
+             '(:name #(97 98) :after 9))
+      (check "bounded-probe, a full buffer read back without a terminator"
+             (unmarshal bounded-probe (->bytes #(97 98 99 100 101 9)))
+             '(:name #(97 98 99 100 101) :after 9))
+      (check "bounded-probe, bytes after the terminator are skipped, whatever they hold"
+             (unmarshal bounded-probe (->bytes #(97 0 122 122 122 9)))
+             '(:name #(97) :after 9))
+      (check "bounded-probe, an empty buffer read back"
+             (unmarshal bounded-probe (->bytes #(0 0 0 0 0 9)))
+             '(:name #() :after 9))
+      (check "bounded-probe, a source shorter than the buffer signals an error"
+             (signals-error-p (lambda () (unmarshal bounded-probe (->bytes #(97 98 0 0)))))
+             t)
+
+      ;; 3. Codecs, wide elements, spans and counts from other fields.
+      (check "bounded-ebcdic-probe, \"HI\" then $ (#x5B) to the buffer's end"
+             (to-list (lambda (d) (marshal bounded-ebcdic-probe d :name "HI")))
+             '(#xC8 #xC9 #x5B #x5B))
+      (check "bounded-ebcdic-probe, read back as a string"
+             (unmarshal bounded-ebcdic-probe (->bytes #(#xC8 #xC9 #x5B #x5B)))
+             '(:name "HI"))
+      (check "bounded-wide-probe, one two-byte element then two terminator elements"
+             (to-list (lambda (d) (marshal bounded-wide-probe d :s #(#x4142))))
+             '(#x42 #x41 0 0 0 0))
+      (check "bounded-wide-probe, read back"
+             (unmarshal bounded-wide-probe (->bytes #(#x42 #x41 0 0 0 0)))
+             '(:s #(#x4142)))
+      (let ((buf (ub8 6)))
+        (marshal bounded-span-probe buf :name "ab" :k 7)
+        (check "bounded-span-probe, the length slot counts the whole buffer"
+               (coerce buf 'list) '(5 97 98 0 0 7))
+        (check "bounded-span-probe, read back"
+               (unmarshal bounded-span-probe buf)
+               '(:len 5 :name #(97 98) :k 7)))
+      (check "bounded-counted-probe, a buffer sized by an earlier field read back"
+             (unmarshal bounded-counted-probe (->bytes #(4 97 0 122 122 9)))
+             '(:n 4 :name #(97) :after 9))
+      (check "bounded-counted-probe, writing it needs an integer :count for now"
+             (signals-error-p
+              (lambda () (macroexpand-1 '(marshal bounded-counted-probe d :n 4 :name "a"))))
+             t)
+
+      ;; 4. Facts: the data count is unknown, the extent is the buffer.
+      (let ((plan (field-plan (second (gethash 'bounded-probe *manifests*))
+                              :count-form (lambda (i) (getf i :count)))))
+        (check "bounded-probe, known-count is NIL and known-extent is 5 units"
+               (list (known-count (slot-value plan 'rule)) (known-extent plan))
+               '(nil 5))))
+    (let ((pass (every #'identity results)))
+      (format t "~&bounded buffer checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
+              pass (count t results) (length results))
+      pass)))

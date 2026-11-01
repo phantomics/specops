@@ -392,6 +392,12 @@
                                 (write-effector
                                  (simplify-plan (field-plan item :selector-form #'selector-form
                                                                  :enum-of #'enum-of
+                                                                 ;; on write, a buffer's size is an
+                                                                 ;; integer :count; a counted vector
+                                                                 ;; takes its length from its value
+                                                                 :count-form (lambda (i)
+                                                                               (let ((c (getf i :count)))
+                                                                                 (and (integerp c) c)))
                                                                  :unit-bits (ash 1 (+ 3 (getf params
                                                                                               :unit-spec)))))
                                  (list :name name

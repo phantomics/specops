@@ -12,6 +12,10 @@
   ((code :initarg :code
          :reader rule-code))) ;; code form
 
+(defclass bounded-terminator-rule (terminator-rule)
+  ((n    :initarg :n
+         :reader rule-n)))    ;; integer or form: the buffer's size in elements
+
 (defclass continuation-rule (stop-rule)
   ((bit  :initarg :bit  :initform 7 :reader rule-bit)))
 
@@ -46,6 +50,7 @@ is fixed before reading. For a field plan, the number of units it consumes, when
 constant. Otherwise NIL.")
   (:method ((r stop-rule)) nil)
   (:method ((r count-rule)) (rule-n r))
+  (:method ((r bounded-terminator-rule)) (rule-n r))
   (:method ((p field-plan)) nil)
   (:method ((p scalar-plan)) (slot-value p 'width))
   (:method ((p scan-plan))
@@ -73,6 +78,13 @@ elements already collected to drop at the end)."))
 (defmethod stop-effector ((r terminator-rule) ctx)
   (let ((tm (gensym "TM")))
     (list :bindings `((,tm ,(rule-code r)))
+          :after `(eql ,(getf ctx :element) ,tm) :keep nil)))
+
+(defmethod stop-effector ((r bounded-terminator-rule) ctx)
+  ;; stop at the terminator or at the buffer's end; emit-scan moves past the whole buffer
+  (let ((tm (gensym "TM")))
+    (list :bindings `((,tm ,(rule-code r)))
+          :before `(>= ,(getf ctx :index) ,(getf ctx :extent))
           :after `(eql ,(getf ctx :element) ,tm) :keep nil)))
 
 (defmethod stop-effector ((r continuation-rule) ctx)
@@ -204,6 +216,20 @@ and :trailer (forms run after the last element)."))
                        (error "Field ~s contains its terminator ~a." ',name ,tm)))
             :trailer (list (funcall write tm))))))
 
+(defmethod frame-effector ((r bounded-terminator-rule) ctx)
+  ;; data that fills the buffer needs no terminator; shorter data is followed by the
+  ;; terminator, repeated to the buffer's end
+  (destructuring-bind (&key name element index write &allow-other-keys) ctx
+    (unless (rule-n r)
+      (error "Field ~s: writing a buffer with a terminator needs an integer :count for now." name))
+    (let ((tm (gensym "TM")) (n (gensym "N")))
+      (list :bindings `((,tm ,(rule-code r)) (,n ,(rule-n r)))
+            :check `((when (>= ,index ,n)
+                       (error "Field ~s holds at most ~a elements." ',name ,n))
+                     (when (eql ,element ,tm)
+                       (error "Field ~s contains its terminator ~a." ',name ,tm)))
+            :trailer `((loop :repeat (- ,n ,index) :do ,(funcall write tm)))))))
+
 (defmethod frame-effector ((r continuation-rule) ctx)
   (declare (ignore ctx))
   (let ((bit (rule-bit r)))
@@ -332,12 +358,14 @@ RULE, and writes them with WRITE, an expansion-time function of an element form.
                                                           :selector-form selector-form :enum-of enum-of
                                                           :count-form count-form :unit-bits unit-bits))))))
           ((member :vec subtypes)
-           (when (and end-by count)          ; until SPECOPS-DRAFT-manifest-complete-D7
-             (error "Field ~a: :count with :end-by is not supported yet." name))
            (make-instance 'scan-plan :width length
-             :rule (if end-by
-                       (make-instance 'terminator-rule :code (terminator-code-form name end-by codec))
-                       (make-instance 'count-rule :n (and count-form (funcall count-form item))))
+             :rule (cond ((and end-by count)  ; a fixed buffer holding a terminator
+                          (make-instance 'bounded-terminator-rule
+                                         :code (terminator-code-form name end-by codec)
+                                         :n (and count-form (funcall count-form item))))
+                         (end-by
+                          (make-instance 'terminator-rule :code (terminator-code-form name end-by codec)))
+                         (t (make-instance 'count-rule :n (and count-form (funcall count-form item)))))
              :assembler (make-instance 'vector-assembler :bits (* length unit-bits) :signed signed
                                                          :enum enumerate-by :codec codec)))
           ((member :leb subtypes)
