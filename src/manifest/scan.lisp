@@ -32,7 +32,9 @@
   ((rule      :initarg  :rule)
    (assembler :initarg  :assembler)
    (width     :initarg  :width
-              :initform 1)))
+              :initform 1)
+   (element   :initarg  :element      ;; a plan that reads and writes each element, when
+              :initform nil)))        ;; elements are not raw codes of a fixed width
 
 (defclass case-plan   (field-plan)
   ((selector :initarg :selector)   ;; form yielding the selector
@@ -55,7 +57,7 @@ constant. Otherwise NIL.")
   (:method ((p scalar-plan)) (slot-value p 'width))
   (:method ((p scan-plan))
     (let ((x (known-extent (slot-value p 'rule))))
-      (and (integerp x) (* x (slot-value p 'width)))))
+      (and (integerp x) (not (slot-value p 'element)) (* x (slot-value p 'width)))))
   (:method ((p case-plan))
     (let ((ws (mapcar (lambda (b) (known-extent (rest b))) (slot-value p 'branches))))
       (and (first ws) (every (lambda (w) (eql w (first ws))) ws) (first ws)))))
@@ -163,7 +165,8 @@ a vector or a string, each encoded by the rule of terminator-code-form."
   (with-slots (bits signed enum codec) a
     (destructuring-bind (&key name element count trailer &allow-other-keys) ctx
       (let* ((v (gensym "V")) (j (gensym "J"))
-             (etype (cond (enum t) (signed `(signed-byte ,bits)) (t `(unsigned-byte ,bits))))
+             (etype (cond (enum t) ((null bits) 'integer)
+                          (signed `(signed-byte ,bits)) (t `(unsigned-byte ,bits))))
              (x (let ((s (if signed
                              `(if (logbitp ,(1- bits) ,element) (- ,element ,(ash 1 bits)) ,element)
                              element)))
@@ -376,10 +379,13 @@ RULE, and writes them with WRITE, an expansion-time function of an element form.
 
 (defmethod read-effector ((p scan-plan) ctx)
   (destructuring-bind (&key name read-at cursor src &allow-other-keys) ctx
-    (with-slots (rule assembler width) p
+    (with-slots (rule assembler width element) p
       (emit-scan name rule assembler
-                 (lambda (pos) `(prog1 ,(funcall read-at pos width nil) (incf ,pos ,width)))
-                 cursor src :width width))))
+                 (if element
+                     ;; each element is read by its own plan, using the position as its cursor
+                     (lambda (pos) (read-effector element (list* :cursor pos ctx)))
+                     (lambda (pos) `(prog1 ,(funcall read-at pos width nil) (incf ,pos ,width))))
+                 cursor src :width (and (not element) width)))))
 
 (defmethod write-effector ((p scalar-plan) ctx)
   (destructuring-bind (&key value write &allow-other-keys) ctx
@@ -387,8 +393,11 @@ RULE, and writes them with WRITE, an expansion-time function of an element form.
 
 (defmethod write-effector ((p scan-plan) ctx)
   (destructuring-bind (&key name value write &allow-other-keys) ctx
-    (with-slots (rule assembler width) p
-      (emit-frame name rule assembler value (lambda (f) (funcall write width f))))))
+    (with-slots (rule assembler width element) p
+      (emit-frame name rule assembler value
+                  (if element
+                      (lambda (f) (write-effector element (list* :value f ctx)))
+                      (lambda (f) (funcall write width f)))))))
 
 (defun case-clauses (p ctx effector)
   (with-slots (selector branches) p
@@ -417,6 +426,10 @@ RULE, and writes them with WRITE, an expansion-time function of an element form.
           ((listp keys) (mapcar #'code keys))
           (t (list (code keys))))))
 
+(defun check-leb-width (name length unit-bits)
+  (unless (and (eql 1 length) (= 8 unit-bits))
+    (error "Field ~s: a LEB field must be one 8-bit unit wide." name)))
+
 (defun field-plan (item &key selector-form enum-of count-form (unit-bits 8))
   (destructuring-bind (&key name length signed subtypes count end-by codec enumerate-by
                          type-indicator type-conditions &allow-other-keys) item
@@ -431,19 +444,32 @@ RULE, and writes them with WRITE, an expansion-time function of an element form.
                                                           :selector-form selector-form :enum-of enum-of
                                                           :count-form count-form :unit-bits unit-bits))))))
           ((member :vec subtypes)
-           (make-instance 'scan-plan :width length
-             :rule (cond ((and end-by count)  ; a fixed buffer holding a terminator
-                          (make-instance 'bounded-terminator-rule
-                                         :codes (terminator-code-forms name end-by codec)
-                                         :n (and count-form (funcall count-form item))))
-                         (end-by
-                          (make-instance 'terminator-rule :codes (terminator-code-forms name end-by codec)))
-                         (t (make-instance 'count-rule :n (and count-form (funcall count-form item)))))
-             :assembler (make-instance 'vector-assembler :bits (* length unit-bits) :signed signed
-                                                         :enum enumerate-by :codec codec)))
+           (let ((leb (member :leb subtypes)))
+             (when leb
+               (check-leb-width name length unit-bits)
+               ;; skipping the rest of a buffer would mean reading elements of unknown width
+               (when (and end-by count)
+                 (error "Field ~s: a vector of LEB elements cannot be a fixed buffer." name)))
+             (make-instance 'scan-plan :width length
+               :rule (cond ((and end-by count)  ; a fixed buffer holding a terminator
+                            (make-instance 'bounded-terminator-rule
+                                           :codes (terminator-code-forms name end-by codec)
+                                           :n (and count-form (funcall count-form item))))
+                           (end-by
+                            (make-instance 'terminator-rule :codes (terminator-code-forms name end-by codec)))
+                           (t (make-instance 'count-rule :n (and count-form (funcall count-form item)))))
+               ;; LEB elements are read and written by an inner plan, which handles their sign;
+               ;; the vector compares and collects their integer values and decodes the enum
+               :element (and leb (make-instance 'scan-plan
+                                                :rule (make-instance 'continuation-rule)
+                                                :assembler (make-instance 'leb-assembler
+                                                                          :signed signed)))
+               :assembler (make-instance 'vector-assembler
+                                         :bits (and (not leb) (* length unit-bits))
+                                         :signed (and (not leb) signed)
+                                         :enum enumerate-by :codec codec))))
           ((member :leb subtypes)
-           (unless (and (eql 1 length) (= 8 unit-bits))
-             (error "Field ~s: a LEB field must be one 8-bit unit wide." name))
+           (check-leb-width name length unit-bits)
            (make-instance 'scan-plan :rule (make-instance 'continuation-rule)
                                      :assembler (make-instance 'leb-assembler :signed signed
                                                                               :enum enumerate-by)))

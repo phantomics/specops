@@ -1492,3 +1492,130 @@ Returns T if all checks pass."
       (format t "~&multi-element terminator checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
               pass (count t results) (length results))
       pass)))
+
+;;; ===========================================================================
+;;; Part O — vectors of LEB128 elements
+;;; ===========================================================================
+
+(defmanifest leb-vec-probe (:unit 8 :endian :big)
+  (:v     (:u 1 :vec :leb) :count 3)
+  (:after :u8 :default 0))
+
+(defmanifest sleb-vec-probe (:unit 8 :endian :big)
+  (:v (:s 1 :vec :leb) :count 3))
+
+;; The element count comes from an earlier field.
+(defmanifest leb-vec-counted-probe (:unit 8 :endian :big)
+  (:n     :u8 :default 0)
+  (:v     (:u 1 :vec :leb) :count :n)
+  (:after :u8 :default 0))
+
+;; Ended by an element whose value is 0.
+(defmanifest leb-vec-terminated-probe (:unit 8 :endian :big)
+  (:v     (:u 1 :vec :leb) :end-by 0)
+  (:after :u8 :default 0))
+
+;; Enumerated elements: leb-opcode is :nop 0, :call 200, :jump 300.
+(defmanifest leb-vec-enum-probe (:unit 8 :endian :big)
+  (:ops (:u 1 :vec :leb) :end-by 0 :enumerate-by leb-opcode))
+
+;; A LEB vector as one branch of a :case field.
+(defmanifest leb-vec-case-probe (:unit 8 :endian :big)
+  (:kind  :u8 :default 0)
+  (:v     (:case :kind (0 :u8) (1 :u 1 :vec :leb)) :end-by 0 :default 0)
+  (:after :u8 :default 0))
+
+;; A length slot counts bytes, which cannot give an element count on read.
+(defmanifest leb-vec-length-probe (:unit 8 :endian :big)
+  (:len :u8 :slot (:length-of :v))
+  (:v   (:u 1 :vec :leb)))
+
+(defmanifest leb-vec-bounded-probe (:unit 8 :endian :big)
+  (:v (:u 1 :vec :leb) :count 3 :end-by 0))
+
+(defmanifest leb-vec-wide-probe (:unit 8 :endian :big)
+  (:v (:u 2 :vec :leb) :count 3))
+
+(defun run-leb-vector-demo ()
+  "Marshal and unmarshal vectors whose elements are LEB128 integers.
+Returns T if all checks pass."
+  (let ((results nil))
+    (flet ((check (label got want)
+             (let ((ok (equalp got want)))
+               (push ok results)
+               (format t "~&  ~:[FAIL~;ok  ~]  ~a~%" ok label)
+               (unless ok
+                 (format t "~&          got  ~s~%          want ~s~%" got want))))
+           (to-list (manifest-thunk)
+             (let ((acc nil))
+               (funcall manifest-thunk (lambda (b) (push b acc)))
+               (reverse acc))))
+      (format t "~&LEB vector checks:~%")
+
+      ;; 1. Counted vectors.
+      (check "leb-vec-probe, #(1 300 624485) as LEBs of one, two and three bytes"
+             (to-list (lambda (d) (marshal leb-vec-probe d :v #(1 300 624485) :after 9)))
+             '(1 #xAC #x02 #xE5 #x8E #x26 9))
+      (check "leb-vec-probe, read back, with the field after lined up"
+             (unmarshal leb-vec-probe (->bytes #(1 #xAC #x02 #xE5 #x8E #x26 9)))
+             '(:v #(1 300 624485) :after 9))
+      (check "leb-vec-probe, a bignum element round-trips"
+             (let ((v (vector 0 (expt 2 70) 5)))
+               (getf (unmarshal leb-vec-probe
+                                (->bytes (to-list (lambda (d) (marshal leb-vec-probe d :v v)))))
+                     :v))
+             (vector 0 (expt 2 70) 5))
+      (check "sleb-vec-probe, signed elements #(-1 64 -123456)"
+             (to-list (lambda (d) (marshal sleb-vec-probe d :v #(-1 64 -123456))))
+             '(#x7F #xC0 #x00 #xC0 #xBB #x78))
+      (check "sleb-vec-probe, read back"
+             (unmarshal sleb-vec-probe (->bytes #(#x7F #xC0 #x00 #xC0 #xBB #x78)))
+             '(:v #(-1 64 -123456)))
+      (check "leb-vec-counted-probe, a count from an earlier field, written and read back"
+             (let ((bytes (to-list (lambda (d) (marshal leb-vec-counted-probe d
+                                                        :n 2 :v #(5 300) :after 9)))))
+               (list bytes (unmarshal leb-vec-counted-probe (->bytes bytes))))
+             '((2 5 #xAC #x02 9) (:n 2 :v #(5 300) :after 9)))
+      (check "leb-vec-probe, a LEB unfinished at the end of the source signals an error"
+             (signals-error-p (lambda () (unmarshal leb-vec-probe (->bytes #(1 #xAC)))))
+             t)
+
+      ;; 2. Terminated vectors: the terminator is compared with element values.
+      (check "leb-vec-terminated-probe, #(127 128) then the element 0"
+             (to-list (lambda (d) (marshal leb-vec-terminated-probe d :v #(127 128) :after 9)))
+             '(#x7F #x80 #x01 0 9))
+      (check "leb-vec-terminated-probe, read back"
+             (unmarshal leb-vec-terminated-probe (->bytes #(#x7F #x80 #x01 0 9)))
+             '(:v #(127 128) :after 9))
+      (check "leb-vec-terminated-probe, an element with the value 0 signals an error"
+             (signals-error-p
+              (lambda () (to-list (lambda (d) (marshal leb-vec-terminated-probe d :v #(5 0 6))))))
+             t)
+      (check "leb-vec-enum-probe, keywords written as LEB codes, read back as keywords"
+             (let ((bytes (to-list (lambda (d) (marshal leb-vec-enum-probe d :ops #(:call :jump))))))
+               (list bytes (unmarshal leb-vec-enum-probe (->bytes bytes))))
+             '((#xC8 #x01 #xAC #x02 0) (:ops #(:call :jump))))
+      (check "leb-vec-case-probe, a LEB vector branch inheriting :end-by, both ways"
+             (let ((bytes (to-list (lambda (d) (marshal leb-vec-case-probe d :kind 1 :v #(300) :after 9)))))
+               (list bytes (unmarshal leb-vec-case-probe (->bytes bytes))))
+             '((1 #xAC #x02 0 9) (:kind 1 :v #(300) :after 9)))
+
+      ;; 3. What a LEB vector cannot be, yet.
+      (let ((buf (ub8 4)))
+        (marshal leb-vec-length-probe buf :v #(1 300))
+        (check "leb-vec-length-probe, the length slot holds the vector's bytes on write"
+               (coerce buf 'list) '(3 1 #xAC #x02)))
+      (check "leb-vec-length-probe, reading needs :count or :end-by: an expansion error"
+             (signals-error-p (lambda () (macroexpand-1 '(unmarshal leb-vec-length-probe s))))
+             t)
+      (check "leb-vec-bounded-probe, a fixed buffer of LEBs is an expansion error on both sides"
+             (list (signals-error-p (lambda () (macroexpand-1 '(unmarshal leb-vec-bounded-probe s))))
+                   (signals-error-p (lambda () (macroexpand-1 '(marshal leb-vec-bounded-probe d :v #(1))))))
+             '(t t))
+      (check "leb-vec-wide-probe, LEB elements wider than one byte: an expansion error"
+             (signals-error-p (lambda () (macroexpand-1 '(unmarshal leb-vec-wide-probe s))))
+             t))
+    (let ((pass (every #'identity results)))
+      (format t "~&LEB vector checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
+              pass (count t results) (length results))
+      pass)))

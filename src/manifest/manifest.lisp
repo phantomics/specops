@@ -728,11 +728,18 @@
                          (record-read name ;; enumerate-by subtypes
                                       (read-effector (field-plan item :selector-form #'selector-form
                                                                       :enum-of #'enum-of
-                                                                      :count-form (lambda (i)
-                                                                                    (vec-count-form
-                                                                                     (getf i :name)
-                                                                                     (getf i :count)
-                                                                                     (getf i :length)))
+                                                                      :count-form
+                                                                      (lambda (i)
+                                                                        ;; a length slot counts bytes,
+                                                                        ;; not elements of varying width
+                                                                        (when (and (member :leb (getf i :subtypes))
+                                                                                   (not (getf i :count)))
+                                                                          (error "unmarshal: vector ~s of LEB ~
+                                                                                  elements needs :count or ~
+                                                                                  :end-by." (getf i :name)))
+                                                                        (vec-count-form (getf i :name)
+                                                                                        (getf i :count)
+                                                                                        (getf i :length)))
                                                                       :unit-bits (ash 1 (+ 3 (getf config
                                                                                                    :unit-spec))))
                                                      (list :name name :cursor cursor :src src
