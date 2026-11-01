@@ -60,8 +60,8 @@ a struct interface, destinations that cannot be patched, and packaging. It
 assumes the decisions recorded in the
 [Manifest development log, SPECOPS-DRAFT-manifest](Log.Manifest.md) and the
 architecture in [SPECOPS-DRAFT-specops](Arch.SpecOps.md). Progress is charted
-in dated updates at the end of this plan; the latest is the second update of
-2026-10-31, at commit `d030f5c`.
+in dated updates at the end of this plan; the latest is the third update of
+2026-10-31, at commit `2e1af03`.
 
 ## Problem
 
@@ -699,3 +699,55 @@ met. Two are new: the units rule, if built, comes before fixed buffers of LEB
 elements and before reading a vector of LEB elements counted by a length
 slot; and writing a buffer sized by another field uses the same variables as
 `:case` selectors (SPECOPS-DRAFT-manifest-D20).
+
+## Update 2026-10-31 — Progress: corrections
+
+This installment charts the plan's progress at commit `2e1af03`, which makes
+the corrections that were the first priority of the previous update. The
+log's update of the same date records them, with SPECOPS-DRAFT-manifest-D29
+through SPECOPS-DRAFT-manifest-D31. One fault not listed here was found and
+fixed on the way: a manifest's `:endian` did not reach its fields. All
+fourteen suites pass: 217 checks and the PNG verification.
+
+### Progress
+
+Table: State of each Roadmap milestone at commit `2e1af03`. Entries new since
+the previous update are marked "new".
+
+| Milestone | State | Done | Remaining |
+|---|---|---|---|
+| 1. Corrections and records | Done | As before; new: a manifest's `:endian` applies to its fields; byte orders across nesting; keyword defaults on enumerated fields; codes an enum lacks read as integers; the selector-order error names both fields; unused variables removed or declared; exports for user stop rules | — |
+| 2. Field kinds on read | Partly done | As before | SPECOPS-DRAFT-manifest-complete-O5 for fields without a terminator; writing a buffer sized by another field; a units rule for `:length-of` over variable-width elements; fixed buffers of LEB elements |
+| 3. Checked reads | Open | — | Read-side region map; the policy of SPECOPS-DRAFT-manifest-complete-O1 |
+| 4. Structs and run-time nested values | Open | — | SPECOPS-DRAFT-manifest-complete-D4, SPECOPS-DRAFT-manifest-complete-O2, SPECOPS-DRAFT-manifest-complete-O3; round-trip tests |
+| 5. Variable structure | Open | The field-plan level; plans nest | Repeated sub-manifests; `:case` choosing a sub-manifest; SPECOPS-DRAFT-manifest-complete-O4 |
+| 6. Destinations | Open | — | Buffering (SPECOPS-DRAFT-manifest-complete-D2); checksums on streams; overrun checks |
+| 7. Selective reads and stream sources | Open | `known-count` and `known-extent` | Dependency closure and skip mode (SPECOPS-DRAFT-manifest-complete-D3); stream sources |
+| 8. WOFF | Open | — | SPECOPS-DRAFT-manifest-complete-D6, the first test of `:offset-of` |
+| 9. Floats and masque completion | Partly done | Decimal (`d:`) masques in `masque` and `unmasque` | The `:f` class; decimal masques in `unmarshal`; range checks; keyword groups registered for `:case` and `:count` |
+| 10. Packaging | Partly done | As before; new: the stop-rule protocol exported | Suites behind `test-op`; a Ref |
+
+### Priorities
+
+1. **Structs and round trips** (SPECOPS-DRAFT-manifest-complete-D4,
+   SPECOPS-DRAFT-manifest-complete-O2, SPECOPS-DRAFT-manifest-complete-O3).
+2. **Variable structure** (SPECOPS-DRAFT-manifest-complete-D5,
+   SPECOPS-DRAFT-manifest-complete-O4).
+3. **Checked reads** (SPECOPS-DRAFT-manifest-complete-O1).
+4. **Destinations** (SPECOPS-DRAFT-manifest-complete-D2).
+5. **Selective reads and stream sources**
+   (SPECOPS-DRAFT-manifest-complete-D3).
+6. **WOFF** (SPECOPS-DRAFT-manifest-complete-D6).
+7. **Floats and masque completion**, including decimal masques in
+   `unmarshal`.
+8. **Packaging:** `test-op`, then a Ref.
+
+The remaining items of milestone 2 still wait on demand, as the previous
+update said.
+
+### Dependencies
+
+Unchanged from the previous update. Milestone 1 had no dependents, so its
+completion unblocks nothing new; structs and round trips are next on their
+own merits, and their answers to SPECOPS-DRAFT-manifest-complete-O2 and
+SPECOPS-DRAFT-manifest-complete-O3 shape variable structure.

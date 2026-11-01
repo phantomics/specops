@@ -39,6 +39,9 @@ decisions:
   - SPECOPS-DRAFT-manifest-D26
   - SPECOPS-DRAFT-manifest-D27
   - SPECOPS-DRAFT-manifest-D28
+  - SPECOPS-DRAFT-manifest-D29
+  - SPECOPS-DRAFT-manifest-D30
+  - SPECOPS-DRAFT-manifest-D31
 relates-to:
   - SPECOPS-DRAFT-manifest-complete
   - SPECOPS-DRAFT-restructure
@@ -65,8 +68,8 @@ record, `marshal`, which writes values into that structure, and `unmarshal`,
 which reads them back out. It covers the path from a freeform `marshal` macro to
 manifest-driven writing and reading, and the PNG test format used to exercise
 it. The chronicled state is commit `10b1568`; the updates at the end of this
-log carry the record forward: that of 2026-10-30 to commit `653345f`, and two
-of 2026-10-31, to commits `738105a` and `d030f5c`. The repository restructure that followed
+log carry the record forward: that of 2026-10-30 to commit `653345f`, and
+three of 2026-10-31, to commits `738105a`, `d030f5c` and `2e1af03`. The repository restructure that followed
 moved the files this log names (see
 [SPECOPS-DRAFT-restructure](Log.Restructure.md)); code references stay pinned
 to the commits that held the work.
@@ -1201,3 +1204,142 @@ wording of the selector-order error. New:
 - **Fixed buffers of LEB elements**, which need the units rule or a way to
   skip unread elements.
 - **Decimal masques in `unmarshal`**, now that `unmasque` reads them.
+
+## Update 2026-10-31 — Corrections after the scan model
+
+This installment covers commit `2e1af03`, which makes the corrections the
+Manifest Completion Plan lists under its first milestone, now that the scan
+model is complete. Probing them turned up one more fault, larger than the
+rest: a manifest's `:endian` had no effect on its fields. The checks for each
+correction went into the suite of the feature it corrects, which brings the
+checks from 202 to 217.
+
+### SPECOPS-DRAFT-manifest-D29 — A field without a byte order takes its manifest's; strings are in stream order
+
+**Status:** Proposed
+**Context:** `process-field` defaulted a field's byte order to big-endian, so
+the manifest's `:endian` never reached a field that gave none, and a manifest
+declared little-endian wrote its fields big-endian. Every probe set `:endian`
+per field, so no suite saw it. Once fixed, a child manifest with a byte order
+its parent lacked would index past the parent's serializers, which nested
+expansions share. A constant string stored its manifest's byte order, while
+both macros read and write strings through the first serializer and
+deserializer.
+**Decision:** A field's byte order is its own `:endian`, else its manifest's,
+else big-endian. `marshal` sizes its serializers from the byte orders of
+every field it writes, inside spans and nested manifests, collected by
+`src/manifest/manifest.lisp:manifest-swap-specs@2e1af03`. A constant string
+stores byte order 0: it is written and read in stream order, and any byte
+order belongs to its codec (SPECOPS-DRAFT-manifest-D6).
+**Alternatives:** Requiring `:endian` on every field (rejected: the manifest's
+`:endian` exists to state it once); giving each nested manifest serializers
+of its own (rejected: nested expansions share one environment by design,
+SPECOPS-DRAFT-manifest-D10). Who owns byte order across the system remains
+the architecture's open question SPECOPS-DRAFT-specops-O3; this settles it
+within a manifest.
+
+### SPECOPS-DRAFT-manifest-D30 — A code an enum lacks is read as its integer
+
+**Status:** Proposed
+**Context:** `unmarshal` decoded an enumerated field's code to `nil` when the
+enum had no keyword for it, so the value was lost and the record could not be
+written back.
+**Decision:** `src/manifest/manifest.lisp:enumerated@2e1af03` returns the code
+itself when the enum names no such code. Known codes still become keywords.
+`marshal` already writes integers as they are, so a record holding a code the
+enum lacks round-trips. This holds for every field kind, since scalars, LEB
+values, vector elements, `:case` values and masque groups all decode through
+`enumerated`.
+**Alternatives:** Signalling an error (rejected by the steward: files with
+newer or vendor codes could not be read at all); keeping `nil` (rejected: the
+value is lost).
+
+### SPECOPS-DRAFT-manifest-D31 — A correction is tested in the suite of the feature it corrects
+
+**Status:** Proposed
+**Context:** The corrections could have been tested by a suite of their own.
+Such a suite gathers checks by when their faults were found rather than by
+what they cover, and must change whenever any of those features does.
+**Decision:** Each correction's checks join the suite of the field kind or
+directive it corrects, and the log records how many each suite gained.
+**Alternatives:** A corrections suite (rejected by the steward, for the
+reasons above).
+
+### Implementation
+
+- **Byte orders, SPECOPS-DRAFT-manifest-D29.** In
+  `src/manifest/manifest.lisp:defmanifest@2e1af03`, a field's `:endian`
+  defaults to `nil`, the manifest's byte order to big-endian, and a `str`
+  directive stores byte order 0. In `src/manifest/manifest.lisp:marshal@2e1af03`,
+  `manifest-swap-specs` replaces the byte-order collection in
+  `preprocess-spec`.
+- **Keyword defaults.** A default goes through the enum like a given value,
+  in `marshal`'s `scalar-value-form` and its masque binder. The scalar clause
+  of `generate`, which repeated `scalar-value-form`, now calls it.
+- **Unknown codes, SPECOPS-DRAFT-manifest-D30**, in `enumerated`.
+- **Error wording.** `field-plan` passes a field's name to `selector-form`,
+  and `unmarshal`'s `var-of` names both fields: "unmarshal: field :V needs
+  field :KIND, which isn't read before it." `marshal`'s message names both as
+  well.
+- **Unused variables.** `defmanifest` accepts `:index`, `:vextend-by` and
+  `:count-from` and declares them ignored. Removed: the static `index` counter
+  and the `unincrementing` argument of `process-field` that served it, the
+  unused `:length` key of `process-field`, `olength` in `marshal`, the unused
+  keys of `generate`'s destructuring, and `count` in `unmarshal`'s
+  `process-item`. The manifest layer compiles with no style warnings, where it
+  had 26.
+- **Exports.** `src/package.lisp@2e1af03` exports `stop-rule`, the five
+  protocol functions of SPECOPS-DRAFT-manifest-D28, `stop-effector` and
+  `frame-effector`, so that a stop rule can be defined in another package. No
+  module that uses `specops` defines any of these names.
+
+### Verification
+
+The run command is that of the previous update.
+
+Table: Checks added to existing suites in commit `2e1af03`.
+
+| Suite | Checks | Added |
+|---|---|---|
+| `run-unmarshal-demo` | 8 → 12 | A manifest-level `:endian :little` with one field overriding it, both ways; a keyword default; a code the enum lacks, read and written back |
+| `run-chunk-unmarshal-demo` | 9 → 13 | A little-endian child in a big-endian parent, and the reverse, both ways |
+| `run-masque-demo` | 10 → 11 | A keyword default in a masque group |
+| `run-string-demo` | 9 → 11 | A constant string in a little-endian manifest, both ways |
+| `run-leb-demo` | 17 → 18 | A keyword default on a LEB |
+| `run-case-demo` | 27 → 28 | A keyword default for a `:case` value; the selector default back to `:word`; both selector-order messages name the field and its selector |
+| `run-vec-scan-demo` | 18 → 19 | A code the enum lacks, in a vector, read and written back |
+| `run-stop-by-demo` | 13 → 14 | A stop rule defined in another package through the exported names |
+| All fourteen suites | 202 → 217 | All pass, with the PNG verification |
+
+Two checks were confirmed to fail without their fix. Without the nested
+byte-order collection, or without the exports, `test/manifest.lisp` does not
+compile. The architecture systems that loaded before, `specops.arch.6502`,
+`.s390x`, `.x86`, `.z80` and `.wasm`, and the three format systems load as
+before; x86's 14 full warnings are unchanged. The five test scripts in `test/`
+pass, among them the GOFF writer's, which uses manifests.
+
+### Files
+
+Table: Files changed in commit `2e1af03`.
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/manifest/manifest.lisp` | Modified | Byte orders, keyword defaults, unknown codes, error wording, unused variables |
+| `src/manifest/scan.lisp` | Modified | `field-plan` passes the field's name to `selector-form` |
+| `src/package.lisp` | Modified | Exports for user stop rules |
+| `test/manifest.lisp` | Modified | Checks in eight suites |
+| `doc/Log.Manifest.md` | Modified | This update |
+
+### Metrics
+
+- Test checks: 217 automated checks plus 1 structural PNG verification, up
+  from 202.
+- Regressions at `2e1af03`: 0.
+- Style warnings in the manifest layer: 0, down from 26.
+
+### Outstanding Work
+
+From the previous update, the keyword defaults, unknown enum codes, error
+wording and exports are done. Remaining: writing a buffer sized by another
+field, the units rule, fixed buffers of LEB elements, and decimal masques in
+`unmarshal`. The Manifest Completion Plan's other milestones are unchanged.
