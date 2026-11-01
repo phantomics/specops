@@ -61,8 +61,8 @@ a struct interface, destinations that cannot be patched, and packaging. It
 assumes the decisions recorded in the
 [Manifest development log, SPECOPS-DRAFT-manifest](Log.Manifest.md) and the
 architecture in [SPECOPS-DRAFT-specops](Arch.SpecOps.md). Progress is charted
-in dated updates at the end of this plan; the latest is the fifth update of
-2026-11-01, at commit `239b2f7`.
+in dated updates at the end of this plan; the latest is the sixth update of
+2026-11-01, at commit `cb931c8`.
 
 ## Problem
 
@@ -217,6 +217,12 @@ as a fallback, streams read and discarded unit by unit.
 fallback when the closure covers everything); a lazy parser that decodes on
 access at run time (rejected: loses the code specialization that macro
 expansion gives).
+
+Note: built as SPECOPS-DRAFT-manifest-D53 through SPECOPS-DRAFT-manifest-D55 in
+the log. File streams are read past, never sought with `file-position`, as
+every stream is; a read from a stream still takes the whole record; and only
+the slots whose field and region lie in the part read are checked. Key paths
+into sub-manifests are deferred (Scope and Non-Goals).
 
 ### SPECOPS-DRAFT-manifest-complete-D4 — `defmanifest` generates a struct for record input and output
 
@@ -1069,3 +1075,50 @@ so the skipping of SPECOPS-DRAFT-manifest-complete-D3 must cover every field
 kind, not only those before the last key. They extend the region table of
 SPECOPS-DRAFT-manifest-D43 with what each field needs to be read or skipped.
 The rest are as in the update of 2026-10-30.
+
+## Update 2026-11-01 — Progress: selective reads
+
+This installment charts the plan's progress at commit `cb931c8`, which
+completes the seventh milestone: given keys, `unmarshal` decodes only those
+fields and the fields that locate them, and passes over the rest
+(SPECOPS-DRAFT-manifest-complete-D3), as the steward settled in the previous
+update. The log's update of the same date records the work, with
+SPECOPS-DRAFT-manifest-D53 through SPECOPS-DRAFT-manifest-D55. All twenty
+suites pass: 360 checks and the PNG verification.
+
+### Progress
+
+Table: State of each Roadmap milestone at commit `cb931c8`. Entries new since
+the previous update are marked "new".
+
+| Milestone | State | Done | Remaining |
+|---|---|---|---|
+| 1. Corrections and records | Partly done | As before | Checksums over `unmarshal` sources that are not simple byte arrays |
+| 2. Field kinds on read | Partly done | As before | SPECOPS-DRAFT-manifest-complete-O5 for fields without a terminator; writing a buffer sized by another field; fixed buffers of LEB elements; trailing `:length-of` and `:count-of` slots |
+| 3. Checked reads | Done | As before | — |
+| 4. Structs and run-time nested values | Done | As before | — |
+| 5. Variable structure | Done | As before | Instances addressed from outside a repeat, should a format need it |
+| 6. Destinations | Done | As before | Writing a buffer out in pieces, should a record grow too large to hold whole |
+| 7. Selective reads and stream sources | Done | As before; new: fields given modes at expansion (SPECOPS-DRAFT-manifest-D53); fields passed over through their plans' skip effectors (SPECOPS-DRAFT-manifest-D54); reading stopped after the last key, a stream's record taken whole, and only the part read checked (SPECOPS-DRAFT-manifest-D55) | Units kept for the whole record, should one grow too large to hold |
+| 8. WOFF | Open | `:count-of` slots; `:offset-of` written and read back by a probe | SPECOPS-DRAFT-manifest-complete-D6 |
+| 9. Floats and masque completion | Partly done | Decimal masques in `masque` and `unmasque` | The `:f` class; decimal masques in `unmarshal`; range checks; keyword groups registered for `:case` and `:count` |
+| 10. Packaging | Partly done | As before | Suites behind `test-op`; a Ref; the checksum functions exported |
+
+Key paths into sub-manifests are deferred, as Scope and Non-Goals records.
+
+### Priorities
+
+1. **WOFF** (SPECOPS-DRAFT-manifest-complete-D6).
+2. **Floats and masque completion.**
+3. **Packaging:** `test-op`, then a Ref.
+
+Checksums over sources that are not simple byte arrays remain a small
+correction between larger steps.
+
+### Dependencies
+
+WOFF depends on nothing still open: `:count-of` and `:offset-of` slots are
+written and read, and its table directory's entries can be passed over by
+selective reads. The Ref waits for the public interface of
+SPECOPS-DRAFT-specops-O6 and `test-op` for SPECOPS-DRAFT-specops-O5, as in the
+update of 2026-10-30.

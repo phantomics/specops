@@ -63,6 +63,9 @@ decisions:
   - SPECOPS-DRAFT-manifest-D50
   - SPECOPS-DRAFT-manifest-D51
   - SPECOPS-DRAFT-manifest-D52
+  - SPECOPS-DRAFT-manifest-D53
+  - SPECOPS-DRAFT-manifest-D54
+  - SPECOPS-DRAFT-manifest-D55
 relates-to:
   - SPECOPS-DRAFT-manifest-complete
   - SPECOPS-DRAFT-restructure
@@ -90,9 +93,9 @@ which reads them back out. It covers the path from a freeform `marshal` macro to
 manifest-driven writing and reading, and the PNG test format used to exercise
 it. The chronicled state is commit `10b1568`; the updates at the end of this
 log carry the record forward: that of 2026-10-30 to commit `653345f`, three
-of 2026-10-31, to commits `738105a`, `d030f5c` and `2e1af03`, and five of
-2026-11-01, to commits `4f9c6d4`, `d7ba27f`, `1cc7600`, `b63b7d2` and
-`239b2f7`. The repository restructure that followed
+of 2026-10-31, to commits `738105a`, `d030f5c` and `2e1af03`, and six of
+2026-11-01, to commits `4f9c6d4`, `d7ba27f`, `1cc7600`, `b63b7d2`, `239b2f7`
+and `cb931c8`. The repository restructure that followed
 moved the files this log names (see
 [SPECOPS-DRAFT-restructure](Log.Restructure.md)); code references stay pinned
 to the commits that held the work.
@@ -2351,4 +2354,181 @@ Stream sources, outstanding since this log began, are done. New:
 - **The reader protocol of the architecture.** The stream source is a
   candidate base for the protocol that SPECOPS-DRAFT-specops-O4 asks
   disassembly to offer; that question remains open.
+- The other items of the previous updates remain.
+
+## Update 2026-11-01 — Selective reads
+
+This installment covers commit `cb931c8`, the second half of the Manifest
+Completion Plan's seventh milestone. Given keys, `unmarshal` now decodes only
+those fields and the fields that locate them, and passes over the rest,
+reading no more of a field than finding its end needs. A read from a vector
+stops after its last key; a read from a stream still takes the whole record.
+Only the slots in the part read are checked. This builds the plan's
+SPECOPS-DRAFT-manifest-complete-D3 and amends SPECOPS-DRAFT-manifest-D13. Key
+paths into sub-manifests are deferred by the steward. A new suite brings the
+checks from 348 to 360.
+
+### SPECOPS-DRAFT-manifest-D53 — A keyed read decodes its keys and the fields that locate them
+
+**Status:** Proposed
+**Context:** `unmarshal` read every named field whatever keys it was given, so
+that counts and lengths were available to later fields
+(SPECOPS-DRAFT-manifest-D13). Reading one field of a large file decoded all of
+it. SPECOPS-DRAFT-manifest-complete-D3 planned a closure of the requested keys
+computed at expansion, and the region table of SPECOPS-DRAFT-manifest-D43 was
+built in a general form for it.
+**Decision:** At expansion, `src/manifest/manifest.lisp:manifest-selection@cb931c8`
+gives each field of the manifest, spans' fields included, a mode: read, which
+decodes it, or skip, which passes over it. Working back from the last field,
+a field is read when it is a key or another field needs it, and
+`src/manifest/manifest.lisp:field-dependencies@cb931c8` names what each needs:
+the field a `:count` names, a `:case` selector, and the field of a length slot
+when the length counts the field's elements or bounds a repeat. A field passed
+over that a length slot read before it covers needs only that slot's field,
+and is passed over by the length. A key the manifest lacks is an expansion
+error. A key that names a sub-manifest field gives its whole record: key paths
+into sub-manifests, such as `(:ihdr :width)`, are deferred by the steward.
+Reads without keys decode every field, as before. This amends
+SPECOPS-DRAFT-manifest-D13.
+**Alternatives:** Decoding every field, as before (kept for reads without
+keys); a parser that decodes fields lazily when the code runs (rejected in
+SPECOPS-DRAFT-manifest-complete-D3: it loses the specialization expansion
+gives); key paths now (deferred by the steward).
+
+### SPECOPS-DRAFT-manifest-D54 — A field is passed over through its plan's skip effector
+
+**Status:** Proposed
+**Context:** Passing over a field must find its end. For some kinds that is
+known before reading; for others, such as terminated or LEB fields, the
+elements must be read, though not decoded, enum-mapped or collected. Field
+plans and their effectors (SPECOPS-DRAFT-manifest-D18,
+SPECOPS-DRAFT-manifest-D19) already know how each kind ends.
+**Decision:** `src/manifest/scan.lisp:skip-effector@cb931c8` emits the code
+that moves the cursor past a plan's field. A scalar, a field of fixed size, or
+one whose element count is known before reading moves the cursor at once. A
+`:case` field dispatches once on its selector. A sub-manifest is expanded to
+read only what finding its own end needs. Other scans run with
+`src/manifest/scan.lisp:null-assembler@cb931c8`, which collects nothing,
+reading their elements only when the stop rule decides by their values, as
+`src/manifest/scan.lisp:rule-reads-elements-p@cb931c8` tells; a repeat ended by
+`:until` reads in each instance only the fields its condition tests, through
+a nested read of those fields alone. Pads, strings, scalars and masques move
+the cursor by their width. Streams are read past, never sought, as the steward
+decided for them (SPECOPS-DRAFT-manifest-D50).
+**Alternatives:** Reading and discarding each field (rejected: it decodes,
+maps enums and allocates for nothing); seeking file streams (rejected by the
+steward); computing each sub-manifest's fixed size at expansion (deferred: a
+skipped child of fixed fields already moves the cursor with no reads).
+
+### SPECOPS-DRAFT-manifest-D55 — A selective read stops after its last key, but takes a stream's whole record, and checks only the part read
+
+**Status:** Proposed
+**Context:** Fields after the last key need not be reached, but a read from a
+stream takes exactly one record (SPECOPS-DRAFT-manifest-D51). Checks
+(SPECOPS-DRAFT-manifest-D42, SPECOPS-DRAFT-manifest-D43) need their slot
+fields read and their regions located, so checking everything would turn a
+selective read into a full one.
+**Decision:** The boundary is the top-level item that holds the last key.
+From a vector or an integer, reading stops there. The items after it are
+passed over only when the source is a stream, under a test made when the code
+runs, so that the stream is left where a full read would leave it. A field
+before the boundary that only an item after it needs is read from every
+source. A slot is checked when its field and its region both lie in the items
+up to the boundary, and its field is then read; constants passed over are not
+checked, and nothing after the boundary is.
+**Alternatives:** Every check pulling its fields into the read (rejected by
+the steward: a selective read would become a full one); no checks with keys
+(rejected by the steward: what is read past should still be checked);
+stopping a stream after the last key (rejected by the steward: the next
+record could not be read).
+
+### Implementation
+
+- **`src/manifest/manifest.lisp`.**
+  - `manifest-leaves`, `leaf-names`, `field-dependencies` and
+    `manifest-selection`, per SPECOPS-DRAFT-manifest-D53 and
+    SPECOPS-DRAFT-manifest-D55.
+  - In `src/manifest/manifest.lisp:unmarshal@cb931c8`: the selection, given
+    by the keys at the top level or by an internal `:-+select+-` param for a
+    nested manifest, `nil` passing over it; the modes and boundary, with the
+    checked slots taken from the selection; local `skip-item`, `skip-manifest`
+    and `select-manifest`; `item-plan` and `item-ctx`, which reading and
+    skipping share, replacing the two copies of plan building in `read-item`;
+    the guard around the items after the boundary; and the plist a nested
+    selection returns. A key that names nothing is reported.
+- **`src/manifest/scan.lisp`.** `skip-effector` and its methods,
+  `null-assembler` and `rule-reads-elements-p`, per
+  SPECOPS-DRAFT-manifest-D54. `emit-scan` declares the element ignorable, since
+  a skip collects nothing.
+- **`test/manifest.lisp`.** `test/manifest.lisp:run-selective-read-demo@cb931c8`,
+  with the macro `test/manifest.lisp:each-key-agrees@cb931c8` and
+  `test/manifest.lisp:reads-outside-guard@cb931c8`, which counts the reads in an
+  expansion outside a stream's tail; the probe `until-then-probe`.
+
+### Verification
+
+The run command is that of the update of 2026-10-31 for the scan model, with
+`(specops::run-record-demo)`, `(specops::run-variable-demo)`,
+`(specops::run-checked-read-demo)`, `(specops::run-destination-demo)`,
+`(specops::run-stream-source-demo)` and `(specops::run-selective-read-demo)`
+added.
+
+Table: The suite added in this installment, and the totals at commit `cb931c8`.
+
+| Suite | Function | Checks | Result |
+|---|---|---|---|
+| Selective reads | `run-selective-read-demo` | 12 | 12 pass |
+| All twenty suites | from `run-png-demo` to `run-selective-read-demo` | 360 and the PNG verification | All pass |
+
+Every keyed read in the earlier suites is now a selective read, and they pass
+unchanged. The new suite checks, among other things:
+
+- **The same values:** each key read alone gives what a full read gives, over
+  the three PNG manifests and 20 probes covering terminated, multi-element, user-rule, LEB,
+  `:case`, masque, fixed-buffer, repeated, nested, padded and slot fields;
+  several keys come back in the order asked.
+- **No decoding of what is passed over:** the reads in expansions outside a
+  stream's tail, such as 1 for `nest-probe`'s `:trailer` against 9 for a full
+  read, and 2 for a PNG chunk's `:type`, whose data is passed over by its
+  length; vectors cut short after the keys still read them.
+- **Checks:** a corrupt CRC unchecked when reading `:type` and caught when
+  reading `:crc`; a changed chunk type passed over, not checked as a constant,
+  while the CRC over it is.
+- **Streams:** a selective read of a PNG taking its whole record, its CRCs
+  unchecked, so that the next record reads whole; a repeat ended by `:until`
+  passed over on a stream.
+
+The expansion of a repeat ended by `:until` was also inspected: each instance
+reads only its `:tag` and moves past its `:value`. The manifest layer has no
+style warnings, the five test scripts in `test/` pass, and the architecture
+systems `specops.arch.6502`, `.s390x`, `.x86`, `.z80` and `.wasm`, and the
+three format systems, load.
+
+### Files
+
+Table: Files changed in commit `cb931c8`, and the documents updated after it.
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/manifest/manifest.lisp` | Modified | The selection, skipping and the stream's tail in `unmarshal`; shared plan building |
+| `src/manifest/scan.lisp` | Modified | `skip-effector`, `null-assembler`, `rule-reads-elements-p` |
+| `test/manifest.lisp` | Modified | The selective reads suite |
+| `doc/Log.Manifest.md` | Modified | This update |
+| `doc/Plan.ManifestComplete.md` | Modified | Progress installment for selective reads; a note under SPECOPS-DRAFT-manifest-complete-D3 |
+
+### Metrics
+
+- Test checks: 360 automated checks plus 1 structural PNG verification, up
+  from 348.
+- Regressions at `cb931c8`: 0.
+
+### Outstanding Work
+
+Selective reads, outstanding since this log began, are done. New:
+
+- **Key paths into sub-manifests**, such as `(:ihdr :width)`, deferred by the
+  steward (SPECOPS-DRAFT-manifest-D53).
+- **Fields read only for the tail.** A field before the boundary that only an
+  item after it needs is read from vectors too, where the tail is not reached
+  (SPECOPS-DRAFT-manifest-D55).
 - The other items of the previous updates remain.
