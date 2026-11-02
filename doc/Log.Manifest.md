@@ -66,9 +66,14 @@ decisions:
   - SPECOPS-DRAFT-manifest-D53
   - SPECOPS-DRAFT-manifest-D54
   - SPECOPS-DRAFT-manifest-D55
+  - SPECOPS-DRAFT-manifest-D56
+  - SPECOPS-DRAFT-manifest-D57
+  - SPECOPS-DRAFT-manifest-D58
+  - SPECOPS-DRAFT-manifest-D59
 relates-to:
   - SPECOPS-DRAFT-manifest-complete
   - SPECOPS-DRAFT-restructure
+  - SPECOPS-DRAFT-lisp-binary-tools
 cites:
   - title:    lisp-binary (Common Lisp binary format library) wiki
     locator:  github.com/j3pic/lisp-binary/wiki — DEFBINARY structs; EVAL type specifier
@@ -93,9 +98,9 @@ which reads them back out. It covers the path from a freeform `marshal` macro to
 manifest-driven writing and reading, and the PNG test format used to exercise
 it. The chronicled state is commit `10b1568`; the updates at the end of this
 log carry the record forward: that of 2026-10-30 to commit `653345f`, three
-of 2026-10-31, to commits `738105a`, `d030f5c` and `2e1af03`, and six of
-2026-11-01, to commits `4f9c6d4`, `d7ba27f`, `1cc7600`, `b63b7d2`, `239b2f7`
-and `cb931c8`. The repository restructure that followed
+of 2026-10-31, to commits `738105a`, `d030f5c` and `2e1af03`, and seven of
+2026-11-01, to commits `4f9c6d4`, `d7ba27f`, `1cc7600`, `b63b7d2`, `239b2f7`,
+`cb931c8` and `52b81e5`. The repository restructure that followed
 moved the files this log names (see
 [SPECOPS-DRAFT-restructure](Log.Restructure.md)); code references stay pinned
 to the commits that held the work.
@@ -2531,4 +2536,229 @@ Selective reads, outstanding since this log began, are done. New:
 - **Fields read only for the tail.** A field before the boundary that only an
   item after it needs is read from vectors too, where the tail is not reached
   (SPECOPS-DRAFT-manifest-D55).
+- The other items of the previous updates remain.
+
+## Update 2026-11-01 — Placed fields and WOFF
+
+This installment covers commit `52b81e5`, which builds the Manifest Completion
+Plan's eighth milestone, WOFF (SPECOPS-DRAFT-manifest-complete-D6). A WOFF
+file's table directory holds, for each table, its offset, length and checksum,
+while the tables follow the whole directory, in an order of their own. That
+needs what SPECOPS-DRAFT-manifest-D39 left open: a slot in one instance of a
+repeat covering data written outside it. Placed fields provide it, after
+lisp-binary's pointers and region tags, which the prior-art evaluation
+[SPECOPS-DRAFT-lisp-binary-tools](Eval.LispBinaryTools.md) proposed in its
+SPECOPS-DRAFT-lisp-binary-tools-O1. A WOFF and an sfnt manifest in the tests
+read real fonts and WOFF files, and fontTools accepts what they write. A new
+suite brings the checks from 360 to 377.
+
+### SPECOPS-DRAFT-manifest-D56 — A field may be placed: written where a place directive for its tag stands, its slots backpatched there
+
+**Status:** Proposed
+**Context:** A WOFF directory entry describes a table that is written after
+all the entries. Slots resolve within their instance
+(SPECOPS-DRAFT-manifest-D39), and instances are not addressed from outside a
+repeat. The WOFF specification also stores tables in the source font's order,
+which need not be the directory's: in all seven rustdoc WOFFs and both sfnt
+fonts examined, the orders differ.
+**Decision:** A field declared `:place tag`, or a sub-manifest with `:place
+tag` among its options, is written where a directive `(place tag :align n)`
+stands in the same manifest or one enclosing it. In
+`src/manifest/manifest.lisp:marshal@52b81e5`, the field's writing code is
+queued under its tag, with the positions of the slots over it captured from
+its instance. The directive writes each queued field in turn, padding before
+it and after the last to the alignment, and backpatches its `:offset-of`,
+`:length-of` and `:checksum-of` slots. A checksum slot over a placed field
+writes a placeholder where it stands. In memory, a placed field belongs to its
+instance, as a WOFF entry holds its table's data. Expansion errors: a tag no
+directive declares; a slot over a placed field that comes after it, or that is
+not an offset, length or checksum slot; and a placed field inside a span. A
+field queued after its tag's last directive is an error when the code runs.
+`src/manifest/manifest.lisp:manifest-places@52b81e5` finds the tags and
+directives across nested manifests.
+**Alternatives:** Paired repeats, instance *i* of one describing instance *i*
+of another (rejected by the steward: a table's data would be split from its
+entry, and reading would still assume directory order); instance names built
+at run time, such as `:tables/3/data`, as SPECOPS-DRAFT-manifest-D39 deferred
+(rejected: heavier, and no help with the order); offsets computed by the
+caller (rejected: the purpose of SPECOPS-DRAFT-manifest-complete-D6).
+
+### SPECOPS-DRAFT-manifest-D57 — A placed field is read at the offset its `:offset-of` slot gives
+
+**Status:** Proposed
+**Context:** Reading tables in sequence fails for real files, whose tables
+are not in directory order. Following offsets on read was deferred by the
+plan's Scope and Non-Goals. A stream source keeps the units read
+(SPECOPS-DRAFT-manifest-D50), so an offset behind the cursor can be read
+again, and one ahead is read to.
+**Decision:** In `src/manifest/manifest.lisp:unmarshal@52b81e5`, a placed
+field is read at the value of its `:offset-of` slot field, which must be read
+before it; the cursor then returns. A placed field with no `:offset-of` slot
+is an expansion error. The directive moves the cursor past the furthest unit
+read by its tag's fields and aligns it, so a stream is still taken one record
+at a time (SPECOPS-DRAFT-manifest-D51). Checks work as for any field, and a
+selective read passing over a placed field reads its offset and length fields
+only. The steward brought this forward for placed fields only; following
+offsets to structures that are not placed stays deferred.
+**Alternatives:** Reading placed data in queue order (rejected: wrong for
+every real file examined); general pointers now (deferred by the steward).
+
+### SPECOPS-DRAFT-manifest-D58 — Fields that describe data the manifest does not hold are given, not derived
+
+**Status:** Proposed
+**Context:** A WOFF table may be zlib-compressed. Its original length and
+checksum, and the header's `totalSfntSize`, describe the uncompressed font,
+which is not in the file, and SpecOps has no deflate compressor. An sfnt's
+`head` table checksum is computed with the table's `checkSumAdjustment` taken
+as zero, which no slot over its bytes reproduces.
+**Decision:** In the test manifests, `orig-length`, `orig-checksum`,
+`total-sfnt-size` and an sfnt entry's `checksum` are ordinary fields, given by
+the caller or carried in a record; the layout fields, offsets, compressed
+lengths, the file's length and the table count, are slots. Compressed files
+then read with no failed check and write back exactly, and
+`src/checksum.lisp:sfnt-checksum@52b81e5`, with the slot signature of
+SPECOPS-DRAFT-manifest-D45, serves callers computing checksums.
+**Alternatives:** Slots for the original length and checksum (rejected by the
+steward: valid only for uncompressed tables, so every real file examined would
+fail its checks); an option to treat a field as zero during a checksum, as
+SPECOPS-DRAFT-manifest-complete-D6 noted for TrueType (deferred).
+
+### SPECOPS-DRAFT-manifest-D59 — Placed fields are written in the order they were queued
+
+**Status:** Proposed
+**Context:** A record read from a file whose tables are out of directory
+order holds its entries in directory order. Writing them back in the file's
+order would need an order other than the record's.
+**Decision:** The directive writes its fields in the order they were queued,
+which for a repeat is the order of its instances. A file stored in another
+order is written back valid but reordered, a canonical round trip in the sense
+of SPECOPS-DRAFT-manifest-D35.
+**Alternatives:** An option ordering placed data by the offsets read
+(rejected by the steward for now: exact round trips of such files are not
+needed).
+
+### Implementation
+
+- **`src/manifest/manifest.lisp`.**
+  - `src/manifest/manifest.lisp:defmanifest@52b81e5` stores `:place` on fields
+    and on sub-manifests, taking it out of a sub-manifest's options, and
+    parses the `place` directive.
+  - `manifest-places`, per SPECOPS-DRAFT-manifest-D56.
+  - In `marshal`, local `placed-item`, `placed-field` and `place-directive`;
+    the queues, a plist by tag, bound at the top level and shared through the
+    sub-lexicon; the check, when the code ends, that every queue was written.
+  - In `unmarshal`, `offset-sources`; the shared plist of the furthest unit
+    read by each tag's fields; the jump to a placed field's offset and back in
+    `process-item`, around the recording of its region; and `place-form`, for
+    the directive, read or passed over.
+  - `src/manifest/manifest.lisp:manifest-selection@52b81e5` adds a placed
+    field's offset field to what it needs.
+- **`src/checksum.lisp`.** `sfnt-checksum`, per SPECOPS-DRAFT-manifest-D58.
+- **`test/manifest.lisp`.** The manifests
+  `test/manifest.lisp:woff-file@52b81e5`, `woff-entry`,
+  `test/manifest.lisp:sfnt-file@52b81e5` and `sfnt-entry`, and probes of placed
+  fields; `test/manifest.lisp:verify-woff@52b81e5`, an independent hand
+  verifier like `verify-png`; `test/manifest.lisp:hand-woff@52b81e5`, which
+  builds WOFF bytes without manifests, in any table order;
+  `test/manifest.lisp:table-checksum@52b81e5`, with `head`'s rule;
+  `test/manifest.lisp:read-woff@52b81e5` and `write-woff`; and
+  `test/manifest.lisp:run-woff-demo@52b81e5`.
+
+The first draft of the suite inlined some thirty `woff-file` expansions in one
+function, and SBCL exhausted its default heap compiling it, though each
+expansion is under 1,700 conses. Reads and writes that need no options now go
+through `read-woff` and `write-woff`. The first draft of `verify-woff` also
+rejected the `head` checksum of every real WOFF; it now applies `head`'s rule.
+
+### Verification
+
+The run command is that of the update of 2026-10-31 for the scan model, with
+`(specops::run-record-demo)`, `(specops::run-variable-demo)`,
+`(specops::run-checked-read-demo)`, `(specops::run-destination-demo)`,
+`(specops::run-stream-source-demo)`, `(specops::run-selective-read-demo)` and
+`(specops::run-woff-demo)` added.
+
+Table: The suite added in this installment, and the totals at commit `52b81e5`.
+
+| Suite | Function | Checks | Result |
+|---|---|---|---|
+| Placed fields and WOFF | `run-woff-demo` | 17 | 17 pass |
+| All twenty-one suites | from `run-png-demo` to `run-woff-demo` | 377 and the PNG verification | All pass |
+
+The new suite checks, among other things:
+
+- **Placed fields:** sub-manifests placed after their entries, 2-aligned,
+  written to a vector and a function and read back; placed vectors with
+  offset, length and checksum slots, and a changed byte caught by the
+  checksum; the four expansion errors.
+- **WOFF written:** four tables passing `verify-woff`, and byte for byte the
+  WOFF `hand-woff` builds; read back, and written back through plists and
+  records.
+- **Order and compression:** a WOFF stored out of directory order, read with
+  no failed check and written back valid, in directory order; a compressed
+  table, with its given length and checksum, carried through unchanged.
+- **Streams and selective reads:** two WOFFs read in sequence from a stream,
+  offsets read backwards and forwards; the flavor, the table count and the
+  entries read alone. Because `woff-file` wraps every field in one span, the
+  whole record is the part read (SPECOPS-DRAFT-manifest-D55): reading
+  `:flavor` reads the file's length, the table count and each entry's offset
+  and length, 5 reads against 18 for a full read, and no table data.
+- **Checks:** a wrong file length, and a wrong signature as a constant.
+- **sfnt:** `sfnt-checksum`, and an sfnt written, read back and packed as a
+  WOFF.
+
+Outside the suite, real fonts were read and written, the fonts left where they
+are and the outputs written to a scratch directory. `av05-logotype.otf`, an
+OpenType font with CFF outlines and 10 tables, and Qt's `icons.ttf`, a
+TrueType font with 16, were read from streams through `sfnt-file`, their
+tables at offsets out of directory order, packed as WOFFs, and written back as
+sfnts of their original sizes. The seven WOFFs in rustc 1.48's rustdoc, whose
+tables are mostly compressed and stored out of directory order, read with no
+failed check and were written back at their sizes. `verify-woff` passed every
+original and every output, and fontTools 4.60.2 opened all eleven outputs with
+checksum checking set to raise, found each table equal to its source's, and
+parsed every table it knows.
+
+The manifest layer has no style warnings, the five test scripts in `test/`
+pass, and the architecture systems `specops.arch.6502`, `.s390x`, `.x86`,
+`.z80` and `.wasm`, and the three format systems, load.
+
+### Files
+
+Table: Files changed in commit `52b81e5`, and the documents updated after it.
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/manifest/manifest.lisp` | Modified | Placed fields: the `:place` key and `place` directive, writing, reading at offsets, selection |
+| `src/checksum.lisp` | Modified | `sfnt-checksum` |
+| `test/manifest.lisp` | Modified | WOFF and sfnt manifests, `verify-woff`, `hand-woff`, the placed fields and WOFF suite |
+| `doc/Log.Manifest.md` | Modified | This update |
+| `doc/Plan.ManifestComplete.md` | Modified | Progress installment for WOFF; a note under SPECOPS-DRAFT-manifest-complete-D6; Scope and Non-Goals |
+| `doc/Eval.LispBinaryTools.md` | Modified | SPECOPS-DRAFT-lisp-binary-tools-O1 answered in part |
+
+### Metrics
+
+- Test checks: 377 automated checks plus 1 structural PNG verification, up
+  from 360.
+- Regressions at `52b81e5`: 0.
+
+### Outstanding Work
+
+The offset-table exercise, outstanding since this log began, is done with
+WOFF, and instances addressed from outside a repeat are no longer needed for
+it. New:
+
+- **General pointers and offset bases.** Following an offset to a structure
+  that is not placed, and offsets counted from a base other than the
+  top-level record's start, as TIFF and OpenType tables need, remain
+  deferred (SPECOPS-DRAFT-lisp-binary-tools-O1).
+- **Limits of placed fields.** A placed field cannot be inside a span or
+  covered by a `:count-of` slot, and the slots over it must come before it.
+- **Treating a field as zero during a checksum**, for an sfnt's `head`
+  (SPECOPS-DRAFT-manifest-D58).
+- **Out of scope for WOFF:** compression, the metadata and private blocks, and
+  checking a file for overlapping or extra data on read.
+- **Large test functions.** Many expansions inlined in one function can
+  exhaust SBCL's default heap at compilation; helper functions keep the
+  suites small.
 - The other items of the previous updates remain.

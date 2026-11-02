@@ -61,8 +61,8 @@ a struct interface, destinations that cannot be patched, and packaging. It
 assumes the decisions recorded in the
 [Manifest development log, SPECOPS-DRAFT-manifest](Log.Manifest.md) and the
 architecture in [SPECOPS-DRAFT-specops](Arch.SpecOps.md). Progress is charted
-in dated updates at the end of this plan; the latest is the sixth update of
-2026-11-01, at commit `cb931c8`.
+in dated updates at the end of this plan; the latest is the seventh update of
+2026-11-01, at commit `52b81e5`.
 
 ## Problem
 
@@ -280,6 +280,14 @@ already covers); TrueType (deferred: its `checkSumAdjustment` is computed over
 the whole file including itself, which needs an option to treat a field as
 zero during the checksum).
 
+Note: built as SPECOPS-DRAFT-manifest-D56 through SPECOPS-DRAFT-manifest-D59
+in the log. Table bodies are placed fields, written where a `place` directive
+stands and read at their offsets, since real files store tables out of
+directory order, so WOFF is not read sequentially. The fields describing the
+uncompressed font are given rather than derived, and WOFFs are written in
+directory order. The tests also read and write TrueType and OpenType fonts,
+with table checksums given.
+
 ### SPECOPS-DRAFT-manifest-complete-D7 — Fixed buffers with a terminator are tar-style, padded with the terminator
 
 **Status:** Proposed
@@ -441,8 +449,11 @@ region map that differ per instance
 ## Scope and Non-Goals
 
 - **Following offsets on read** (reading a structure at an offset stored in
-  another field, as TIFF and ELF need) is deferred to a later plan; WOFF is
-  written and read sequentially.
+  another field, as TIFF and ELF need) is deferred to a later plan, except for
+  placed fields, which the steward brought forward for WOFF
+  (SPECOPS-DRAFT-manifest-D57).
+- **WOFF compression, metadata and private blocks**, and checking a WOFF for
+  overlapping or extra data on read, are out of scope; WOFF is a test format.
 - **Whole-string codecs** for variable-width encodings are deferred
   (SPECOPS-DRAFT-manifest-complete-D1).
 - **Overlapping regions** stay excluded (SPECOPS-DRAFT-manifest-D8).
@@ -1122,3 +1133,51 @@ written and read, and its table directory's entries can be passed over by
 selective reads. The Ref waits for the public interface of
 SPECOPS-DRAFT-specops-O6 and `test-op` for SPECOPS-DRAFT-specops-O5, as in the
 update of 2026-10-30.
+
+## Update 2026-11-01 — Progress: placed fields and WOFF
+
+This installment charts the plan's progress at commit `52b81e5`, which
+completes the eighth milestone: WOFF files are written and read through
+placed fields, whose bytes go where a `place` directive stands and are read at
+their offsets (SPECOPS-DRAFT-manifest-complete-D6). The log's update of the
+same date records the work, with SPECOPS-DRAFT-manifest-D56 through
+SPECOPS-DRAFT-manifest-D59; it also answers in part the prior-art evaluation's
+SPECOPS-DRAFT-lisp-binary-tools-O1. All twenty-one suites pass: 377 checks and
+the PNG verification. Outside the suite, WOFFs packed from two real fonts, and
+seven real WOFFs written back, pass fontTools with checksum checking.
+
+### Progress
+
+Table: State of each Roadmap milestone at commit `52b81e5`. Entries new since
+the previous update are marked "new".
+
+| Milestone | State | Done | Remaining |
+|---|---|---|---|
+| 1. Corrections and records | Partly done | As before | Checksums over `unmarshal` sources that are not simple byte arrays |
+| 2. Field kinds on read | Partly done | As before | SPECOPS-DRAFT-manifest-complete-O5 for fields without a terminator; writing a buffer sized by another field; fixed buffers of LEB elements; trailing `:length-of` and `:count-of` slots |
+| 3. Checked reads | Done | As before | — |
+| 4. Structs and run-time nested values | Done | As before | — |
+| 5. Variable structure | Done | As before; new: data described from outside a repeat, through placed fields (SPECOPS-DRAFT-manifest-D56) | Instances addressed by name from outside a repeat, should a format need it |
+| 6. Destinations | Done | As before | Writing a buffer out in pieces, should a record grow too large to hold whole |
+| 7. Selective reads and stream sources | Done | As before | Units kept for the whole record, should one grow too large to hold |
+| 8. WOFF | Done | New: placed fields, written where their directive stands (SPECOPS-DRAFT-manifest-D56) and read at their offsets (SPECOPS-DRAFT-manifest-D57); fields describing the uncompressed font given (SPECOPS-DRAFT-manifest-D58); placed data written in queue order (SPECOPS-DRAFT-manifest-D59); `sfnt-checksum`; WOFF and sfnt test manifests, checked against real fonts and fontTools | — |
+| 9. Floats and masque completion | Partly done | Decimal masques in `masque` and `unmasque` | The `:f` class; decimal masques in `unmarshal`; range checks; keyword groups registered for `:case` and `:count` |
+| 10. Packaging | Partly done | As before | Suites behind `test-op`; a Ref; the checksum functions exported |
+
+### Priorities
+
+1. **Floats and masque completion.**
+2. **Packaging:** `test-op`, then a Ref.
+
+Checksums over sources that are not simple byte arrays remain a small
+correction between larger steps, as do the remaining field kinds of milestone
+2, which wait on demand.
+
+### Dependencies
+
+Floats can draw on the prior-art evaluation's
+SPECOPS-DRAFT-lisp-binary-tools-O7, which the steward has yet to dispose of.
+The Ref waits for the public interface of SPECOPS-DRAFT-specops-O6 and
+`test-op` for SPECOPS-DRAFT-specops-O5, as in the update of 2026-10-30. The
+evaluation's other questions, SPECOPS-DRAFT-lisp-binary-tools-O2 through
+SPECOPS-DRAFT-lisp-binary-tools-O6, bear on work beyond this plan.

@@ -396,6 +396,13 @@ work take this shape, with a base for `:offset-of`, and should lisp-binary's
 EXIF example, TIFF with byte order and offsets both chosen by the data, be its
 test format?
 
+Answered in part in [SPECOPS-DRAFT-manifest](Log.Manifest.md) by
+SPECOPS-DRAFT-manifest-D56 and SPECOPS-DRAFT-manifest-D57: placed fields take
+the shape of pointers and region tags, written where a `place` directive
+stands and read at their `:offset-of` slots' values, for WOFF. Offsets from a
+base other than the top-level record's start, structures followed by offset
+without being placed, and EXIF as a test format remain open.
+
 ### SPECOPS-DRAFT-lisp-binary-tools-O2 — Should byte order be selectable by an earlier field?
 
 ELF's `EI_DATA` and TIFF's `II`/`MM` set the byte order of what follows, so
