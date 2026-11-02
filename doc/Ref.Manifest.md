@@ -6,7 +6,11 @@ scope:         component
 project:       SpecOps
 component:     Manifest
 language:      en
-status:        Draft
+status:        Current
+authors:
+  - Andrew Sengul
+approved-by:   Andrew Sengul
+reviewed:      2026-11-01
 api-version:   0.1.0
 provenance:
   assistant:   claude-opus (OpenCode)
