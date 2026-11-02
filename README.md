@@ -490,6 +490,31 @@ Finally, if a nil value is encountered by `(serialize)` it will do nothing and s
 
 In this specification, the `rex` and `sib0` functions may also return nil - the REX prefix isn't needed for some encodings and registers, and the SIB byte is only used for certain memory access patterns. The flexibility of `(serialize)` allows complex X86 encoding rules to be expressed in a succinct way.
 
+## Binary Formats: Manifests
+
+Machine code rarely travels alone. It is wrapped in object files and containers - GOFF records, ELF sections, WebAssembly modules - whose headers hold lengths, offsets and checksums of the data around them. SpecOps describes such formats declaratively with manifests. A `(defmanifest)` form lays out a binary record field by field, and from that one description the `(marshal)` macro writes the record and the `(unmarshal)` macro reads it back, each expanding into code fitted to the manifest at compile time.
+
+```lisp
+* (defmanifest chunk (:unit 8 :endian :big)
+    (:length (:u 4) :slot (:length-of :data))
+    (span :body
+      (str "DATA")
+      (:data (:u 1 :vec)))
+    (:crc (:u 4) :slot (:checksum-of :body :by #'crc)))
+
+* (let ((buf (make-array 15 :element-type '(unsigned-byte 8))))
+    (marshal chunk buf :data #(1 2 3))
+    buf)
+#(0 0 0 3 68 65 84 65 1 2 3 173 234 88 129)
+
+* (unmarshal chunk *)
+(:LENGTH 3 :DATA #(1 2 3) :CRC 2917816449)
+```
+
+This chunk, shaped like a PNG chunk, begins with the length of its data and ends with a CRC-32 over its tag and data. Neither is given to `(marshal)`: both are slots, computed from the fields they describe once those are written. On reading, the length slot tells `(unmarshal)` how much data to read, and the CRC is checked, so a corrupted chunk signals a condition offering restarts to accept the value read or substitute another.
+
+Manifests can express fixed and variable-width integers and floats in any byte order, vectors ended by counts, terminators or user-defined rules, LEB128 integers, fields whose type depends on an earlier field, masques packing several fields into one integer, nested and repeated sub-manifests, and data placed at offsets recorded elsewhere in the file. They write to vectors, streams or functions, read from vectors, integers or streams, and may read just the fields asked for. Records can be read and written as plists or as instances of a class the manifest defines. The [Manifest Reference](doc/Ref.Manifest.md) documents the full interface, with examples that run as part of the test suite.
+
 ## Future Work
 
 SpecOps is at the beginning stages of its development. A few architectures have most of their instruction encodings implemented at this point in time, but complex platforms like X86 and ARM will take a great deal more work to complete. There is also more work to be done in the areas of formatting binary code. The potential scope of the SpecOps project is vast, with many challenges to overcome and possibilities to be realized by more closely connecting various hardware platforms to Common Lisp.

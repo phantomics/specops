@@ -16,6 +16,7 @@ provenance:
   session:     Marshal
 relates-to:
   - SPECOPS-0006
+  - SPECOPS-DRAFT-manifest-ref
   - SPECOPS-0001
   - SPECOPS-0005
 glossary:      SPECOPS-0002
@@ -65,8 +66,8 @@ a struct interface, destinations that cannot be patched, and packaging. It
 assumes the decisions recorded in the
 [Manifest development log, SPECOPS-0006](Log.Manifest.md) and the
 architecture in [SPECOPS-0001](Arch.SpecOps.md). Progress is charted
-in dated updates at the end of this plan; the latest is the tenth update of
-2026-11-01, at commit `e4a1f9a`.
+in dated updates at the end of this plan; the latest is that of 2026-11-02,
+at commit `de25ae7`, the release tagged `v0.1.0`.
 
 ## Problem
 
@@ -465,6 +466,10 @@ region map that differ per instance
   both macros destructure an unused `ba-sym`.
 - **Documents.** Add an update to the log for the pad rework and each later
   milestone, and write a Ref once the interface is settled.
+  Both are done: at `de25ae7`, tagged `v0.1.0`, the functions manifests name
+  are exported as well (SPECOPS-DRAFT-manifest-D69), and the
+  [Manifest Reference](Ref.Manifest.md) documents the interface, its examples
+  run as the suite `manifest-ref` (SPECOPS-DRAFT-manifest-D70).
 
 ## Scope and Non-Goals
 
@@ -1348,3 +1353,59 @@ decision on widths, as in the previous update. Suites for the program builder
 and the format writers wait for SPECOPS-O5 and the steward's
 revision of those writers (SPECOPS-D94); the manifest suites
 no longer do.
+
+## Update 2026-11-02 — Progress: release 0.1.0 and the Reference
+
+This installment charts the plan's progress at commit `de25ae7`, tagged
+`v0.1.0`, which completes the tenth milestone and with it the last of the
+plan's goals: a Ref documents the interface, now settled. The log's update of
+the same date records the work, with SPECOPS-DRAFT-manifest-D68 through
+SPECOPS-DRAFT-manifest-D70. Widths count units, as SPECOPS-D32 records; the
+functions manifests and their users call, `serialize`, the checksum functions
+and the float functions, are exported; and the
+[Manifest Reference](Ref.Manifest.md), `SPECOPS-DRAFT-manifest-ref`, describes
+release 0.1.0, every example a test of the suite `manifest-ref`. The README
+has a manifest section linking to it. All 427 tests pass, with 650 assertions.
+
+### Progress
+
+Table: State of each Roadmap milestone at commit `de25ae7`. Entries new since
+the previous update are marked "new".
+
+| Milestone | State | Done | Remaining |
+|---|---|---|---|
+| 1. Corrections and records | Partly done | As before; new: widths count units (SPECOPS-DRAFT-manifest-D68) | Checksums over `unmarshal` sources that are not simple byte arrays; unused variables in `marshal` and `unmarshal` expansions; new: byte orders other than big-endian in units wider than 8 bits; counts checked on write; clearer errors for a general vector as a source and for a run-time sub-manifest value in `marshal`'s pairs |
+| 2. Field kinds on read | Partly done | As before | SPECOPS-O11 for fields without a terminator; writing a buffer sized by another field; fixed buffers of LEB elements; trailing `:length-of` and `:count-of` slots |
+| 3. Checked reads | Done | As before | — |
+| 4. Structs and run-time nested values | Done | As before | New: record classes named by `common-lisp` symbols |
+| 5. Variable structure | Done | As before | Instances addressed by name from outside a repeat, should a format need it |
+| 6. Destinations | Done | As before | Writing a buffer out in pieces, should a record grow too large to hold whole |
+| 7. Selective reads and stream sources | Done | As before | Units kept for the whole record, should one grow too large to hold |
+| 8. WOFF | Done | As before | — |
+| 9. Floats and masque completion | Done | As before | Range checks that tell signed groups from unsigned, should a format need them |
+| 10. Packaging | Done | As before; new: `serialize`, the checksum functions and the float functions exported (SPECOPS-DRAFT-manifest-D69); version 0.1.0, tagged `v0.1.0`; the Reference, with its examples as tests (SPECOPS-DRAFT-manifest-D70); a manifest section in the README | — |
+
+### Priorities
+
+The plan's milestones are done. What remains are corrections, which the
+Reference lists as the limits of 0.1.0, in the order they most constrain
+users:
+
+1. **Byte orders in wider units**, which the format writers of 16-bit
+   platforms will meet first.
+2. **Counts checked on write**, so a short value is an error rather than a
+   shifted record.
+3. **Clearer errors** for a general vector as a source and for a run-time
+   sub-manifest value.
+4. **Unused variables in expansions**, and checksums over sources that are not
+   simple byte arrays.
+
+Each correction that changes the interface advances the Reference to a new
+release tag.
+
+### Dependencies
+
+None of the corrections depends on another. The format writers' move onto
+manifests and their suites wait for SPECOPS-O5 and the steward's revision of
+those writers (SPECOPS-D94). The rest of the public interface, beyond the
+manifest layer, remains SPECOPS-O6's question.

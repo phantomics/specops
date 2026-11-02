@@ -82,8 +82,12 @@ decisions:
   - SPECOPS-D92
   - SPECOPS-D93
   - SPECOPS-D94
+  - SPECOPS-DRAFT-manifest-D68
+  - SPECOPS-DRAFT-manifest-D69
+  - SPECOPS-DRAFT-manifest-D70
 relates-to:
   - SPECOPS-0003
+  - SPECOPS-DRAFT-manifest-ref
   - SPECOPS-0005
   - SPECOPS-0004
 cites:
@@ -113,9 +117,10 @@ which reads them back out. It covers the path from a freeform `marshal` macro to
 manifest-driven writing and reading, and the PNG test format used to exercise
 it. The chronicled state is commit `10b1568`; the updates at the end of this
 log carry the record forward: that of 2026-10-30 to commit `653345f`, three
-of 2026-10-31, to commits `738105a`, `d030f5c` and `2e1af03`, and ten of
+of 2026-10-31, to commits `738105a`, `d030f5c` and `2e1af03`, ten of
 2026-11-01, to commits `4f9c6d4`, `d7ba27f`, `1cc7600`, `b63b7d2`, `239b2f7`,
-`cb931c8`, `52b81e5`, `e340210`, `5862d3a` and `e4a1f9a`. The repository restructure that followed
+`cb931c8`, `52b81e5`, `e340210`, `5862d3a` and `e4a1f9a`, and that of 2026-11-02
+to commit `de25ae7`, tagged `v0.1.0`. The repository restructure that followed
 moved the files this log names (see
 [SPECOPS-0005](Log.Restructure.md)); code references stay pinned
 to the commits that held the work.
@@ -3277,4 +3282,170 @@ Suites behind `test-op`, outstanding since the plan began, are done. New:
 - **The scripts** in `scripts/` are not under Square (SPECOPS-D94).
 - **Square's matcher list** names `has-accessors` and `instance-of`, which
   cl-hamcrest does not have; a matter for Square, outside this project.
+- The other items of the previous updates remain.
+
+## Update 2026-11-02 — Release 0.1.0 and the Manifest Reference
+
+This installment covers commit `de25ae7`, tagged `v0.1.0`, which completes the
+Manifest Completion Plan's tenth milestone, and the documents written after it:
+the [Manifest Reference](Ref.Manifest.md), `SPECOPS-DRAFT-manifest-ref`, and a
+manifest section in the README. Before the interface could be documented, two
+questions had to be settled, as the plan's previous update said: widths now
+count units, as SPECOPS-D32 records, and the functions a manifest names are
+exported. The Reference's examples are a test suite of their own.
+
+### SPECOPS-DRAFT-manifest-D68 — Widths count units, as SPECOPS-D32 records
+
+**Status:** Proposed
+**Context:** SPECOPS-D32 says a field's width counts output units, but
+`src/manifest/manifest.lisp:defmanifest@e4a1f9a` stored `(ash width (-
+unit-spec))`, so widths counted bytes: in a 16-bit manifest `(:u 2)` took one
+unit, a 32-bit float was `(:f 4)`, and `(:u 1)` took none. Positions,
+lengths, counts and offsets all count units, and the Reference had to state
+one rule.
+**Decision:** `src/manifest/manifest.lisp:defmanifest@de25ae7` stores a list
+type's width as given, in units, for fields and `:case` branches. Keyword
+types such as `:u16`, allowed only in 8-bit manifests, are unchanged, since a
+byte is a unit there. Floats already took their bits from the length in units
+(`src/manifest/scan.lisp:float-bits@de25ae7`). The one manifest of wider units
+in the suites, the float probe of two 16-bit units, is now `(:f 2)`.
+**Alternatives:** Keeping bytes, and superseding SPECOPS-D32 with a new
+record (not taken: the steward chose units, as the record has them).
+
+### SPECOPS-DRAFT-manifest-D69 — The functions manifests and their users call are exported from `specops`
+
+**Status:** Proposed
+**Context:** A manifest names its checksum function in a slot, `(:checksum-of
+:body :by #'crc)`, but `crc`, `adler32`, `adler32-checksum` and
+`sfnt-checksum` were internal, so a manifest in a user's package had to write
+`specops::crc`. The float functions were internal too, and `serialize`, which
+the architecture's SPECOPS-O6 lists among the names users need. SPECOPS-O6
+also asks whether the interface should be split into packages.
+**Decision:** `src/package.lisp:specops@de25ae7` exports `serialize`, the
+four checksum functions, `encode-float-bits` and `decode-float-bits`. No
+module defines a symbol of the same name, so none clashes. The portable float
+functions and the stream-source functions stay internal. The manifest layer's
+interface stays in the package `specops`, which answers SPECOPS-O6 for this
+layer only; the rest of the question remains open.
+**Alternatives:** A package of the manifest layer's own (not taken: the
+steward kept everything in `specops`); leaving the functions internal
+(rejected: manifests name them, so users would reach into the package).
+
+### SPECOPS-DRAFT-manifest-D70 — The Reference's examples are tests, and the Reference describes a tagged release
+
+**Status:** Proposed
+**Context:** A reference whose examples are not run drifts from the code, and
+a reference pinned to a moving commit describes no version a user can name.
+**Decision:** Every example in `SPECOPS-DRAFT-manifest-ref` is a test of the
+suite `manifest-ref`, in `test/test-manifest-ref.lisp`, which uses only the
+names `specops` exports and a four-line `octets` helper the Reference defines.
+The Reference names the test beside each example. `specops` and
+`specops/test` are versioned 0.1.0, the steward tagged the commit `v0.1.0`,
+and the Reference's `api-version` and code references pin to that tag, to be
+advanced with each release.
+**Alternatives:** Examples written for the document alone (not taken: the
+steward chose a suite); code references pinned to the commit (not taken: the
+steward chose a version and a tag).
+
+### Implementation
+
+- **`src/manifest/manifest.lisp`.** Widths as given, per
+  SPECOPS-DRAFT-manifest-D68.
+- **`src/package.lisp`.** The seven exports of SPECOPS-DRAFT-manifest-D69.
+- **`specops.asd`.** Version 0.1.0 for both systems; `test-manifest-ref` in
+  `specops/test`.
+- **`test/test-manifest-ref.lisp`.** The suite `manifest-ref`: 29 tests of
+  the Reference's examples, from
+  `test/test-manifest-ref.lisp:ref-shape-written-and-read@de25ae7` to
+  `test/test-manifest-ref.lisp:ref-float-bits@de25ae7`.
+- **`test/test-manifest-basics.lisp`.** A 16-bit probe and
+  `test/test-manifest-basics.lisp:word-probe-widths-count-16-bit-units@de25ae7`.
+- **`test/test-manifest-fields.lisp`, `test/package.lisp`,
+  `test/helpers.lisp`.** The float probe in units; the exported functions out
+  of the import list; the suite `manifest-ref`.
+- **`doc/Ref.Manifest.md`.** The Reference, written after the commit: the
+  declaration forms, `marshal`, `unmarshal`, records, conditions, the stop
+  rule protocol and the serialization primitives, with the limits of 0.1.0.
+- **`README.md`.** A section, "Binary Formats: Manifests", with an example and
+  a link to the Reference.
+
+### Verification
+
+Run with `sbcl --non-interactive --eval '(asdf:test-system :specops)'` from
+the repository root.
+
+Table: The suites at commit `de25ae7`, with their tests and assertions.
+
+| Suite | Tests | Assertions | Result |
+|---|---|---|---|
+| `serial` | 10 | 48 | All pass |
+| `manifest-basics` | 69 | 84 | All pass |
+| `manifest-fields` | 163 | 192 | All pass |
+| `manifest-records` | 41 | 47 | All pass |
+| `manifest-variable` | 32 | 41 | All pass |
+| `manifest-reads` | 47 | 90 | All pass |
+| `manifest-destinations` | 19 | 22 | All pass |
+| `manifest-formats` | 17 | 46 | All pass |
+| `manifest-ref` | 29 | 80 | All pass |
+| `specops`, the root | 427 | 650 | All pass |
+
+Each test was run alone in three shuffled orders with no failure. The test
+files compile with no warnings of their own. The five scripts pass, and the
+architecture systems `specops.arch.6502`, `.s390x`, `.x86`, `.z80` and
+`.wasm`, and the three format systems, load. The README's example was run as
+written, in a package of its own that uses `specops`, and gives the results it
+shows. Claims of the Reference that no example covers were tried in a scratch
+image before they were written: that a value too wide for an integer field is
+an error, that a slot's value given to `marshal` is ignored and recomputed,
+and the limits below.
+
+### Files
+
+Table: Files changed in commit `de25ae7`, and the documents written after it.
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/manifest/manifest.lisp` | Modified | Widths count units |
+| `src/package.lisp` | Modified | `serialize`, the checksum functions and the float functions exported |
+| `specops.asd` | Modified | Version 0.1.0; the suite `manifest-ref` |
+| `test/test-manifest-ref.lisp` | Added | The Reference's examples |
+| `test/test-manifest-basics.lisp` | Modified | Widths in 16-bit units |
+| `test/test-manifest-fields.lisp` | Modified | The float probe in units |
+| `test/helpers.lisp` | Modified | The suite `manifest-ref` |
+| `test/package.lisp` | Modified | Exported functions out of the import list |
+| `doc/Ref.Manifest.md` | Added | The Manifest Reference |
+| `README.md` | Modified | The manifest section |
+| `doc/Log.Manifest.md` | Modified | This update |
+| `doc/Plan.ManifestComplete.md` | Modified | Progress installment for the release and the Reference |
+
+### Metrics
+
+- Tests: 427, with 650 assertions, up from 397 and 566: 29 tests of the
+  Reference's examples and one of widths in units.
+- Regressions at `de25ae7`: 0.
+
+### Outstanding Work
+
+The Reference and the exports, the last of the plan's milestones, are done,
+and the decision on widths is made. New, found while writing the Reference's
+examples, and listed there under its limits:
+
+- **Byte orders in wider units.** In a manifest of units wider than 8 bits,
+  `:little` and `:middle` reorder a field's bytes, not its units: `(:u 1)`
+  holding 1 in a little-endian 16-bit manifest is written `#x0100`. The
+  serializers swap at byte granularity whatever the unit.
+- **Source vectors.** `unmarshal` reads only a vector whose element type is
+  the manifest's unit, and reports a general vector as "Incompatible type for
+  collection array", which does not say what to give.
+- **Counts on write.** `marshal` does not check a vector's value against its
+  `:count`, so a short value moves the fields after it.
+- **Run-time sub-manifest values.** A sub-manifest's value in `marshal`'s
+  pairs must be a literal list of pairs; a variable is an expansion error,
+  reported as "The value P is not of type LIST". Such values go through
+  `(:from record)`.
+- **Record names.** A record class named by a `common-lisp` symbol, such as
+  `directory`, cannot be defined, because its accessors would be interned in
+  that locked package.
+- **Reserved options.** `str`'s `:encode-by` is stored and never used, and its
+  `:length` has no test.
 - The other items of the previous updates remain.
