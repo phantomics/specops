@@ -76,6 +76,8 @@ decisions:
   - SPECOPS-DRAFT-manifest-D63
   - SPECOPS-DRAFT-manifest-D64
   - SPECOPS-DRAFT-manifest-D65
+  - SPECOPS-DRAFT-manifest-D66
+  - SPECOPS-DRAFT-manifest-D67
 relates-to:
   - SPECOPS-DRAFT-manifest-complete
   - SPECOPS-DRAFT-restructure
@@ -89,6 +91,9 @@ cites:
     external: true
   - title:    WOFF File Format
     locator:  table directory (offset tables)
+    external: true
+  - title:    Square — Software QUality Assurance Regimen & Ethos (Common Lisp testing standard)
+    locator:  Square.md — layout (§4), test package (§5), suites (§6), isolation (§7), test bodies (§8), runners and test-op (§11), non-conforming patterns (§14)
     external: true
   - title:    Faster APL with Lazy Extensions (Andrew Sengul, 2023)
     locator:  generators and their per-element dispatch (§3.4); effectors assembled into kernels (§5.1); allocator extensions (§6.1); layered fallback (§8)
@@ -104,9 +109,9 @@ which reads them back out. It covers the path from a freeform `marshal` macro to
 manifest-driven writing and reading, and the PNG test format used to exercise
 it. The chronicled state is commit `10b1568`; the updates at the end of this
 log carry the record forward: that of 2026-10-30 to commit `653345f`, three
-of 2026-10-31, to commits `738105a`, `d030f5c` and `2e1af03`, and nine of
+of 2026-10-31, to commits `738105a`, `d030f5c` and `2e1af03`, and ten of
 2026-11-01, to commits `4f9c6d4`, `d7ba27f`, `1cc7600`, `b63b7d2`, `239b2f7`,
-`cb931c8`, `52b81e5`, `e340210` and `5862d3a`. The repository restructure that followed
+`cb931c8`, `52b81e5`, `e340210`, `5862d3a` and `e4a1f9a`. The repository restructure that followed
 moved the files this log names (see
 [SPECOPS-DRAFT-restructure](Log.Restructure.md)); code references stay pinned
 to the commits that held the work.
@@ -3094,4 +3099,178 @@ Floats, outstanding since this log began, are done. New:
   code needs reconciling, for the steward to decide.
 - **A quad negative zero** reads as 0 (SPECOPS-DRAFT-manifest-D65).
 - **The float functions are not exported**, like the checksum functions.
+- The other items of the previous updates remain.
+
+## Update 2026-11-01 — Tests under Square
+
+This installment covers commit `e4a1f9a`, which completes the first part of
+the Manifest Completion Plan's tenth milestone: the manifest suites run behind
+ASDF's `test-op`, rewritten to the Square testing standard, as the steward
+asked. `(asdf:test-system :specops)` runs 397 tests, one for each of the 396
+checks and the PNG verification that the suites held at `5862d3a`, with 566
+assertions; all pass. The architecture's SPECOPS-DRAFT-specops-D1 is amended
+in the same update to allow a test system its libraries.
+
+### SPECOPS-DRAFT-manifest-D66 — The manifest tests are a Square test system, `specops/test`, behind `test-op`
+
+**Status:** Proposed
+**Context:** At `5862d3a` the tests were one file of 3,824 lines,
+`test/manifest.lisp`, in package `specops`, loaded by the system
+`specops/demo.png` and run by hand: 22 functions from
+`test/manifest.lisp:run-png-demo@5862d3a` to
+`test/manifest.lisp:run-float-demo@5862d3a`, each with a local `check`
+function that printed a line and pushed a boolean. The checks of a suite
+shared its bindings, so a check could depend on what an earlier one built,
+and the stream checks wrote to fixed paths in `/tmp`. Nothing ran them
+through ASDF, which the plan's packaging milestone asks for, and a failure
+showed only as a printed FAIL. Square rejects homegrown assertion functions
+and manual pass counters, and prescribes FiveAM and cl-hamcrest, a test
+package, a suite hierarchy, isolated tests and the `test-op` contract.
+**Decision:** `specops.asd:specops/test@e4a1f9a`, a secondary system that
+replaces `specops/demo.png`, depends on `specops`, `specops.map.ebcdic`,
+`fiveam` and `hamcrest/fiveam`, and its `test-op` calls
+`test/helpers.lisp:run-all-tests@e4a1f9a`; `specops` reaches it through
+`:in-order-to`. Its package, `specops-tests`
+(`test/package.lisp:specops-tests@e4a1f9a`), uses `specops`, imports the
+FiveAM and cl-hamcrest names it uses, and imports the internals the tests
+reach as an explicit list: the checksum and float functions, stream sources,
+the field plan and the manifest registry, and the symbols expansion checks
+look for. `test/helpers.lisp` holds the suites, the two runners, and the
+manifests and builders more than one file uses. The root suite `specops` has
+two children: `serial`, for serialization without a manifest, and
+`manifest`, divided into `manifest-basics`, `-fields`, `-records`,
+`-variable`, `-reads`, `-destinations` and `-formats`. Each suite has one
+file, `test-serial.lisp` or `test-manifest-<name>.lisp`, holding the probes
+only it uses. Each old check is one `def-test`, whose docstring states what
+it proves and which builds its own data; a check that compared a list of
+values became an assertion for each. Expected errors are tested with
+`signals`, a condition's report by containment, and records read from bytes
+with `assert-that` and `has-slots`. Files are temporary and deleted
+afterwards.
+**Alternatives:** A sibling system `specops-tests.asd` (not taken: the
+steward chose the secondary system, which replaces `specops/demo.png`); the
+tests left in package `specops` (not taken: the steward chose an explicit
+import list, which Square's package rule asks for); the `check` functions
+kept beside FiveAM (rejected: Square names them as a non-conforming pattern).
+
+### SPECOPS-DRAFT-manifest-D67 — The program and format scripts move to `scripts/`, outside the test system
+
+**Status:** Proposed
+**Context:** `test/` also held five scripts, `test-build.lisp`,
+`test-emit.lisp`, `test-goff.lisp`, `test-program.lisp` and
+`test-wasm-macro.lisp`, which load source files directly and print their
+results. They test the program builder and the ELF, GOFF and WebAssembly
+writers, which the architecture's SPECOPS-DRAFT-specops-O5 leaves without a
+suite. Their names follow Square's `test-*` pattern, but Square's layout
+reserves `test/` for the test system's files.
+**Decision:** The scripts move unchanged to `scripts/`, apart from the path
+in each header, and are run by hand from the repository root, as before.
+Suites for the program builder and the format writers wait for
+SPECOPS-DRAFT-specops-O5 and the revision of those writers.
+**Alternatives:** Converting the scripts now into `program` and `formats`
+suites (rejected by the steward: he will revise the GOFF, ELF and other
+tools, and wants a more rigorous test discipline applied to them then than
+these scripts carry).
+
+### Implementation
+
+- **`specops.asd`.** `specops/test` in place of `specops/demo.png`; `specops`
+  gains `:in-order-to` for `test-op`.
+- **`test/package.lisp`, `test/helpers.lisp`.** The package and its import
+  list; the suite hierarchy; `run-all-tests`, whose `:skip-slow` omits
+  nothing, since no suite is slow, and `run-suite`, which takes a keyword, a
+  string or a symbol; the PNG manifests, builder and verifier, the probes and
+  stop rules shared between files, the rules package
+  `specops.test.rules`, and the readers and collectors, among them
+  `test/helpers.lisp:with-source-file@e4a1f9a`, which now writes a temporary
+  file.
+- **The eight `test-*.lisp` files.** The tests, with the probes each uses
+  alone. `test/test-manifest-destinations.lisp:file-units-written@e4a1f9a`
+  replaces the fixed output path, and
+  `test/test-manifest-reads.lisp:keys-read-apart@e4a1f9a` names the keys whose
+  selective read differs from the full read, where the old helper gave a
+  boolean for each.
+- **`scripts/`.** The five scripts, per SPECOPS-DRAFT-manifest-D67.
+- **`test/manifest.lisp`.** Removed.
+
+The tests were converted from `test/manifest.lisp` mechanically, each with
+the setup its check had used, unused bindings dropped, and then reviewed by
+hand: about eighty docstrings that named only the field or probe now state
+the behaviour, three tests that assumed package `specops` were corrected, and
+helpers that tested for an error with a boolean gave way to `signals`.
+
+### Verification
+
+Run with `sbcl --non-interactive --eval '(asdf:test-system :specops)'` from
+the repository root, or `(specops-tests:run-suite :manifest-reads)` for one
+suite.
+
+Table: The suites at commit `e4a1f9a`, with their tests and assertions.
+
+| Suite | File | Tests | Assertions | Result |
+|---|---|---|---|---|
+| `serial` | `test-serial.lisp` | 10 | 48 | All pass |
+| `manifest-basics` | `test-manifest-basics.lisp` | 68 | 80 | All pass |
+| `manifest-fields` | `test-manifest-fields.lisp` | 163 | 192 | All pass |
+| `manifest-records` | `test-manifest-records.lisp` | 41 | 47 | All pass |
+| `manifest-variable` | `test-manifest-variable.lisp` | 32 | 41 | All pass |
+| `manifest-reads` | `test-manifest-reads.lisp` | 47 | 90 | All pass |
+| `manifest-destinations` | `test-manifest-destinations.lisp` | 19 | 22 | All pass |
+| `manifest-formats` | `test-manifest-formats.lisp` | 17 | 46 | All pass |
+| `specops`, the root | all eight | 397 | 566 | All pass |
+
+The conversion lost no check: there is one test for each of the 396 checks
+and the PNG verification, and the 566 assertions FiveAM reports match a count
+of the assertion forms in the files, so every test ran. Each test was also run
+alone, in three shuffled orders, with no failure, so none depends on another.
+The test files compile with no warnings of their own. `run-suite` was run with
+a keyword, a string and a symbol, and a failing `assert-that`, with a nested
+matcher, was confirmed to fail its test. The five scripts pass from
+`scripts/`, and the architecture systems `specops.arch.6502`, `.s390x`,
+`.x86`, `.z80` and `.wasm`, and the three format systems, load.
+
+### Files
+
+Table: Files changed in commit `e4a1f9a`, and the documents updated after it.
+
+| File | Action | Description |
+|------|--------|-------------|
+| `specops.asd` | Modified | `specops/test` replaces `specops/demo.png`; `test-op` for `specops` |
+| `test/package.lisp` | Added | The `specops-tests` package |
+| `test/helpers.lisp` | Added | Suites, runners, shared manifests and helpers |
+| `test/test-serial.lisp` | Added | The `serial` suite |
+| `test/test-manifest-*.lisp` | Added | Seven files, one for each `manifest` suite |
+| `test/manifest.lisp` | Deleted | Replaced by the files above |
+| `scripts/test-*.lisp` | Renamed | The five scripts, moved from `test/` |
+| `doc/Eval.LispBinaryTools.md` | Modified | Committed with this change; recorded in the update for floats |
+| `doc/Log.Manifest.md` | Modified | This update |
+| `doc/Plan.ManifestComplete.md` | Modified | Progress installment for the tests; a note under Packaging and tests |
+| `doc/Arch.SpecOps.md` | Modified | SPECOPS-DRAFT-specops-D1 amended for test systems; the project structure and SPECOPS-DRAFT-specops-O5 brought up to date |
+| `AGENTS.md` | Modified | Square's block, routing test work to the `square-*` skills |
+
+### Metrics
+
+- Tests: 397, with 566 assertions, from 396 checks and 1 structural PNG
+  verification. The added assertions are checks of several values split
+  apart, not new coverage.
+- Regressions at `e4a1f9a`: 0.
+
+### Outstanding Work
+
+Suites behind `test-op`, outstanding since the plan began, are done. New:
+
+- **Style warnings in expansions.** `marshal` and `unmarshal` expansions bind
+  variables they do not use, which draws about 1,560 style warnings when the
+  tests compile; the old test file drew about 1,370, and the tests now expand
+  more often, each building its own data. The expansions should declare or
+  drop them.
+- **Bundled assertions.** About fifty assertions still compare a list of
+  several results, such as a value and a boolean; they fail readably, but
+  could be split.
+- **A slot read by name.** One test reads a scan plan's `rule` slot with
+  `slot-value`, since the class has no reader for it; the symbol is in the
+  import list.
+- **The scripts** in `scripts/` are not under Square (SPECOPS-DRAFT-manifest-D67).
+- **Square's matcher list** names `has-accessors` and `instance-of`, which
+  cl-hamcrest does not have; a matter for Square, outside this project.
 - The other items of the previous updates remain.

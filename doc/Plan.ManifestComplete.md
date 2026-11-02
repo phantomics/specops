@@ -61,8 +61,8 @@ a struct interface, destinations that cannot be patched, and packaging. It
 assumes the decisions recorded in the
 [Manifest development log, SPECOPS-DRAFT-manifest](Log.Manifest.md) and the
 architecture in [SPECOPS-DRAFT-specops](Arch.SpecOps.md). Progress is charted
-in dated updates at the end of this plan; the latest is the ninth update of
-2026-11-01, at commit `5862d3a`.
+in dated updates at the end of this plan; the latest is the tenth update of
+2026-11-01, at commit `e4a1f9a`.
 
 ## Problem
 
@@ -453,6 +453,9 @@ region map that differ per instance
   `mod/format/goff/specops.format.goff.asd:specops.format.goff@50e231d`, a
   format module of the repository restructure
   ([SPECOPS-DRAFT-restructure](Log.Restructure.md)).
+  The second part is done too: at `e4a1f9a` the suites are the Square test
+  system `specops.asd:specops/test@e4a1f9a`, which `(asdf:test-system
+  :specops)` runs (SPECOPS-DRAFT-manifest-D66).
 - **Dead code.** `defmanifest` still keeps a compile-time `index` that nothing
   reads since the pad rework, `process-field` prints each list type spec, and
   both macros destructure an unused `ba-sym`.
@@ -1291,3 +1294,53 @@ two should change before the Ref documents either.
 The Ref waits for the public interface of SPECOPS-DRAFT-specops-O6, and should
 follow the decision on widths, which the interface exposes. `test-op` follows
 SPECOPS-DRAFT-specops-O5, as in the update of 2026-10-30.
+
+## Update 2026-11-01 — Progress: tests under Square
+
+This installment charts the plan's progress at commit `e4a1f9a`, which
+completes the first part of the tenth milestone: the manifest suites run
+behind `test-op`, as the test system `specops/test`, rewritten to the Square
+testing standard. The log's update of the same date records the work, with
+SPECOPS-DRAFT-manifest-D66 for the test system and SPECOPS-DRAFT-manifest-D67
+for the program and format scripts, which move to `scripts/`. The 396 checks
+and the PNG verification are now 397 tests with 566 assertions, and all
+pass. The architecture's SPECOPS-DRAFT-specops-D1 now allows a test system
+its libraries, FiveAM and cl-hamcrest, while `specops` and the modules stay
+free of them.
+
+### Progress
+
+Table: State of each Roadmap milestone at commit `e4a1f9a`. Entries new since
+the previous update are marked "new".
+
+| Milestone | State | Done | Remaining |
+|---|---|---|---|
+| 1. Corrections and records | Partly done | As before | Checksums over `unmarshal` sources that are not simple byte arrays; widths that count bytes where SPECOPS-DRAFT-manifest-D5 says units; new: unused variables in `marshal` and `unmarshal` expansions, which draw style warnings |
+| 2. Field kinds on read | Partly done | As before | SPECOPS-DRAFT-manifest-complete-O5 for fields without a terminator; writing a buffer sized by another field; fixed buffers of LEB elements; trailing `:length-of` and `:count-of` slots |
+| 3. Checked reads | Done | As before | — |
+| 4. Structs and run-time nested values | Done | As before | — |
+| 5. Variable structure | Done | As before | Instances addressed by name from outside a repeat, should a format need it |
+| 6. Destinations | Done | As before | Writing a buffer out in pieces, should a record grow too large to hold whole |
+| 7. Selective reads and stream sources | Done | As before | Units kept for the whole record, should one grow too large to hold |
+| 8. WOFF | Done | As before | — |
+| 9. Floats and masque completion | Done | As before | Range checks that tell signed groups from unsigned, should a format need them |
+| 10. Packaging | Partly done | As before; new: the suites behind `test-op`, as the Square test system `specops/test` (SPECOPS-DRAFT-manifest-D66) | A Ref; the checksum and float functions exported |
+
+### Priorities
+
+1. **The Ref:** to be planned with the steward, as a step of its own. It
+   documents the public interface, so it follows the exports and the decision
+   on widths.
+2. **Exports:** the checksum and float functions, with the rest of the
+   public interface of SPECOPS-DRAFT-specops-O6.
+
+Checksums over sources that are not simple byte arrays, and the unused
+variables in expansions, remain small corrections between larger steps.
+
+### Dependencies
+
+The Ref waits for the public interface of SPECOPS-DRAFT-specops-O6 and the
+decision on widths, as in the previous update. Suites for the program builder
+and the format writers wait for SPECOPS-DRAFT-specops-O5 and the steward's
+revision of those writers (SPECOPS-DRAFT-manifest-D67); the manifest suites
+no longer do.

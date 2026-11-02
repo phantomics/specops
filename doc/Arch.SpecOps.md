@@ -171,9 +171,16 @@ implemented natively (`checksum.lisp:crc@1e53ae7`,
 Implementation-specific code is allowed only behind a conditional with a
 portable fallback, as in `checksum.lisp:adler32-checksum@1e53ae7`.
 Development tools that need libraries, such as the `lquery` scraper
-`z80/comber.lisp`, stay outside every ASDF system.
+`z80/comber.lisp`, stay outside every ASDF system. A test system is the one
+exception: it may depend on the libraries of its testing standard, as
+`specops.asd:specops/test@e4a1f9a` depends on FiveAM and cl-hamcrest
+(SPECOPS-DRAFT-manifest-D66). No other system depends on a test system, so
+`specops` and the modules remain freestanding.
 **Alternatives:** Recorded (SPECOPS-DRAFT-manifest-D9): depending on Ironclad
-for checksums, rejected to keep the core free of dependencies.
+for checksums, rejected to keep the core free of dependencies. Holding test
+systems to the rule as well, with a test harness of SpecOps's own (rejected by
+the steward, who adopted the Square testing standard and its two libraries
+for test systems only).
 
 ### SPECOPS-DRAFT-specops-D2 — Assembly input is Lisp list forms
 
@@ -445,7 +452,7 @@ fields are code tables defined with `defcodetable`, in the map modules
 310; SPECOPS-DRAFT-restructure-D5). The GOFF END record is the
 first object-format record written through a manifest; the design intends the
 format writers to move onto manifests generally. The PNG manifests in
-`test/manifest.lisp` are a test case for the layer, not a format module
+`test/helpers.lisp` are a test case for the layer, not a format module
 (SPECOPS-DRAFT-restructure-D7).
 
 ## Module design
@@ -581,6 +588,11 @@ The test scripts load source files directly and cover System Z,
 minimum per-module suite (README examples assembling to their stated vectors,
 and disassembling back), and should it be the module's ASDF `test-op`?
 
+Since `e4a1f9a` the scripts are in `scripts/` (SPECOPS-DRAFT-manifest-D67),
+and the core's manifest layer has a test system under the Square standard
+behind `test-op` (SPECOPS-DRAFT-manifest-D66), a pattern a module's suite
+could follow.
+
 ### SPECOPS-DRAFT-specops-O6 — What is the supported public API?
 
 `package.lisp` exports names that are not defined (`join`, `label-delta`,
@@ -647,10 +659,11 @@ this needs the reader protocol of SPECOPS-DRAFT-specops-O4.
 
 ### Project structure
 
-The layout at `50e231d`, after the restructure of SPECOPS-DRAFT-restructure:
+The layout at `e4a1f9a`, after the restructure of SPECOPS-DRAFT-restructure and
+the move of the tests to the Square standard (SPECOPS-DRAFT-manifest-D66):
 
 ```text
-specops.asd            systems specops (src/) and specops/demo.png (test/)
+specops.asd            systems specops (src/) and specops/test (test/)
 src/
   package.lisp         the specops package and its exports
   checksum.lisp        CRC-32 and Adler-32
@@ -669,8 +682,11 @@ mod/
   format/              format modules specops.format.<format>:
                        elf goff wasm
   map/                 map modules specops.map.<name>: cp437 ebcdic
-test/                  manifest.lisp (PNG manifests and manifest suites);
-                       program, ELF, GOFF and WebAssembly test scripts
+test/                  the test system: package.lisp, helpers.lisp (suites,
+                       runners, PNG and shared manifests), test-serial.lisp,
+                       test-manifest-*.lisp (one file per manifest suite)
+scripts/               program, ELF, GOFF and WebAssembly test scripts, run
+                       by hand
 doc/                   Compass documents
 ```
 
@@ -678,4 +694,5 @@ Description: The tree lists the repository's directories and the core's
 files, with a one-line purpose for each. The core system `specops` is built
 from the files in `src/`, in the order shown, except `manifest-original/`.
 Every module is a subdirectory of `mod/arch/`, `mod/format/` or `mod/map/`
-with its own `.asd` file, named for its system. Tests are in `test/`.
+with its own `.asd` file, named for its system. Tests are in `test/`, and run
+with `(asdf:test-system :specops)`.
