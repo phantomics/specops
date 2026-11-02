@@ -16,7 +16,7 @@ provenance:
   session:     Marshal
 relates-to:
   - SPECOPS-0006
-  - SPECOPS-DRAFT-manifest-ref
+  - SPECOPS-0007
   - SPECOPS-0001
   - SPECOPS-0005
 glossary:      SPECOPS-0002
@@ -1363,7 +1363,7 @@ the same date records the work, with SPECOPS-DRAFT-manifest-D68 through
 SPECOPS-DRAFT-manifest-D70. Widths count units, as SPECOPS-D32 records; the
 functions manifests and their users call, `serialize`, the checksum functions
 and the float functions, are exported; and the
-[Manifest Reference](Ref.Manifest.md), `SPECOPS-DRAFT-manifest-ref`, describes
+[Manifest Reference](Ref.Manifest.md), `SPECOPS-0007`, describes
 release 0.1.0, every example a test of the suite `manifest-ref`. The README
 has a manifest section linking to it. All 427 tests pass, with 650 assertions.
 

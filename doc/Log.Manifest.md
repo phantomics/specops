@@ -87,7 +87,7 @@ decisions:
   - SPECOPS-DRAFT-manifest-D70
 relates-to:
   - SPECOPS-0003
-  - SPECOPS-DRAFT-manifest-ref
+  - SPECOPS-0007
   - SPECOPS-0005
   - SPECOPS-0004
 cites:
@@ -3288,7 +3288,7 @@ Suites behind `test-op`, outstanding since the plan began, are done. New:
 
 This installment covers commit `de25ae7`, tagged `v0.1.0`, which completes the
 Manifest Completion Plan's tenth milestone, and the documents written after it:
-the [Manifest Reference](Ref.Manifest.md), `SPECOPS-DRAFT-manifest-ref`, and a
+the [Manifest Reference](Ref.Manifest.md), `SPECOPS-0007`, and a
 manifest section in the README. Before the interface could be documented, two
 questions had to be settled, as the plan's previous update said: widths now
 count units, as SPECOPS-D32 records, and the functions a manifest names are
@@ -3336,7 +3336,7 @@ steward kept everything in `specops`); leaving the functions internal
 **Status:** Proposed
 **Context:** A reference whose examples are not run drifts from the code, and
 a reference pinned to a moving commit describes no version a user can name.
-**Decision:** Every example in `SPECOPS-DRAFT-manifest-ref` is a test of the
+**Decision:** Every example in `SPECOPS-0007` is a test of the
 suite `manifest-ref`, in `test/test-manifest-ref.lisp`, which uses only the
 names `specops` exports and a four-line `octets` helper the Reference defines.
 The Reference names the test beside each example. `specops` and

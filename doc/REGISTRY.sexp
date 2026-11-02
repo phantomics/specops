@@ -120,3 +120,4 @@
 (:id "SPECOPS-D92" :kind :decision :draft "SPECOPS-DRAFT-manifest-D65" :host "SPECOPS-0006" :date "2026-11-02" :by "Andrew Sengul")
 (:id "SPECOPS-D93" :kind :decision :draft "SPECOPS-DRAFT-manifest-D66" :host "SPECOPS-0006" :date "2026-11-02" :by "Andrew Sengul")
 (:id "SPECOPS-D94" :kind :decision :draft "SPECOPS-DRAFT-manifest-D67" :host "SPECOPS-0006" :date "2026-11-02" :by "Andrew Sengul")
+(:id "SPECOPS-0007" :kind :document :draft "SPECOPS-DRAFT-manifest-ref" :path "doc/Ref.Manifest.md" :date "2026-11-02" :by "Andrew Sengul")

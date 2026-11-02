@@ -1,5 +1,5 @@
 ---
-id:            SPECOPS-DRAFT-manifest-ref
+id:            SPECOPS-0007
 title:         Manifest Reference — defmanifest, marshal and unmarshal
 genre:         Ref
 scope:         component
