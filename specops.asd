@@ -4,7 +4,7 @@
   :description "A framework for creating assemblers."
   :author "Andrew Sengul"
   :license  "BSD"
-  :version "0.0.1"
+  :version "0.1.0"
   :serial t
   :pathname "src/"
   :in-order-to ((asdf:test-op (asdf:test-op #:specops/test)))
@@ -22,7 +22,7 @@
   :description "Test suite for SpecOps (FiveAM and cl-hamcrest)."
   :author "Andrew Sengul"
   :license  "BSD"
-  :version "0.0.1"
+  :version "0.1.0"
   :serial t
   :depends-on (#:specops #:specops.map.ebcdic #:fiveam #:hamcrest/fiveam)
   :pathname "test/"
@@ -35,6 +35,7 @@
                (:file "test-manifest-variable")
                (:file "test-manifest-reads")
                (:file "test-manifest-destinations")
-               (:file "test-manifest-formats"))
+               (:file "test-manifest-formats")
+               (:file "test-manifest-ref"))
   :perform (asdf:test-op (o s)
              (uiop:symbol-call '#:specops-tests '#:run-all-tests)))

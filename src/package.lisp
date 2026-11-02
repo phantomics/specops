@@ -67,6 +67,16 @@
    #:unmasque
    #:mqbase
 
+   ;; -- Serialization: integers into unit vectors, checksums for manifest slots, and IEEE
+   ;;    float bit patterns
+   #:serialize
+   #:crc
+   #:adler32
+   #:adler32-checksum
+   #:sfnt-checksum
+   #:encode-float-bits
+   #:decode-float-bits
+
    ;; -- Marshal macros
    #:defmanifest
    #:defenum

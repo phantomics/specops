@@ -89,7 +89,7 @@ fields from when it is given (:from RECORD); NIL when RECORD holds no value for 
                                                                                 (keywordp (first type)))
                                                                            (first type) type))
                                                          (list 'list :keys (list 'quote keys)
-                                                                     :length (ash w (- unit-spec))
+                                                                     :length w
                                                                      :signed s
                                                                      :subtypes (list 'quote st)))))))
                                  (setf width        count
@@ -122,7 +122,7 @@ fields from when it is given (:from RECORD); NIL when RECORD holds no value for 
                        (error "Field ~s: :stop-by applies to :vec fields only." symbol))
                      (list 'list
                            :name (and (not (string= "_" (symbol-name symbol))) symbol)
-                           :signed signed :length (ash width (- unit-spec))
+                           :signed signed :length width
                            :count count :enumerate-by (list 'quote enumerate-by)
                            :codec (list 'quote codec) :slot (format-slot-spec slot)
                            :type-indicator type-indicator :type-conditions type-conditions

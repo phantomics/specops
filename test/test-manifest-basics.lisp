@@ -15,6 +15,12 @@
   (:b (:s 4) :default 0)                  ; little-endian, from the manifest
   (:c :u16 :default 0 :endian :big))
 
+;; Fields of one and two 16-bit units: widths count units, not bytes.
+(defmanifest word-probe (:unit 16 :endian :big)
+  (:a (:u 1) :default 0)
+  (:b (:u 2) :default 0)
+  (:c (:s 1) :default 0))
+
 ;; An enumerated field whose default is a keyword. png-color-type has no code 1.
 (defmanifest enum-default-probe (:unit 8 :endian :big)
   (:color :u8 :default :rgba :enumerate-by png-color-type))
@@ -168,6 +174,18 @@ fields back to the values written, signs included."
     (marshal little-endian-probe buf :a #x0102 :b -300 :c #x0304)
     (is (equalp '(:a #x0102 :b -300 :c #x0304)
                 (unmarshal little-endian-probe buf)))))
+
+;; Widths in units wider than a byte.
+(def-test word-probe-widths-count-16-bit-units ()
+  "In a manifest of 16-bit units, a field's width counts units: (:u 1) takes one unit and
+(:u 2) two, and each reads back from where it was written."
+  (let ((buf (make-array 4 :element-type '(unsigned-byte 16))))
+    (is (eql 4 (marshal word-probe buf :a #x1234 :b #x00010002 :c -2)))
+    (is (equalp '(#x1234 #x0001 #x0002 #xFFFE)
+                (coerce buf 'list)))
+    (is (equalp '(:a #x1234 :b #x00010002 :c -2)
+                (unmarshal word-probe buf)))
+    (is (eql #x00010002 (unmarshal word-probe buf nil :b)))))
 
 ;; Enums: a keyword default, and a code the enum lacks.
 (def-test enum-default-probe-a-keyword-default-written-as-its-code ()

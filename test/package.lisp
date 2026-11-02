@@ -13,13 +13,11 @@
                 #:assert-that)
   (:import-from #:hamcrest/matchers
                 #:has-all #:has-slots #:has-type)
-  ;; Internals the tests reach: the checksum and float functions, stream sources, the field
-  ;; plan (RULE names a scan plan's slot) and the manifest registry, and symbols that expansion checks look for in generated
-  ;; code.
+  ;; Internals the tests reach: the portable float functions, stream sources, the field plan
+  ;; (RULE names a scan plan's slot) and the manifest registry, and symbols that expansion
+  ;; checks look for in generated code.
   (:import-from #:specops
                 #:*manifests*
-                #:adler32 #:adler32-checksum #:crc #:sfnt-checksum
-                #:decode-float-bits #:encode-float-bits
                 #:portable-decode-float #:portable-encode-float
                 #:make-stream-source #:fill-stream-source #:stream-source-p #:source-units
                 #:field-plan #:known-count #:known-extent #:rule

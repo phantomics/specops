@@ -51,6 +51,10 @@
   :description "PNG, WOFF and sfnt, and placed fields"
   :in manifest)
 
+(def-suite manifest-ref
+  :description "The examples of the Manifest Reference, doc/Ref.Manifest.md"
+  :in manifest)
+
 ;;; ============================================================
 ;;; Test runners  (Square.md §11)
 ;;; ============================================================

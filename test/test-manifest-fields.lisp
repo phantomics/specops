@@ -262,9 +262,9 @@
   (:v     (:case :kind (0 :u 4) (1 :f 4) (2 :f 8)) :default 0)
   (:after :u8 :default 0))
 
-;; Two 16-bit units hold a single float: widths count bytes, whatever the unit.
+;; Two 16-bit units hold a single float: widths count units.
 (defmanifest float-word-probe (:unit 16 :endian :big)
-  (:x (:f 4) :default 0))
+  (:x (:f 2) :default 0))
 
 (defmanifest float-bad-width-probe (:unit 8 :endian :big)
   (:x (:f 3) :default 0))
