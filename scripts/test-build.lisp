@@ -1,6 +1,6 @@
-;;;; test/test-build.lisp — Tests for build-program
+;;;; scripts/test-build.lisp — Tests for build-program
 ;;;
-;;; Run with: sbcl --noinform --non-interactive --load test/test-build.lisp
+;;; Run with: sbcl --noinform --non-interactive --load scripts/test-build.lisp
 
 (load "src/package.lisp")
 (load "src/serial.lisp")

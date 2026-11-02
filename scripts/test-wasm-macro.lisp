@@ -1,6 +1,6 @@
-;;;; test/test-wasm-macro.lisp — Tests for wasm-program macro
+;;;; scripts/test-wasm-macro.lisp — Tests for wasm-program macro
 ;;;
-;;; Run with: sbcl --noinform --non-interactive --load test/test-wasm-macro.lisp
+;;; Run with: sbcl --noinform --non-interactive --load scripts/test-wasm-macro.lisp
 
 (load "src/package.lisp")
 (load "src/serial.lisp")

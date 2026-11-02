@@ -1,6 +1,6 @@
-;;;; test/test-goff.lisp — Tests for the GOFF emitter
+;;;; scripts/test-goff.lisp — Tests for the GOFF emitter
 ;;;
-;;; Run with: sbcl --noinform --non-interactive --load test/test-goff.lisp
+;;; Run with: sbcl --noinform --non-interactive --load scripts/test-goff.lisp
 
 (load "src/package.lisp")
 (load "src/serial.lisp")

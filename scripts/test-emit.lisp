@@ -1,6 +1,6 @@
-;;;; test/test-emit.lisp — Tests for ELF and WASM emitters
+;;;; scripts/test-emit.lisp — Tests for ELF and WASM emitters
 ;;;
-;;; Run with: sbcl --noinform --non-interactive --load test/test-emit.lisp
+;;; Run with: sbcl --noinform --non-interactive --load scripts/test-emit.lisp
 
 (load "src/package.lisp")
 (load "src/serial.lisp")

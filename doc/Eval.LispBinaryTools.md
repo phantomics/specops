@@ -467,6 +467,12 @@ both: a restart in the style of SPECOPS-DRAFT-manifest-D42, and every IEEE
 width with a portable arithmetic path and implementation fast paths behind
 conditionals?
 
+Answered for floats in [SPECOPS-DRAFT-manifest](Log.Manifest.md) by
+SPECOPS-DRAFT-manifest-D64 and SPECOPS-DRAFT-manifest-D65: IEEE floats of 16,
+32, 64 and 128 bits, with a portable arithmetic path and SBCL's floats behind a
+conditional; octuple precision was not taken. Text that does not fit its
+field, SPECOPS-DRAFT-manifest-complete-O5, remains open.
+
 ## Appendix — Source Map
 
 Table: Sections of this evaluation and the sources each draws on.

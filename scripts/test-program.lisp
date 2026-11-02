@@ -1,6 +1,6 @@
-;;;; test/test-program.lisp — Tests for the program macro
+;;;; scripts/test-program.lisp — Tests for the program macro
 ;;;
-;;; Run with: sbcl --noinform --non-interactive --load test/test-program.lisp
+;;; Run with: sbcl --noinform --non-interactive --load scripts/test-program.lisp
 
 (load "src/package.lisp")
 (load "src/serial.lisp")
