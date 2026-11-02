@@ -1,18 +1,22 @@
 ---
-id:            SPECOPS-DRAFT-glossary
+id:            SPECOPS-0002
 title:         SpecOps Terms
 genre:         Glossary
 scope:         project
 project:       SpecOps
 language:      en
-status:        Draft
+status:        Current
+authors:
+  - Andrew Sengul
+approved-by:   Andrew Sengul
+reviewed:      2026-11-01
 provenance:
   assistant:   claude-opus (OpenCode)
   session:     Compass adoption; Restructure
 relates-to:
-  - SPECOPS-DRAFT-specops
-  - SPECOPS-DRAFT-manifest
-  - SPECOPS-DRAFT-restructure
+  - SPECOPS-0001
+  - SPECOPS-0006
+  - SPECOPS-0005
 ---
 
 # SpecOps: Glossary
@@ -90,15 +94,15 @@ and sources.
 | relocation | A record that a field at an offset must be patched with a symbol's address by a linker, of an architecture-specific type. | `program.lisp:relocation@1e53ae7` |
 | emit | Writing an assembled program in an object format, selected by a keyword (`:elf`, `:goff`, `:wasm`). | `program.lisp:emit-program@1e53ae7` |
 | code table | A character-to-code mapping, defined with `defcodetable`, that works in both directions; used as a string codec. Code tables are packaged as map modules. | `specops.lisp:defcodetable@1e53ae7`; CP437, EBCDIC |
-| codec | A per-character function used by a manifest string: a character to its code, and a code to its character. | Log SPECOPS-DRAFT-manifest-D6 |
+| codec | A per-character function used by a manifest string: a character to its code, and a code to its character. | Log SPECOPS-D33 |
 | manifest | A declarative description of a binary record, made with `defmanifest`, from which `marshal` and `unmarshal` generate a writer and a reader. | [Manifest log](Log.Manifest.md) |
 | field | A named, typed clause of a manifest that takes or yields a value. | |
-| directive | A manifest clause led by a SpecOps symbol (`masque`, `pad`, `str`, `span`, `manifest`) that describes structure rather than a value. | Log SPECOPS-DRAFT-manifest-D4 |
-| span | A directive that wraps fields in a named region, so that a length, offset or checksum can describe it. | Log SPECOPS-DRAFT-manifest-D8 |
-| slot | A field whose value is computed from a region: `:length-of`, `:offset-of` or `:checksum-of`. | Log SPECOPS-DRAFT-manifest-D8 |
-| sub-manifest | A manifest included in another with the `manifest` directive and inlined into its parent's code. | Log SPECOPS-DRAFT-manifest-D10 |
-| region map | The run-time record of where each named field, span and sub-manifest was written, from which slots are resolved when their region closes. Not related to a map module. | Log SPECOPS-DRAFT-manifest-D8 |
-| sub-lexicon | The parent's generated bindings, passed to an inlined sub-manifest so that it shares the cursor, region map and serializers. | Log SPECOPS-DRAFT-manifest-D10 |
+| directive | A manifest clause led by a SpecOps symbol (`masque`, `pad`, `str`, `span`, `manifest`) that describes structure rather than a value. | Log SPECOPS-D31 |
+| span | A directive that wraps fields in a named region, so that a length, offset or checksum can describe it. | Log SPECOPS-D35 |
+| slot | A field whose value is computed from a region: `:length-of`, `:offset-of` or `:checksum-of`. | Log SPECOPS-D35 |
+| sub-manifest | A manifest included in another with the `manifest` directive and inlined into its parent's code. | Log SPECOPS-D37 |
+| region map | The run-time record of where each named field, span and sub-manifest was written, from which slots are resolved when their region closes. Not related to a map module. | Log SPECOPS-D35 |
+| sub-lexicon | The parent's generated bindings, passed to an inlined sub-manifest so that it shares the cursor, region map and serializers. | Log SPECOPS-D37 |
 | enum | A keyword-to-integer map defined with `defenum` and applied to a manifest field. | `specops.lisp:defenum@1e53ae7` |
 | marshal / unmarshal | Writing values into a manifest's structure, and reading them back out. | `specops.lisp:marshal@1e53ae7`, `specops.lisp:unmarshal@1e53ae7` |
 
@@ -108,10 +112,10 @@ sources.
 | Term | Definition | Notes / Source |
 |---|---|---|
 | core | The system `specops`, built from `src/` except `src/manifest-original/`: the package, checksums, serialization, the manifest layer, the assembler classes and specification macros, and the program model. Every module depends on it. | `specops.asd:specops@13b5887` |
-| module | An ASDF system in `mod/<kind>/<name>/`, named `specops.<kind>.<name>`, with a package of the same name; the WebAssembly format module, still in its architecture's package, is the one exception. Its kind is architecture, format or map. | Log SPECOPS-DRAFT-restructure-D1, SPECOPS-DRAFT-restructure-D2 |
-| architecture module | A module that implements one instruction set: its assembler class and prototype, operand support, and instruction specifications. It is named for the instruction set, not a machine (`s390x`, not System Z), and never depends on a format module. | Log SPECOPS-DRAFT-restructure-D3; `mod/arch/s390x/package.lisp:specops.arch.s390x@ada2d19` |
-| format module | A module that writes one object or container format for programs, through `emit-program` methods. It depends on an architecture module only when the format exists for that one instruction set, as WebAssembly's does. Image and other media formats are not format modules. Not to be confused with an *instruction format*. | Log SPECOPS-DRAFT-restructure-D4, SPECOPS-DRAFT-restructure-D7; `mod/format/goff/specops.format.goff.asd:specops.format.goff@50e231d` |
-| map module | A module that holds a two-way mapping between value spaces belonging to no single architecture or format, such as a code table. It depends only on the core. Enums are mappings too, but are defined beside the manifests that use them. | Log SPECOPS-DRAFT-restructure-D5; `mod/map/ebcdic/ebcdic.lisp:ebcdic-code-cp037@ada2d19` |
+| module | An ASDF system in `mod/<kind>/<name>/`, named `specops.<kind>.<name>`, with a package of the same name; the WebAssembly format module, still in its architecture's package, is the one exception. Its kind is architecture, format or map. | Log SPECOPS-D21, SPECOPS-D22 |
+| architecture module | A module that implements one instruction set: its assembler class and prototype, operand support, and instruction specifications. It is named for the instruction set, not a machine (`s390x`, not System Z), and never depends on a format module. | Log SPECOPS-D23; `mod/arch/s390x/package.lisp:specops.arch.s390x@ada2d19` |
+| format module | A module that writes one object or container format for programs, through `emit-program` methods. It depends on an architecture module only when the format exists for that one instruction set, as WebAssembly's does. Image and other media formats are not format modules. Not to be confused with an *instruction format*. | Log SPECOPS-D24, SPECOPS-D27; `mod/format/goff/specops.format.goff.asd:specops.format.goff@50e231d` |
+| map module | A module that holds a two-way mapping between value spaces belonging to no single architecture or format, such as a code table. It depends only on the core. Enums are mappings too, but are defined beside the manifests that use them. | Log SPECOPS-D25; `mod/map/ebcdic/ebcdic.lisp:ebcdic-code-cp037@ada2d19` |
 
 ## Backronym Registry
 

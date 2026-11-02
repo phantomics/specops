@@ -1,5 +1,5 @@
 ---
-id:            SPECOPS-DRAFT-lisp-binary-tools
+id:            SPECOPS-0004
 title:         Lisp Binary-Format Libraries Compared with the Manifest Layer
 genre:         Eval
 subtype:       prior-art
@@ -7,23 +7,23 @@ scope:         component
 project:       SpecOps
 component:     Manifest
 language:      en
-status:        Draft
+status:        Accepted
 provenance:
   assistant:   claude-opus-5-5 (OpenCode)
   session:     Analysis of Lisp binary-format libraries
 relates-to:
-  - SPECOPS-DRAFT-manifest
-  - SPECOPS-DRAFT-manifest-complete
-  - SPECOPS-DRAFT-specops
-glossary:      SPECOPS-DRAFT-glossary
+  - SPECOPS-0006
+  - SPECOPS-0003
+  - SPECOPS-0001
+glossary:      SPECOPS-0002
 open-questions:
-  - SPECOPS-DRAFT-lisp-binary-tools-O1
-  - SPECOPS-DRAFT-lisp-binary-tools-O2
-  - SPECOPS-DRAFT-lisp-binary-tools-O3
-  - SPECOPS-DRAFT-lisp-binary-tools-O4
-  - SPECOPS-DRAFT-lisp-binary-tools-O5
-  - SPECOPS-DRAFT-lisp-binary-tools-O6
-  - SPECOPS-DRAFT-lisp-binary-tools-O7
+  - SPECOPS-O13
+  - SPECOPS-O14
+  - SPECOPS-O15
+  - SPECOPS-O16
+  - SPECOPS-O17
+  - SPECOPS-O18
+  - SPECOPS-O19
 cites:
   - title:    lisp-binary (Jeremy Phelps), Quicklisp release lisp-binary-20221106-git
     locator:  binary-2.lisp (defbinary and its docstring), types.lisp (pointer, region-tag, eval, counted and terminated types), binary-1.lisp (enums, fixed-length strings), exif.lisp
@@ -67,14 +67,14 @@ cites:
 
 This evaluation compares SpecOps's manifest layer, the `defmanifest`,
 `marshal` and `unmarshal` macros chronicled in
-[SPECOPS-DRAFT-manifest](Log.Manifest.md) and planned in
-[SPECOPS-DRAFT-manifest-complete](Plan.ManifestComplete.md), with the two
+[SPECOPS-0006](Log.Manifest.md) and planned in
+[SPECOPS-0003](Plan.ManifestComplete.md), with the two
 Common Lisp libraries closest to it: lisp-binary and binary-structures. It
 asks what each does that the manifest layer does not, what the manifest layer
 does that neither does, and what is worth taking from them. It places the
 three among other Lisp tools and the wider field of binary-format systems, as
 background only. The architecture it serves is
-[SPECOPS-DRAFT-specops](Arch.SpecOps.md). The candidates it finds are recorded
+[SPECOPS-0001](Arch.SpecOps.md). The candidates it finds are recorded
 as open questions, for the steward to accept into the plan or reject.
 
 ## Method
@@ -120,7 +120,7 @@ plans to:
   `e_shoff`, and names found through offsets into a string table.
 - **S4, WOFF.** A header and a table directory holding, for each table, its
   offset, its length and a checksum: the plan's next milestone
-  (SPECOPS-DRAFT-manifest-complete-D6).
+  (SPECOPS-D17).
 - **S5, wider units.** A record counted in 16-bit units, such as an M68K or
   s390x code segment, which SpecOps's assemblers produce.
 
@@ -317,9 +317,9 @@ Table: The manifest layer at `cb931c8` against the two libraries, criterion by c
 | # | Manifest layer | lisp-binary | binary-structures |
 |---|---|---|---|
 | G1 | Every field kind both ways | Every type both ways | Every type both ways |
-| G2 | None (SPECOPS-DRAFT-manifest-D2) | Expressions, `eval`, `custom` | Forms, `(slot name)` |
+| G2 | None (SPECOPS-D29) | Expressions, `eval`, `custom` | Forms, `(slot name)` |
 | G3 | `:length-of`, `:offset-of`, `:count-of`, `:checksum-of` over spans, backpatched | Count prefixes; pointers | Count prefixes |
-| G4 | All slots and constants, with `continue` and `use-value` (SPECOPS-DRAFT-manifest-D42) | Magic, with `continue` | Magic, by `assert` |
+| G4 | All slots and constants, with `continue` and `use-value` (SPECOPS-D69) | Magic, with `continue` | Magic, by `assert` |
 | G5 | `:case` over types and sub-manifests; repeats by count, field, `:until`, end, length; terminators of several elements; tar-style buffers; LEB128; user stop rules | Counted, terminated and fixed text; arrays by expression; `eval` | `case`, `typecase`; vectors by count, form or rest of storage; null-terminated text |
 | G6 | `:offset-of` from the record's start; following offsets deferred | Pointers, base pointers, region tags | Fixed offsets within a structure |
 | G7 | Per field or manifest, fixed at expansion; swap modes; any unit breadth | Per field, or `:dynamic`; sub-byte fields and bit streams | Per type; octets only |
@@ -339,11 +339,11 @@ Table: The manifest layer at `cb931c8` against the two libraries, criterion by c
    Repair on read (`use-value` with the recomputed checksum) has no
    counterpart in either.
 2. **Keeping logic out pays for analysis.** Both libraries let forms into
-   descriptions; the manifest layer refuses them (SPECOPS-DRAFT-manifest-D2),
+   descriptions; the manifest layer refuses them (SPECOPS-D29),
    and the analyses built since rely on it: `simplify-plan`, the region table
-   (SPECOPS-DRAFT-manifest-D43), and selective reads that pass over fields
-   through skip effectors (SPECOPS-DRAFT-manifest-D53,
-   SPECOPS-DRAFT-manifest-D54). Neither library could compute what a key
+   (SPECOPS-D70), and selective reads that pass over fields
+   through skip effectors (SPECOPS-D80,
+   SPECOPS-D81). Neither library could compute what a key
    depends on.
 3. **The variable-length model is broader.** Terminators of several elements
    matched as patterns, fixed buffers ended by a terminator, LEB128 scalars and
@@ -354,7 +354,7 @@ Table: The manifest layer at `cb931c8` against the two libraries, criterion by c
    describe S5. This matters to SpecOps more than to either library's users.
 5. **Optional records fit an image that changes.** Both libraries always
    define a struct, which SBCL cannot redefine with other slots; the manifest
-   layer defines a class only on request (SPECOPS-DRAFT-manifest-D32).
+   layer defines a class only on request (SPECOPS-D59).
 6. **lisp-binary leads on layout out of order and on byte order.** Pointers,
    base pointers and region tags, and byte order chosen when the code runs,
    are what S3 needs, and the manifest layer has neither yet.
@@ -364,7 +364,7 @@ Table: The manifest layer at `cb931c8` against the two libraries, criterion by c
    record but writes each unit through an `enter` closure and a
    `serializer-for` closure (`src/manifest/manifest.lisp:marshal@cb931c8`,
    `src/serial.lisp:serializer-for@cb931c8`), and checks a vector written in
-   place unit by unit (SPECOPS-DRAFT-manifest-D48). How much this costs has
+   place unit by unit (SPECOPS-D75). How much this costs has
    not been measured.
 8. **Inlining nested descriptions is not unique to the manifest layer.**
    binary-structures also keeps a compile-time registry and inlines nested
@@ -376,16 +376,16 @@ Table: The manifest layer at `cb931c8` against the two libraries, criterion by c
 
 The candidates worth taking are the open questions below. Of the plan's
 remaining milestones, WOFF stands to gain from the offset bases of
-SPECOPS-DRAFT-lisp-binary-tools-O1, floats from
-SPECOPS-DRAFT-lisp-binary-tools-O7, and the deferred following of offsets from
-SPECOPS-DRAFT-lisp-binary-tools-O1 and SPECOPS-DRAFT-lisp-binary-tools-O2.
+SPECOPS-O13, floats from
+SPECOPS-O19, and the deferred following of offsets from
+SPECOPS-O13 and SPECOPS-O14.
 
 ## Open Questions
 
-### SPECOPS-DRAFT-lisp-binary-tools-O1 — Should following offsets adopt pointers, region tags and offset bases?
+### SPECOPS-O13 — Should following offsets adopt pointers, region tags and offset bases?
 
 Following offsets on read is deferred to a later plan (the Scope and
-Non-Goals of SPECOPS-DRAFT-manifest-complete). lisp-binary's model is
+Non-Goals of SPECOPS-0003). lisp-binary's model is
 declarative and fits the manifest layer's backpatching: a pointer field
 writes a placeholder and queues its data under a named region; the region,
 where it is declared, writes the queued data and the pointers are patched; a
@@ -396,24 +396,24 @@ work take this shape, with a base for `:offset-of`, and should lisp-binary's
 EXIF example, TIFF with byte order and offsets both chosen by the data, be its
 test format?
 
-Answered in part in [SPECOPS-DRAFT-manifest](Log.Manifest.md) by
-SPECOPS-DRAFT-manifest-D56 and SPECOPS-DRAFT-manifest-D57: placed fields take
+Answered in part in [SPECOPS-0006](Log.Manifest.md) by
+SPECOPS-D83 and SPECOPS-D84: placed fields take
 the shape of pointers and region tags, written where a `place` directive
 stands and read at their `:offset-of` slots' values, for WOFF. Offsets from a
 base other than the top-level record's start, structures followed by offset
 without being placed, and EXIF as a test format remain open.
 
-### SPECOPS-DRAFT-lisp-binary-tools-O2 — Should byte order be selectable by an earlier field?
+### SPECOPS-O14 — Should byte order be selectable by an earlier field?
 
 ELF's `EI_DATA` and TIFF's `II`/`MM` set the byte order of what follows, so
 one ELF description could serve s390x and x86-64 (S3). lisp-binary reads it
 from a special variable when the code runs. The manifest way would be a byte
 order selected by an earlier field, compiled into both branches as `:case`
-fields are (SPECOPS-DRAFT-manifest-D19, SPECOPS-DRAFT-manifest-D20). Should
+fields are (SPECOPS-D46, SPECOPS-D47). Should
 the manifest layer offer it, and how does it bear on the architecture's
-question of who owns byte order (SPECOPS-DRAFT-specops-O3)?
+question of who owns byte order (SPECOPS-O3)?
 
-### SPECOPS-DRAFT-lisp-binary-tools-O3 — Should generated code use typed primitives and checks hoisted over fixed runs?
+### SPECOPS-O15 — Should generated code use typed primitives and checks hoisted over fixed runs?
 
 binary-structures emits typed, inlined accessors, tracks the offset at
 expansion, and checks bounds once for a run of fixed-size fields. The manifest
@@ -423,7 +423,7 @@ Should `marshal` and `unmarshal` specialise their primitives by destination
 and source type, and is a benchmark against binary-structures needed first to
 show the gain?
 
-### SPECOPS-DRAFT-lisp-binary-tools-O4 — Should sources and destinations be a protocol?
+### SPECOPS-O16 — Should sources and destinations be a protocol?
 
 The manifest layer chooses among vectors, streams and functions in fixed
 code inside `marshal` and `unmarshal`; binary-structures defines backends as
@@ -431,47 +431,47 @@ classes with code-returning methods, foreign memory among them. A protocol
 would let a module add storage without changing the macros, and a backend for
 raw memory would let an assembler write code straight into executable memory.
 That backend would depend on CFFI or on implementation internals, so under
-SPECOPS-DRAFT-specops-D1 it would live behind a conditional or outside the
+SPECOPS-D1 it would live behind a conditional or outside the
 core. Should destinations and sources become a protocol, and how would it
-meet the reader protocol that disassembly needs (SPECOPS-DRAFT-specops-O4)?
+meet the reader protocol that disassembly needs (SPECOPS-O4)?
 
-### SPECOPS-DRAFT-lisp-binary-tools-O5 — Should a record's size be computable before it is written?
+### SPECOPS-O17 — Should a record's size be computable before it is written?
 
 binary-structures generates the size of a value without writing it. The
 manifest layer buffers a record with slots and copies it out
-(SPECOPS-DRAFT-manifest-D46). A size computed first would allow writing
+(SPECOPS-D73). A size computed first would allow writing
 directly to a stream or function with the size known, allocating a vector of
 exactly the right size, and placing records whose offsets depend on the sizes
 of those before them, as ELF's sections do. Is it worth generating, given
 that buffering already works?
 
-### SPECOPS-DRAFT-lisp-binary-tools-O6 — Should a manifest's layout be printable?
+### SPECOPS-O18 — Should a manifest's layout be printable?
 
 binary-structures' `describe-object` prints each field's address, size, type
-and name. The region table (SPECOPS-DRAFT-manifest-D43) holds most of what a
+and name. The region table (SPECOPS-D70) holds most of what a
 manifest's table would need, with variable-length fields marked as such. A
 table to compare with a format's manual would help format authors, and is
 cheap. Should the manifest layer offer a function that prints one for a named
 manifest?
 
-### SPECOPS-DRAFT-lisp-binary-tools-O7 — Should text that does not fit, and floats, follow lisp-binary?
+### SPECOPS-O19 — Should text that does not fit, and floats, follow lisp-binary?
 
 Two of the plan's open items have answers in lisp-binary. For a fixed-length
-field given text of another length (SPECOPS-DRAFT-manifest-complete-O5), it
+field given text of another length (SPECOPS-O11), it
 signals a condition with a `truncate` restart for text too long and pads
 short text with a declared character, though its reader keeps the padding;
 a round trip in the manifest layer would need it stripped on read. For the planned
 `:f` class, it covers IEEE half to octuple precision, encoding the widest
 arithmetically and decoding them to rationals. Should the manifest layer take
-both: a restart in the style of SPECOPS-DRAFT-manifest-D42, and every IEEE
+both: a restart in the style of SPECOPS-D69, and every IEEE
 width with a portable arithmetic path and implementation fast paths behind
 conditionals?
 
-Answered for floats in [SPECOPS-DRAFT-manifest](Log.Manifest.md) by
-SPECOPS-DRAFT-manifest-D64 and SPECOPS-DRAFT-manifest-D65: IEEE floats of 16,
+Answered for floats in [SPECOPS-0006](Log.Manifest.md) by
+SPECOPS-D91 and SPECOPS-D92: IEEE floats of 16,
 32, 64 and 128 bits, with a portable arithmetic path and SBCL's floats behind a
 conditional; octuple precision was not taken. Text that does not fit its
-field, SPECOPS-DRAFT-manifest-complete-O5, remains open.
+field, SPECOPS-O11, remains open.
 
 ## Appendix — Source Map
 
@@ -482,4 +482,4 @@ Table: Sections of this evaluation and the sources each draws on.
 | lisp-binary | lisp-binary 20221106: `binary-2.lisp` (`defbinary` and its docstring), `types.lisp`, `binary-1.lisp`, `exif.lisp`, `lisp-binary.asd` |
 | binary-structures | binary-structures at `19ff73e`: `protocol.lisp`, `octet-vector.lisp`, `stream.lisp`, `foreign-pointer.lisp`, `standard-types.lisp`, `README.mess`, `binary-structures.asd`; babel's EBCDIC encodings |
 | Other Lisp tools and the wider field | Practical Common Lisp ch. 24; Binary-Types; Gloss; Racket bitsyntax; Erlang bit syntax; Kaitai Struct Serialization Guide; DFDL; Nail; Construct; binrw |
-| Comparison and Synthesis | The above, and the manifest layer at `cb931c8` with [SPECOPS-DRAFT-manifest](Log.Manifest.md) and [SPECOPS-DRAFT-manifest-complete](Plan.ManifestComplete.md) at `2c78df9` |
+| Comparison and Synthesis | The above, and the manifest layer at `cb931c8` with [SPECOPS-0006](Log.Manifest.md) and [SPECOPS-0003](Plan.ManifestComplete.md) at `2c78df9` |

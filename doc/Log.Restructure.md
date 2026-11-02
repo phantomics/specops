@@ -1,26 +1,30 @@
 ---
-id:            SPECOPS-DRAFT-restructure
+id:            SPECOPS-0005
 title:         Repository Restructure Development Log
 genre:         Log
 scope:         project
 project:       SpecOps
 language:      en
-status:        Draft
+status:        Implemented
+authors:
+  - Andrew Sengul
+approved-by:   Andrew Sengul
+reviewed:      2026-11-01
 provenance:
   assistant:   claude-opus-5-5 (OpenCode)
   session:     Restructure
 relates-to:
-  - SPECOPS-DRAFT-specops
-  - SPECOPS-DRAFT-manifest-complete
-glossary:      SPECOPS-DRAFT-glossary
+  - SPECOPS-0001
+  - SPECOPS-0003
+glossary:      SPECOPS-0002
 decisions:
-  - SPECOPS-DRAFT-restructure-D1
-  - SPECOPS-DRAFT-restructure-D2
-  - SPECOPS-DRAFT-restructure-D3
-  - SPECOPS-DRAFT-restructure-D4
-  - SPECOPS-DRAFT-restructure-D5
-  - SPECOPS-DRAFT-restructure-D6
-  - SPECOPS-DRAFT-restructure-D7
+  - SPECOPS-D21
+  - SPECOPS-D22
+  - SPECOPS-D23
+  - SPECOPS-D24
+  - SPECOPS-D25
+  - SPECOPS-D26
+  - SPECOPS-D27
 cites:
   - title:    IBM's next-gen mainframe chip is the first to run Arm and Z workloads on the same cores (VentureBeat)
     locator:  venturebeat.com/infrastructure/ibms-next-gen-mainframe-chip-is-the-first-to-run-arm-and-z-workloads-on-the-same-cores
@@ -50,9 +54,9 @@ system, and corrects the documents after review.
 ## Problem
 
 At `738105a` the repository had no structure that matched the design of the
-[SpecOps architecture, SPECOPS-DRAFT-specops](Arch.SpecOps.md). That design
+[SpecOps architecture, SPECOPS-0001](Arch.SpecOps.md). That design
 keeps the program model independent of both the instruction set and the
-object format (SPECOPS-DRAFT-specops-D11), but the files mixed them:
+object format (SPECOPS-D11), but the files mixed them:
 
 - The core (`package.lisp`, `checksum.lisp`, `scan.lisp`, `specops.lisp`,
   `program.lisp`) sat at the repository root beside seven architecture
@@ -67,16 +71,16 @@ object format (SPECOPS-DRAFT-specops-D11), but the files mixed them:
 
 The architecture's Roadmap asks for the format layer to be packaged and for
 per-module test suites, and the [Manifest Completion Plan,
-SPECOPS-DRAFT-manifest-complete](Plan.ManifestComplete.md) ends with putting
+SPECOPS-0003](Plan.ManifestComplete.md) ends with putting
 `goff.lisp` into an ASDF system. Both need modules with a place of their own.
 The sibling projects Classic and Origin already use `src/` for a core and
 `mod/` for modules, which gave a convention to follow.
 
 ## Design Decisions
 
-### SPECOPS-DRAFT-restructure-D1 — The core lives in `src/`, and modules in `mod/`, grouped by kind
+### SPECOPS-D21 — The core lives in `src/`, and modules in `mod/`, grouped by kind
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** SpecOps has seven architecture modules, three object-format
 writers (ELF, GOFF and WebAssembly) and two code tables, and ARM is on the
 Roadmap. Classic and Origin place each module directly under `mod/`, in a
@@ -90,9 +94,9 @@ set added, with the kind of each visible only in its name). Kind directories at 
 `format/` (rejected: diverges from the sibling projects and keeps the root
 crowded). Leaving the layout as it was (rejected: the problems above).
 
-### SPECOPS-DRAFT-restructure-D2 — System and package names name the module's kind
+### SPECOPS-D22 — System and package names name the module's kind
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** ASDF finds a system named with a slash, such as
 `specops/format.ebcdic`, only in the file of its primary system,
 `specops.asd`. A module with its own directory and `.asd` file therefore needs
@@ -111,9 +115,9 @@ Keeping slash names, as secondary systems in `specops.asd` pointing into
 every module would be defined in the core's `.asd` file, and none could carry
 its own).
 
-### SPECOPS-DRAFT-restructure-D3 — Architecture modules are named for instruction sets; System Z becomes `s390x`
+### SPECOPS-D23 — Architecture modules are named for instruction sets; System Z becomes `s390x`
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** A module targets an instruction set, not a machine or a product
 family. "System Z" names IBM's mainframe line, whose main instruction set is
 z/Architecture, called `s390x` by Linux, Debian and QEMU (GCC says `s390`,
@@ -129,9 +133,9 @@ instruction set belong to its module, through execution modes and
 may host more than one instruction set). `systemz`, after LLVM, or
 `z-architecture` (rejected: `s390x` is the more widely used target name).
 
-### SPECOPS-DRAFT-restructure-D4 — Object formats are modules separate from architectures
+### SPECOPS-D24 — Object formats are modules separate from architectures
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** An instruction set can be written in more than one format: s390x
 code goes into ELF on Linux and into GOFF on z/OS. GOFF belongs to an
 operating system, not an instruction set. WebAssembly is both an instruction
@@ -152,9 +156,9 @@ emits ELF, and GOFF is tied to z/OS). Keeping WebAssembly whole in
 Defining `asm-elf-machine` in the ELF module, with one small glue system per
 architecture (deferred: more systems, for no present need).
 
-### SPECOPS-DRAFT-restructure-D5 — Two-way mapping tables are map modules
+### SPECOPS-D25 — Two-way mapping tables are map modules
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** `formats/` held the CP437 and EBCDIC code tables, defined with
 `defcodetable`, which are used as string codecs by manifests. They are not
 formats. The steward expects to add other mappings that can be expressed as
@@ -175,9 +179,9 @@ codebase). `mod/table/` (rejected: names the representation, and would
 exclude mappings computed rather than tabulated). `mod/charset/` (rejected:
 too narrow for non-character mappings).
 
-### SPECOPS-DRAFT-restructure-D6 — `specops.lisp` is split by subsystem, with every definition moved unchanged
+### SPECOPS-D26 — `specops.lisp` is split by subsystem, with every definition moved unchanged
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** `specops.lisp:marshal@738105a` and the rest of the manifest
 layer, which is where the current work happens, shared a file of 2,547 lines
 with the assembler core. The two have no dependency on each other beyond the
@@ -210,17 +214,17 @@ Commit `0ac7223` moved every tracked file with `git mv`:
 - `manifest.lisp` and `test-scripts/*.lisp` to `test/`;
 - `6502/`, `m68k/`, `superh/`, `wasm/`, `x86/` and `z80/` to `mod/arch/`, and
   `system-z/` to `mod/arch/s390x/`
-  (SPECOPS-DRAFT-restructure-D3);
+  (SPECOPS-D23);
 - `wasm/program.lisp` to `mod/format/wasm/program.lisp`, and `elf.lisp` and
   `goff.lisp` to `mod/format/elf/` and `mod/format/goff/`
-  (SPECOPS-DRAFT-restructure-D4);
+  (SPECOPS-D24);
 - `formats/ebcdic.lisp` and `formats/cp437.lisp` to `mod/map/ebcdic/` and
-  `mod/map/cp437/` (SPECOPS-DRAFT-restructure-D5).
+  `mod/map/cp437/` (SPECOPS-D25).
 
 Each architecture's `.asd` file was renamed for its new system. Unused files
 moved with their modules unchanged: `x86/base.old.lisp`, `x86/ops.main2.lisp`,
 `superh/ops-nyi.lisp`, and the scraper `z80/comber.lisp`, which needs a
-library and is kept outside every system (SPECOPS-DRAFT-specops-D1).
+library and is kept outside every system (SPECOPS-D1).
 Untracked compiled files and editor backups were moved with their sources.
 
 The commit is not moves alone. It also holds the renames of the seven
@@ -235,12 +239,12 @@ deletions, and pairs some `package.lisp` files with the wrong directory: it
 matches `superh/package.lisp` to `mod/arch/m68k/package.lisp`, and
 `git log --follow mod/arch/s390x/package.lisp` leads back to
 `6502/package.lisp`. Every other file is followed to its old path. Keeping the
-renames out of the move commit, as SPECOPS-DRAFT-restructure-D6 did for the
+renames out of the move commit, as SPECOPS-D26 did for the
 split, would have avoided this.
 
 ### Remaining renames
 
-Commit `ada2d19` completed the renames of SPECOPS-DRAFT-restructure-D2:
+Commit `ada2d19` completed the renames of SPECOPS-D22:
 
 - the code tables' packages, so that
   `mod/map/ebcdic/ebcdic.lisp:ebcdic-code-cp037@ada2d19` is now in
@@ -272,7 +276,7 @@ systems to be found.
 
 ### Split of `specops.lisp`
 
-Commit `13b5887` replaced `specops.lisp` per SPECOPS-DRAFT-restructure-D6.
+Commit `13b5887` replaced `specops.lisp` per SPECOPS-D26.
 The new files were cut from line ranges of the old one, each under a header
 and an `in-package` form:
 
@@ -364,7 +368,7 @@ Table: Load results of the architecture systems at commits `738105a` and
 | `specops.z80` | `specops.arch.z80` | Loads |
 
 The three failures are the load-health problems of
-[SPECOPS-DRAFT-specops-O5](Arch.SpecOps.md#specops-draft-specops-o5--how-is-a-modules-conformance-verified),
+[SPECOPS-O5](Arch.SpecOps.md#specops-o5--how-is-a-modules-conformance-verified),
 and were left as they were. Both map systems load.
 
 **Documents.** `compass check` reports no errors.
@@ -404,10 +408,10 @@ Table: Files moved, added or changed from commit `738105a` to commit
 - **The README** still loads `specops.m68k`, `specops.x86` and
   `specops.system-z`, and enters their packages by the old names.
 - **The architecture document.** The Project structure appendix and the
-  module table of [SPECOPS-DRAFT-specops](Arch.SpecOps.md) describe commit
+  module table of [SPECOPS-0001](Arch.SpecOps.md) describe commit
   `1e53ae7`. A current layout, the dependency rule of
-  SPECOPS-DRAFT-restructure-D4 and the naming rule of
-  SPECOPS-DRAFT-restructure-D3 belong in an update there. The Glossary needs
+  SPECOPS-D24 and the naming rule of
+  SPECOPS-D23 belong in an update there. The Glossary needs
   entries for architecture, format and map modules.
 - **Format systems.** `mod/format/elf/`, `mod/format/goff/` and
   `mod/format/wasm/` have no `.asd` files. `specops.format.wasm` would depend
@@ -421,7 +425,7 @@ Table: Files moved, added or changed from commit `738105a` to commit
 - **Tests behind `test-op`.** The test scripts load source files directly, and
   `specops/demo.png` combines PNG manifests with the manifest suites. Suites
   for the core and each module, run by ASDF's `test-op`, would replace both
-  (SPECOPS-DRAFT-specops-O5). The PNG manifests stay a test case: image
+  (SPECOPS-O5). The PNG manifests stay a test case: image
   formats are outside SpecOps's scope.
 - **Internal names.** `*assembler-prototype-z*` and `assembler-z` keep the
   System Z naming; several `.asd` files still carry placeholder descriptions
@@ -430,7 +434,7 @@ Table: Files moved, added or changed from commit `738105a` to commit
   `superh/ops-nyi.lisp` should be removed or archived; `z80/comber.lisp` could
   move to a `tools/` directory.
 - **A finer split of `src/assembler.lisp`**, deferred by
-  SPECOPS-DRAFT-restructure-D6.
+  SPECOPS-D26.
 
 ## Update 2026-10-31 — Format systems, README and documents
 
@@ -441,9 +445,9 @@ names, and brings the architecture document and the glossary up to date with
 the new layout. It also records the steward's decision on the scope of format
 modules.
 
-### SPECOPS-DRAFT-restructure-D7 — Image and media formats are outside SpecOps; PNG is a test case
+### SPECOPS-D27 — Image and media formats are outside SpecOps; PNG is a test case
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** The manifest layer was built and tested on PNG, and the PNG
 manifests in `test/manifest.lisp` describe a real file format. With format
 modules in place, PNG could have become one. But SpecOps is a framework for
@@ -467,28 +471,28 @@ manifest layer's main test case).
   `specops.map.ebcdic`.
   `mod/format/wasm/specops.format.wasm.asd:specops.format.wasm@50e231d` also
   depends on `specops.arch.wasm`, the one case
-  SPECOPS-DRAFT-restructure-D4 permits. None of the three has a package of its
+  SPECOPS-D24 permits. None of the three has a package of its
   own yet: the ELF and GOFF writers are in `specops`, and the WebAssembly
   writer in `specops.arch.wasm`.
 - **WebAssembly architecture system.**
   `mod/arch/wasm/specops.arch.wasm.asd:specops.arch.wasm@50e231d` now depends
   on `specops`, the cause of its load failure in
-  [SPECOPS-DRAFT-specops-O5](Arch.SpecOps.md#specops-draft-specops-o5--how-is-a-modules-conformance-verified).
+  [SPECOPS-O5](Arch.SpecOps.md#specops-o5--how-is-a-modules-conformance-verified).
   Its placeholder description and author are unchanged.
 - **README.** The `load-system` and `in-package` examples name
   `specops.arch.m68k`, `specops.arch.x86` and `specops.arch.s390x`, and the
   System Z section explains that the module is named `s390x` for its
   instruction set. Mentions of System Z as a platform are unchanged.
-- **Architecture document.** [SPECOPS-DRAFT-specops](Arch.SpecOps.md) now
+- **Architecture document.** [SPECOPS-0001](Arch.SpecOps.md) now
   describes, in Module design, the three module kinds, the naming rule and
   the dependency rule, summarizing them with citations of
-  SPECOPS-DRAFT-restructure-D1 through SPECOPS-DRAFT-restructure-D5. Its
+  SPECOPS-D21 through SPECOPS-D25. Its
   object-format and binary-format sections name the format and map modules,
   and state the scope of format modules recorded above, though without citing
-  SPECOPS-DRAFT-restructure-D7. Its Project structure appendix shows
-  the new layout, and notes on SPECOPS-DRAFT-specops-O5, Roadmap step 4 and
+  SPECOPS-D27. Its Project structure appendix shows
+  the new layout, and notes on SPECOPS-O5, Roadmap step 4 and
   the module table record what has changed since `1e53ae7`.
-- **Glossary.** [SPECOPS-DRAFT-glossary](Glossary.SpecOps.md) has a new
+- **Glossary.** [SPECOPS-0002](Glossary.SpecOps.md) has a new
   table defining core, module, architecture module, format module, map
   module and opcode map, and its entry for code tables names map modules.
 
@@ -533,7 +537,7 @@ items above are done. The rest remains:
 
 - **The s390x program model.** `mod/arch/s390x/program.lisp`, with the s390x
   methods of the program protocol, is in no system.
-- **Packages for the format modules.** SPECOPS-DRAFT-restructure-D2 names
+- **Packages for the format modules.** SPECOPS-D22 names
   packages `specops.format.<format>`, but no format module has one.
 - **The Manifest Completion Plan** still lists putting `goff.lisp` in an ASDF
   system as remaining.
@@ -576,28 +580,28 @@ rather than narrow the documents.
   `ops`. Its methods on `asm-endianness` and
   `mod/arch/s390x/program.lisp:asm-elf-machine@6660c7f` are now loaded with
   the architecture, so the ELF writer can serve s390x through ASDF. The file
-  depends on no format module, as SPECOPS-DRAFT-restructure-D4 requires.
+  depends on no format module, as SPECOPS-D24 requires.
 - **This log.** Directory moves now says that `0ac7223` also renamed the
   architecture modules, and records which `package.lisp` files Git follows to
   the wrong path; Remaining renames records what `ada2d19` changed. The
   rename count in Metrics, the Design Properties, and the record of what
-  was tested are corrected. The Alternatives of SPECOPS-DRAFT-restructure-D1
-  and SPECOPS-DRAFT-restructure-D2 are corrected: a flat `mod/` would hold
+  was tested are corrected. The Alternatives of SPECOPS-D21
+  and SPECOPS-D22 are corrected: a flat `mod/` would hold
   twelve directories, and slash names were possible but would have kept every
   module's definition in `specops.asd`. The first Files table no longer lists
   this log, and the first update records the gaps the review found.
-- **Architecture document.** SPECOPS-DRAFT-specops-D1 now allows the core and
+- **Architecture document.** SPECOPS-D1 now allows the core and
   modules to depend on SpecOps's own systems, as the dependency rule
   requires. The scope of format modules moved into Module design and cites
-  SPECOPS-DRAFT-restructure-D7. The package rule names its one exception, the
+  SPECOPS-D27. The package rule names its one exception, the
   WebAssembly writer. The Project structure appendix is pinned to `50e231d`,
-  and the notes on SPECOPS-DRAFT-specops-O5, Roadmap steps 2 and 4, and the
+  and the notes on SPECOPS-O5, Roadmap steps 2 and 4, and the
   introduction are brought up to date.
 - **Glossary.** The module entries name the WebAssembly exception, cite
-  SPECOPS-DRAFT-restructure-D7, and distinguish a format module from an
+  SPECOPS-D27, and distinguish a format module from an
   instruction format and a map module from an enum. A new entry defines the
   region map, and the opcode map entry moved beside operation table.
-- **Manifest Completion Plan.** [SPECOPS-DRAFT-manifest-complete](Plan.ManifestComplete.md)
+- **Manifest Completion Plan.** [SPECOPS-0003](Plan.ManifestComplete.md)
   records that `goff.lisp` is in an ASDF system, under Packaging and tests and
   in step 10 of its priorities.
 
@@ -628,7 +632,7 @@ Table: Files changed in commit `6660c7f`.
 | `mod/format/goff/goff.lisp` | Modified | package `specops.format.goff` |
 | `mod/arch/s390x/specops.arch.s390x.asd` | Modified | `program` component |
 | `doc/Log.Restructure.md` | Modified | review corrections; this installment |
-| `doc/Arch.SpecOps.md` | Modified | review corrections; SPECOPS-DRAFT-specops-D1 amended |
+| `doc/Arch.SpecOps.md` | Modified | review corrections; SPECOPS-D1 amended |
 | `doc/Glossary.SpecOps.md` | Modified | review corrections; region map |
 | `doc/Plan.ManifestComplete.md` | Modified | `goff.lisp` packaging done |
 

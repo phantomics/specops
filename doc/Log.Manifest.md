@@ -1,87 +1,91 @@
 ---
-id:            SPECOPS-DRAFT-manifest
+id:            SPECOPS-0006
 title:         Manifest Development Log — defmanifest, marshal and unmarshal
 genre:         Log
 scope:         component
 project:       SpecOps
 component:     Manifest
 language:      en
-status:        Draft
+status:        Implemented
+authors:
+  - Andrew Sengul
+approved-by:   Andrew Sengul
+reviewed:      2026-11-01
 provenance:
   assistant:   claude-opus (OpenCode)
   session:     Marshal
 decisions:
-  - SPECOPS-DRAFT-manifest-D1
-  - SPECOPS-DRAFT-manifest-D2
-  - SPECOPS-DRAFT-manifest-D3
-  - SPECOPS-DRAFT-manifest-D4
-  - SPECOPS-DRAFT-manifest-D5
-  - SPECOPS-DRAFT-manifest-D6
-  - SPECOPS-DRAFT-manifest-D7
-  - SPECOPS-DRAFT-manifest-D8
-  - SPECOPS-DRAFT-manifest-D9
-  - SPECOPS-DRAFT-manifest-D10
-  - SPECOPS-DRAFT-manifest-D11
-  - SPECOPS-DRAFT-manifest-D12
-  - SPECOPS-DRAFT-manifest-D13
-  - SPECOPS-DRAFT-manifest-D14
-  - SPECOPS-DRAFT-manifest-D15
-  - SPECOPS-DRAFT-manifest-D16
-  - SPECOPS-DRAFT-manifest-D17
-  - SPECOPS-DRAFT-manifest-D18
-  - SPECOPS-DRAFT-manifest-D19
-  - SPECOPS-DRAFT-manifest-D20
-  - SPECOPS-DRAFT-manifest-D21
-  - SPECOPS-DRAFT-manifest-D22
-  - SPECOPS-DRAFT-manifest-D23
-  - SPECOPS-DRAFT-manifest-D24
-  - SPECOPS-DRAFT-manifest-D25
-  - SPECOPS-DRAFT-manifest-D26
-  - SPECOPS-DRAFT-manifest-D27
-  - SPECOPS-DRAFT-manifest-D28
-  - SPECOPS-DRAFT-manifest-D29
-  - SPECOPS-DRAFT-manifest-D30
-  - SPECOPS-DRAFT-manifest-D31
-  - SPECOPS-DRAFT-manifest-D32
-  - SPECOPS-DRAFT-manifest-D33
-  - SPECOPS-DRAFT-manifest-D34
-  - SPECOPS-DRAFT-manifest-D35
-  - SPECOPS-DRAFT-manifest-D36
-  - SPECOPS-DRAFT-manifest-D37
-  - SPECOPS-DRAFT-manifest-D38
-  - SPECOPS-DRAFT-manifest-D39
-  - SPECOPS-DRAFT-manifest-D40
-  - SPECOPS-DRAFT-manifest-D41
-  - SPECOPS-DRAFT-manifest-D42
-  - SPECOPS-DRAFT-manifest-D43
-  - SPECOPS-DRAFT-manifest-D44
-  - SPECOPS-DRAFT-manifest-D45
-  - SPECOPS-DRAFT-manifest-D46
-  - SPECOPS-DRAFT-manifest-D47
-  - SPECOPS-DRAFT-manifest-D48
-  - SPECOPS-DRAFT-manifest-D49
-  - SPECOPS-DRAFT-manifest-D50
-  - SPECOPS-DRAFT-manifest-D51
-  - SPECOPS-DRAFT-manifest-D52
-  - SPECOPS-DRAFT-manifest-D53
-  - SPECOPS-DRAFT-manifest-D54
-  - SPECOPS-DRAFT-manifest-D55
-  - SPECOPS-DRAFT-manifest-D56
-  - SPECOPS-DRAFT-manifest-D57
-  - SPECOPS-DRAFT-manifest-D58
-  - SPECOPS-DRAFT-manifest-D59
-  - SPECOPS-DRAFT-manifest-D60
-  - SPECOPS-DRAFT-manifest-D61
-  - SPECOPS-DRAFT-manifest-D62
-  - SPECOPS-DRAFT-manifest-D63
-  - SPECOPS-DRAFT-manifest-D64
-  - SPECOPS-DRAFT-manifest-D65
-  - SPECOPS-DRAFT-manifest-D66
-  - SPECOPS-DRAFT-manifest-D67
+  - SPECOPS-D28
+  - SPECOPS-D29
+  - SPECOPS-D30
+  - SPECOPS-D31
+  - SPECOPS-D32
+  - SPECOPS-D33
+  - SPECOPS-D34
+  - SPECOPS-D35
+  - SPECOPS-D36
+  - SPECOPS-D37
+  - SPECOPS-D38
+  - SPECOPS-D39
+  - SPECOPS-D40
+  - SPECOPS-D41
+  - SPECOPS-D42
+  - SPECOPS-D43
+  - SPECOPS-D44
+  - SPECOPS-D45
+  - SPECOPS-D46
+  - SPECOPS-D47
+  - SPECOPS-D48
+  - SPECOPS-D49
+  - SPECOPS-D50
+  - SPECOPS-D51
+  - SPECOPS-D52
+  - SPECOPS-D53
+  - SPECOPS-D54
+  - SPECOPS-D55
+  - SPECOPS-D56
+  - SPECOPS-D57
+  - SPECOPS-D58
+  - SPECOPS-D59
+  - SPECOPS-D60
+  - SPECOPS-D61
+  - SPECOPS-D62
+  - SPECOPS-D63
+  - SPECOPS-D64
+  - SPECOPS-D65
+  - SPECOPS-D66
+  - SPECOPS-D67
+  - SPECOPS-D68
+  - SPECOPS-D69
+  - SPECOPS-D70
+  - SPECOPS-D71
+  - SPECOPS-D72
+  - SPECOPS-D73
+  - SPECOPS-D74
+  - SPECOPS-D75
+  - SPECOPS-D76
+  - SPECOPS-D77
+  - SPECOPS-D78
+  - SPECOPS-D79
+  - SPECOPS-D80
+  - SPECOPS-D81
+  - SPECOPS-D82
+  - SPECOPS-D83
+  - SPECOPS-D84
+  - SPECOPS-D85
+  - SPECOPS-D86
+  - SPECOPS-D87
+  - SPECOPS-D88
+  - SPECOPS-D89
+  - SPECOPS-D90
+  - SPECOPS-D91
+  - SPECOPS-D92
+  - SPECOPS-D93
+  - SPECOPS-D94
 relates-to:
-  - SPECOPS-DRAFT-manifest-complete
-  - SPECOPS-DRAFT-restructure
-  - SPECOPS-DRAFT-lisp-binary-tools
+  - SPECOPS-0003
+  - SPECOPS-0005
+  - SPECOPS-0004
 cites:
   - title:    lisp-binary (Common Lisp binary format library) wiki
     locator:  github.com/j3pic/lisp-binary/wiki — DEFBINARY structs; EVAL type specifier
@@ -113,7 +117,7 @@ of 2026-10-31, to commits `738105a`, `d030f5c` and `2e1af03`, and ten of
 2026-11-01, to commits `4f9c6d4`, `d7ba27f`, `1cc7600`, `b63b7d2`, `239b2f7`,
 `cb931c8`, `52b81e5`, `e340210`, `5862d3a` and `e4a1f9a`. The repository restructure that followed
 moved the files this log names (see
-[SPECOPS-DRAFT-restructure](Log.Restructure.md)); code references stay pinned
+[SPECOPS-0005](Log.Restructure.md)); code references stay pinned
 to the commits that held the work.
 
 ## Problem
@@ -152,7 +156,7 @@ to requested fields.
 Decision identifiers are provisional; final numbers come from the namespace
 registry at acceptance.
 
-### SPECOPS-DRAFT-manifest-D1 — Manifest-driven marshal replaces the freeform item list
+### SPECOPS-D28 — Manifest-driven marshal replaces the freeform item list
 
 **Status:** Accepted
 **Context:** The freeform `marshal` serialized an ad hoc item list. It could
@@ -164,7 +168,7 @@ mode was removed rather than reconciled.
 (rejected: two vocabularies for one job); a struct-only interface (deferred;
 keyword input came first).
 
-### SPECOPS-DRAFT-manifest-D2 — Manifests describe structure only; logic stays at the call site
+### SPECOPS-D29 — Manifests describe structure only; logic stays at the call site
 
 **Status:** Accepted
 **Context:** Early drafts added `:compute` forms, binding blocks and inverse
@@ -177,7 +181,7 @@ either a static value or a direct keyword input, so reading is always direct.
 binding blocks with explicit inverse clauses (rejected as unnecessary once
 logic left the manifest).
 
-### SPECOPS-DRAFT-manifest-D3 — Compile-time manifest registry with inlining macros
+### SPECOPS-D30 — Compile-time manifest registry with inlining macros
 
 **Status:** Accepted
 **Context:** A runtime composer-function design could not introduce lexical
@@ -190,7 +194,7 @@ Enums use a parallel `*enums*` table populated by `defenum`.
 names (rejected: prefix mismatches, call-time macroexpansion, no binding-body
 reader); a hybrid of the two (rejected as more moving parts).
 
-### SPECOPS-DRAFT-manifest-D4 — Keywords are fields, specops symbols are directives
+### SPECOPS-D31 — Keywords are fields, specops symbols are directives
 
 **Status:** Accepted
 **Context:** Field declarations and structural directives share one list.
@@ -202,7 +206,7 @@ input field, anything else a static value.
 **Alternatives:** Dispatch by symbol name with an open directive registry
 (rejected in favor of fixed, package-identified directives).
 
-### SPECOPS-DRAFT-manifest-D5 — Unit-counted width specs with modifier sets
+### SPECOPS-D32 — Unit-counted width specs with modifier sets
 
 **Status:** Accepted
 **Context:** Bit-named keywords (`:u32`) cannot express 24-bit or other odd
@@ -215,7 +219,7 @@ field's value. Bit-named keywords remain as sugar for 8-bit output only.
 **Alternatives:** Keeping only bit-named keywords (rejected); a single
 modifier slot (rejected: vectors of LEB-encoded elements need two).
 
-### SPECOPS-DRAFT-manifest-D6 — Per-character string codecs, Latin-1 by default
+### SPECOPS-D33 — Per-character string codecs, Latin-1 by default
 
 **Status:** Accepted
 **Context:** Text in binary formats uses many encodings (ASCII, EBCDIC code
@@ -230,7 +234,7 @@ literal byte by byte.
 **Alternatives:** Whole-string `:encode-by`/`:decode-by` functions (deferred
 until a variable-width encoding such as UTF-8 or Shift-JIS is needed).
 
-### SPECOPS-DRAFT-manifest-D7 — Backpatching through destination `tell`/`write` with absolute positions
+### SPECOPS-D34 — Backpatching through destination `tell`/`write` with absolute positions
 
 **Status:** Accepted
 **Context:** Length, offset and checksum fields often precede the data they
@@ -246,7 +250,7 @@ collector.
 the whole record (deferred: an auto-buffer for non-seekable destinations is
 planned only for manifests that need it).
 
-### SPECOPS-DRAFT-manifest-D8 — Nesting-only spans, region-close slot resolution over a runtime map
+### SPECOPS-D35 — Nesting-only spans, region-close slot resolution over a runtime map
 
 **Status:** Accepted
 **Context:** A checksum may cover several fields; a length may describe one
@@ -264,7 +268,7 @@ A slot placed after its region (a trailing checksum) is computed inline.
 become possible); a static table of region offsets (rejected: variable-length
 fields make offsets unknowable at expansion).
 
-### SPECOPS-DRAFT-manifest-D9 — Pluggable checksums over output spans
+### SPECOPS-D36 — Pluggable checksums over output spans
 
 **Status:** Accepted
 **Context:** Checksum algorithms vary by format; SpecOps should stay free of
@@ -277,7 +281,7 @@ functions.
 computing checksums from a single field's input value (the first
 implementation; replaced because it cannot cover multiple fields).
 
-### SPECOPS-DRAFT-manifest-D10 — Sub-manifests inline into the parent through a sub-lexicon
+### SPECOPS-D37 — Sub-manifests inline into the parent through a sub-lexicon
 
 **Status:** Accepted
 **Context:** Formats compose records from records (a PNG file of chunks, a
@@ -294,7 +298,7 @@ as a region in `map`.
 callers could not vary them); flat namespaced keys such as `:ihdr.width`
 (rejected as verbose).
 
-### SPECOPS-DRAFT-manifest-D11 — Per-instance name prefixes; spans do not prefix
+### SPECOPS-D38 — Per-instance name prefixes; spans do not prefix
 
 **Status:** Accepted
 **Context:** Sibling sub-manifest instances (IHDR, IDAT and IEND chunks)
@@ -308,7 +312,7 @@ nothing to the prefix, since names are already unique within one manifest.
 targeting and did not address sibling instances); requiring unique names across
 nesting (rejected as restrictive).
 
-### SPECOPS-DRAFT-manifest-D12 — `deserializer-for` as the inverse of `serializer-for`
+### SPECOPS-D39 — `deserializer-for` as the inverse of `serializer-for`
 
 **Status:** Accepted
 **Context:** Reading needs the exact inverse of the write path, including
@@ -322,7 +326,7 @@ or `(units . integer)` pairs, the last preserving leading zero units that
 **Alternatives:** Extra width parameter on the lambda (rejected in favor of the
 cons form, mirroring `serializer-for`'s `(width . value)`).
 
-### SPECOPS-DRAFT-manifest-D13 — unmarshal return shapes: values when keyed, plist otherwise
+### SPECOPS-D40 — unmarshal return shapes: values when keyed, plist otherwise
 
 **Status:** Accepted
 **Context:** Callers either bind specific fields or want to see a record's
@@ -337,7 +341,7 @@ length and count fields are available to later fields.
 20-value limit); a binding-body form (superseded); nesting span children under
 the span name (rejected: spans are regions, not namespaces).
 
-### SPECOPS-DRAFT-manifest-D14 — Masque reads by direct group extraction
+### SPECOPS-D41 — Masque reads by direct group extraction
 
 **Status:** Accepted
 **Context:** `unmasque` binds group characters as variables (impossible for
@@ -361,7 +365,7 @@ stored `:length`).
   `specops.lisp:serializer-for@10b1568` gained an overflow guard on
   `(width . value)` pairs and zero padding for `(n)` pairs.
   `specops.lisp:deserializer-for@10b1568` implements
-  SPECOPS-DRAFT-manifest-D12, with a shared `finish` step for byte order and
+  SPECOPS-D39, with a shared `finish` step for byte order and
   sign.
 - **Registries and enums.** `*manifests*` and `*enums*` are defined under
   `eval-when`; `specops.lisp:defenum@10b1568` registers keyword-to-integer
@@ -387,8 +391,8 @@ stored `:length`).
   deserializer vector, `:vec` with counts from `:count`, an earlier field, or a
   reverse `:length-of` lookup (`vec-count-form`), spans walked in place,
   sub-manifests expanded with the shared cursor and their own deserializers,
-  masques per SPECOPS-DRAFT-manifest-D14, and constant strings validated per
-  SPECOPS-DRAFT-manifest-D6.
+  masques per SPECOPS-D41, and constant strings validated per
+  SPECOPS-D33.
 
 Fixes made along the way, each found by the PNG exercise or by review:
 
@@ -544,9 +548,9 @@ whose width is chosen by an earlier field, were rebuilt as a choice between
 complete field plans and now work in both directions. The test suites grew
 from 36 checks to 117.
 
-### SPECOPS-DRAFT-manifest-D15 — Pads are sized at run time, `:to` from the record's start and `:align` from the output's
+### SPECOPS-D42 — Pads are sized at run time, `:to` from the record's start and `:align` from the output's
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** `defmanifest` computed each pad's size from a static `index` as it
 parsed the clauses. Once a variable-length field preceded a pad, that index
 was wrong. `pad :align` also computed the remainder already used rather than
@@ -566,10 +570,10 @@ after any variable-length field); `:to` counted from the start of the output
 separate `skip` directive for reading (rejected: reading a pad already skips
 it).
 
-### SPECOPS-DRAFT-manifest-D16 — Codecs apply to `:vec` fields, and unmapped input is an error
+### SPECOPS-D43 — Codecs apply to `:vec` fields, and unmapped input is an error
 
-**Status:** Proposed
-**Context:** SPECOPS-DRAFT-manifest-D6 applied codecs only to the constant
+**Status:** Implemented
+**Context:** SPECOPS-D33 applied codecs only to the constant
 `str` directive. Caller-supplied text, such as an EBCDIC name, had no path. A
 `defcodetable` function returned `nil` for a character or code it did not map,
 and the `nil` reached the serializer.
@@ -583,15 +587,15 @@ unmapped character or code signals an error naming the input and the codec,
 on write and on read. `specops.lisp:defcodetable@653345f` marks unassigned
 entries with -1 in its `(signed-byte 16)` code table and `nil` in its reverse
 table. Caller text is therefore a `:vec` field with a codec, not the `:str`
-field type that SPECOPS-DRAFT-manifest-complete-D1 proposed.
+field type that SPECOPS-D12 proposed.
 **Alternatives:** A dedicated `:str` field type (not built: the `:vec` field
 with a codec covers it with no new type, and
-SPECOPS-DRAFT-manifest-complete-D1 may be reworded); passing unmapped input
+SPECOPS-D12 may be reworded); passing unmapped input
 through as `nil` or skipping it (rejected: corrupt output with no error).
 
-### SPECOPS-DRAFT-manifest-D17 — A character terminator goes through the codec; an integer terminator is a raw code
+### SPECOPS-D44 — A character terminator goes through the codec; an integer terminator is a raw code
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** Many fields end at a terminator rather than at a known count: C
 strings end at NUL, some EBCDIC text at a `$`. A terminator written as a
 character should match the data's encoding, but an integer passed to a
@@ -611,12 +615,12 @@ cursor moves past the terminator; a source that ends first signals an error.
 through the codec (rejected: NUL-terminated EBCDIC could not be written);
 allowing data that contains the terminator (rejected: a reader would stop
 early). Multi-element terminators and fixed buffers holding a terminator are
-planned in SPECOPS-DRAFT-manifest-complete-D8 and
-SPECOPS-DRAFT-manifest-complete-D7.
+planned in SPECOPS-D19 and
+SPECOPS-D18.
 
-### SPECOPS-DRAFT-manifest-D18 — Variable-length fields are built from stop rules and assemblers whose effectors emit fused code at expansion
+### SPECOPS-D45 — Variable-length fields are built from stop rules and assemblers whose effectors emit fused code at expansion
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** Counts, terminators and LEB128's continuation bit were each a
 separate branch in `marshal` and `unmarshal`. The `:leb` write branch was
 broken and there was no `:leb` read; the terminator read scanned every element
@@ -640,7 +644,7 @@ through `scan.lisp:emit-frame@653345f`. Elements are read as raw unsigned
 codes; sign extension and enum decoding belong to the assembler. Analysis
 methods such as `scan.lisp:known-count@653345f` give facts about a field before
 any code is emitted. Rule classes without effector methods are to run through a
-runtime protocol (SPECOPS-DRAFT-manifest-complete-D9).
+runtime protocol (SPECOPS-D20).
 **Alternatives:** A branch per field kind (the earlier design); the runtime
 scanner protocol as the only path (rejected as the primary path: dispatch and a
 buffer per element; kept as the planned fallback); closures returned by
@@ -648,10 +652,10 @@ factories, like `serializer-for` (rejected: harder for users to extend);
 run-time code generation as in April (unnecessary: the facts it waits for are
 known at expansion).
 
-### SPECOPS-DRAFT-manifest-D19 — A `:case` field is a choice between complete field plans
+### SPECOPS-D46 — A `:case` field is a choice between complete field plans
 
-**Status:** Proposed
-**Context:** `(:case field …)` (SPECOPS-DRAFT-manifest-D5) stored its branches
+**Status:** Implemented
+**Context:** `(:case field …)` (SPECOPS-D32) stored its branches
 unparsed. `marshal` looked up a width at run time from a plist of the values
 the caller passed, so each branch was reduced to a width, its signedness and
 modifiers were lost, and a selector left at its default had no value.
@@ -672,9 +676,9 @@ gives the width when every branch agrees.
 descriptors as objects in `defmanifest` (deferred: plans are built from the
 stored plists at expansion, and the stored form is unchanged).
 
-### SPECOPS-DRAFT-manifest-D20 — `:case` keys compare integer codes, and `otherwise` is the default branch
+### SPECOPS-D47 — `:case` keys compare integer codes, and `otherwise` is the default branch
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** A selector field may be enumerated, so a caller can give it as a
 keyword or an integer, and `unmarshal` returns it decoded. Branch keys need
 one domain to compare in. `marshal` also needs the selector's value when the
@@ -698,10 +702,10 @@ accepting `t` as a default as in `cl:case` (rejected: `otherwise` alone keeps
 `t` usable as a key, written `(t)`); a separate `:default-type` key on the
 field (rejected: the default reads more clearly as a branch).
 
-### SPECOPS-DRAFT-manifest-D21 — Directives dispatch by symbol name, and `_` names an unnamed field
+### SPECOPS-D48 — Directives dispatch by symbol name, and `_` names an unnamed field
 
-**Status:** Proposed
-**Context:** SPECOPS-DRAFT-manifest-D4 dispatched directives by symbol
+**Status:** Implemented
+**Context:** SPECOPS-D31 dispatched directives by symbol
 identity. A manifest written in a package that does not import SpecOps's
 internal `span`, `pad`, `str` and `manifest` lost those clauses without a
 message, as it did a clause led by `_` and a misspelt directive.
@@ -709,7 +713,7 @@ message, as it did a clause led by `_` and a misspelt directive.
 the symbol's name, so directives work from any package. A clause led by `_`
 from any package, or by `:_`, is an unnamed field: it is written with its
 default and skipped on read. An unknown directive signals an error. This
-amends SPECOPS-DRAFT-manifest-D4, which rejected dispatch by name.
+amends SPECOPS-D31, which rejected dispatch by name.
 **Alternatives:** Keeping identity and exporting the directive symbols
 (rejected: `_` would have to be exported, and misspellings would still be
 dropped); accepting only `:_` for unnamed fields (rejected: `_` is the
@@ -719,9 +723,9 @@ conventional placeholder).
 
 - **`specops.lisp`.**
   - `specops.lisp:pad-count-form@653345f` sizes pads per
-    SPECOPS-DRAFT-manifest-D15.
+    SPECOPS-D42.
   - `specops.lisp:codec-for@653345f` and `specops.lisp:defcodetable@653345f`
-    implement the codec errors of SPECOPS-DRAFT-manifest-D16.
+    implement the codec errors of SPECOPS-D43.
   - `specops.lisp:defmanifest@653345f` parses types through a local
     `parse-type` shared by fields and `:case` branches, and dispatches
     directives by name.
@@ -819,7 +823,7 @@ Table: Files created or changed from commit `1e53ae7` through `653345f`.
 
 Items from the outstanding work above that are now done: run-time enum values
 on write, `pad :align`, caller-supplied text (as `:vec` fields with a codec,
-SPECOPS-DRAFT-manifest-D16), and `:case` widths. The exports are done, but
+SPECOPS-D43), and `:case` widths. The exports are done, but
 `goff.lisp` is still in no ASDF system and the suites are not behind `test-op`.
 The other earlier items remain open.
 
@@ -828,9 +832,9 @@ New items:
 - **`:vec` on the scan model.** `:vec` fields still use their own branches; the
   terminator scan reads each element twice.
 - **Agreed but not built.** Fixed buffers holding a terminator
-  (SPECOPS-DRAFT-manifest-complete-D7), multi-element terminators
-  (SPECOPS-DRAFT-manifest-complete-D8), and user-defined stop rules with the
-  runtime fallback (SPECOPS-DRAFT-manifest-complete-D9).
+  (SPECOPS-D18), multi-element terminators
+  (SPECOPS-D19), and user-defined stop rules with the
+  runtime fallback (SPECOPS-D20).
 - **Vectors of LEB elements**, which the modifier set allows.
 - **Keyword defaults on enumerated fields.** A `:default` given as a keyword is
   not mapped through the enum, so it fails to marshal.
@@ -844,22 +848,22 @@ New items:
 ## Update 2026-10-31 — Vector fields on the scan model
 
 This installment covers commits `0b03854` and `738105a`. Vector fields joined
-LEB128 and `:case` fields on the scan model of SPECOPS-DRAFT-manifest-D18, so
+LEB128 and `:case` fields on the scan model of SPECOPS-D45, so
 that every variable-length field is now built from a field plan, and each
 macro handles them in one clause. A terminated vector is read in one pass. Two
 rules were settled on the way: how vector elements are encoded on write, and
 where enum decoding happens. The new suite brings the checks from 117 to 135.
 
 Soon after `738105a`, the repository restructure
-([SPECOPS-DRAFT-restructure](Log.Restructure.md)) moved the code this
+([SPECOPS-0005](Log.Restructure.md)) moved the code this
 installment names: `scan.lisp` to `src/manifest/scan.lisp`, the manifest
 layer of `specops.lisp` to `src/manifest/manifest.lisp`, and `manifest.lisp`
 to `test/manifest.lisp`. It changed no behavior. The references below are
 pinned to `738105a`, where the files had their old paths.
 
-### SPECOPS-DRAFT-manifest-D22 — Vector elements follow the terminator rule, and signed elements are written as raw codes
+### SPECOPS-D49 — Vector elements follow the terminator rule, and signed elements are written as raw codes
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** On write, an element of a `:vec` field with a codec went through
 the codec whatever its type, and a `defcodetable` function given an integer
 decodes it, so integers in a text field failed. Keyword elements of an
@@ -868,7 +872,7 @@ compared with the terminator as a negative number, while the terminator is a
 raw code: `-1` in an `(:s 1 :vec)` field ended by `#xFF` passed the check,
 was written as `FF`, and would end the field early for a reader.
 **Decision:** Each element of a vector is encoded by the rule
-SPECOPS-DRAFT-manifest-D17 set for terminators. A character goes through the
+SPECOPS-D44 set for terminators. A character goes through the
 codec, or `char-code` without one; a keyword goes through the field's enum,
 and signals an error if the enum lacks it; an integer is a raw code. A
 negative integer in a signed field is checked against the field's width and
@@ -880,9 +884,9 @@ steward: integers in a text field are legitimate codes, and one rule is
 simpler); comparing signed values with the terminator (rejected: the case of
 `-1` above).
 
-### SPECOPS-DRAFT-manifest-D23 — Each field plan decodes its own enum
+### SPECOPS-D50 — Each field plan decodes its own enum
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** `unmarshal` applied enum decoding to a field's value after
 reading it. For a vector the value is a whole array, whose elements each need
 decoding, and a `:case` field may have a scalar branch and a vector branch,
@@ -895,15 +899,15 @@ of its own to a field built from a plan. On write, scalar, LEB and `:case`
 values still go through `marshal`'s enum mapping before the plan sees them,
 so that a literal keyword becomes a constant at expansion, which
 `simplify-plan` needs; vector elements are mapped one by one
-(SPECOPS-DRAFT-manifest-D22).
+(SPECOPS-D49).
 **Alternatives:** Decoding vector elements in the assembler and other values
 outside it (rejected by the steward: wrong for a `:case` mixing scalar and
 vector branches, and two places to look).
 
-### SPECOPS-DRAFT-manifest-D24 — Vector, LEB and `:case` fields are built from field plans in one clause per macro
+### SPECOPS-D51 — Vector, LEB and `:case` fields are built from field plans in one clause per macro
 
-**Status:** Proposed
-**Context:** After SPECOPS-DRAFT-manifest-D19, `:case` and LEB fields went
+**Status:** Implemented
+**Context:** After SPECOPS-D46, `:case` and LEB fields went
 through field plans, but vectors kept hand-written branches in both macros.
 The read branch scanned a terminated field once to count it and again to
 read it.
@@ -940,7 +944,7 @@ loop at run time (rejected: the vector is constant).
   branch of `marshal` were removed, and `encode-leb128-unsigned` and
   `encode-leb128-signed` commented out. `marshal`'s local
   `scalar-value-form` gives the value of a scalar, LEB or `:case` field and
-  sets its selector variable (SPECOPS-DRAFT-manifest-D20).
+  sets its selector variable (SPECOPS-D47).
 - **`manifest.lisp`.** `manifest.lisp:run-vec-scan-demo@738105a` is the new
   suite.
 
@@ -1009,9 +1013,9 @@ done. Remaining:
   optional arguments of its `vec-count-form` are no longer called, and the
   LEB128 encoders remain as comments.
 - **Agreed but not built:** fixed buffers holding a terminator
-  (SPECOPS-DRAFT-manifest-complete-D7), multi-element terminators
-  (SPECOPS-DRAFT-manifest-complete-D8), and user-defined stop rules with the
-  runtime fallback (SPECOPS-DRAFT-manifest-complete-D9); each adds a rule or
+  (SPECOPS-D18), multi-element terminators
+  (SPECOPS-D19), and user-defined stop rules with the
+  runtime fallback (SPECOPS-D20); each adds a rule or
   an assembler to the scan model.
 - **Vectors of LEB elements.**
 - **Keyword defaults on enumerated fields**, still not mapped through the enum.
@@ -1022,11 +1026,11 @@ done. Remaining:
 ## Update 2026-10-31 — The scan model completed: fixed buffers, multi-element terminators, LEB vectors and user stop rules
 
 This installment covers commits `f7713c5` through `d030f5c`, which complete
-the scan model of SPECOPS-DRAFT-manifest-D18 as the Manifest Completion Plan
+the scan model of SPECOPS-D45 as the Manifest Completion Plan
 laid out. It builds three of that plan's decisions:
-SPECOPS-DRAFT-manifest-complete-D7 (fixed buffers holding a terminator),
-SPECOPS-DRAFT-manifest-complete-D8 (terminators of several elements) and
-SPECOPS-DRAFT-manifest-complete-D9 (user-defined stop rules with a runtime
+SPECOPS-D18 (fixed buffers holding a terminator),
+SPECOPS-D19 (terminators of several elements) and
+SPECOPS-D20 (user-defined stop rules with a runtime
 fallback). It also adds vectors of LEB128 elements. The groundwork for all
 four came first, in a commit that changed no behavior. Four suites bring the
 checks from 135 to 202. The code is now in `src/manifest/`, and references
@@ -1038,9 +1042,9 @@ Between this update and the last, commits `5e0976e` and `d524c3c` taught
 decimal factor. The manifest layer's two callers were adapted, but
 `unmarshal` still rejects decimal masques.
 
-### SPECOPS-DRAFT-manifest-D25 — A scan keeps a position, and rules report their extent apart from their count
+### SPECOPS-D52 — A scan keeps a position, and rules report their extent apart from their count
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** `emit-scan` computed each element's offset as the cursor plus
 the element index times a fixed width, and moved the cursor by the number of
 elements read. Vectors of LEB elements have no fixed width. A fixed buffer
@@ -1061,15 +1065,15 @@ at the end, and `:keep :dynamic`, for an `:after` form that returns `nil`,
 elements it writes and passes the counter to rules, which may also add a
 prelude.
 **Alternatives:** A separate expander for each kind of field (rejected: the
-reason for SPECOPS-DRAFT-manifest-D18); collecting every element into a buffer
+reason for SPECOPS-D45); collecting every element into a buffer
 and trimming afterwards (rejected: the trailer drops elements only when a
 rule asks).
 
-### SPECOPS-DRAFT-manifest-D26 — Element plans nest, and a vector of LEB elements is a scan over an LEB scan
+### SPECOPS-D53 — Element plans nest, and a vector of LEB elements is a scan over an LEB scan
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** The modifier set allows `(:u 1 :vec :leb)`
-(SPECOPS-DRAFT-manifest-D5). Each element is itself a variable-length
+(SPECOPS-D32). Each element is itself a variable-length
 field, so it needs its own stop rule and assembler.
 **Decision:** A scan plan may hold an element plan. Reading, each element is
 read by the element plan with the outer scan's position as its cursor;
@@ -1086,11 +1090,11 @@ fills that slot with the byte length.
 serves any element kind); counting a `:length-of` vector by reading until the
 bytes are consumed (deferred: a units rule, noted under Outstanding Work).
 
-### SPECOPS-DRAFT-manifest-D27 — A fixed buffer must leave room for a whole terminator
+### SPECOPS-D54 — A fixed buffer must leave room for a whole terminator
 
-**Status:** Proposed
-**Context:** SPECOPS-DRAFT-manifest-complete-D7 pads a short buffer with the
-terminator repeated, and SPECOPS-DRAFT-manifest-complete-D8 allows terminators
+**Status:** Implemented
+**Context:** SPECOPS-D18 pads a short buffer with the
+terminator repeated, and SPECOPS-D19 allows terminators
 of several elements. Data may leave fewer places in a buffer than such a
 terminator needs.
 **Decision:** On write, data that neither fills the buffer exactly nor leaves
@@ -1106,12 +1110,12 @@ the data. A buffer can be written only with an integer `:count` for now;
 reading a buffer sized by an earlier field works.
 **Alternatives:** Writing a partial terminator (rejected by the steward: a
 reader would take it as data); requiring a terminator in every buffer
-(rejected in SPECOPS-DRAFT-manifest-complete-D7).
+(rejected in SPECOPS-D18).
 
-### SPECOPS-DRAFT-manifest-D28 — User stop rules run through a five-function protocol until they define effectors
+### SPECOPS-D55 — User stop rules run through a five-function protocol until they define effectors
 
-**Status:** Proposed
-**Context:** SPECOPS-DRAFT-manifest-complete-D9 lets a field name a user's
+**Status:** Implemented
+**Context:** SPECOPS-D20 lets a field name a user's
 stop rule with `:stop-by`, to run through a runtime protocol until the rule
 has effector methods. The protocol's shape, and how a rule gets its
 parameters and state, remained to be settled.
@@ -1132,13 +1136,13 @@ protocol does not check written data against the rule; that is the rule's
 own concern.
 **Alternatives:** A read-only fallback (rejected by the steward: a rule with
 only runtime methods should work both ways); a closure-based protocol like
-`serializer-for` (rejected in SPECOPS-DRAFT-manifest-D18); one instance per
+`serializer-for` (rejected in SPECOPS-D45); one instance per
 manifest (rejected: two fields with the same rule would share state).
 
 ### Implementation
 
 - **Groundwork, `f7713c5`.** `emit-scan`, `emit-frame` and `known-extent` per
-  SPECOPS-DRAFT-manifest-D25; the vector assembler trims its fill pointer by a
+  SPECOPS-D52; the vector assembler trims its fill pointer by a
   trailer. Dead code went: `unmarshal`'s `term-code-form` and the `:end-by`
   branch of its `vec-count-form`, and the commented-out LEB128 encoders, old
   `field-plan` and old vector assembler. All ten suites passed unchanged.
@@ -1238,7 +1242,7 @@ wording of the selector-order error. New:
   `frame-effector` exported from `src/package.lisp`.
 - **Buffers sized by another field, on write.** Writing a fixed buffer needs
   an integer `:count`; the earlier field's value could come through variables
-  like the selector variables of SPECOPS-DRAFT-manifest-D20.
+  like the selector variables of SPECOPS-D47.
 - **A units rule.** A rule that stops when the bytes read reach a length,
   and signals an error on overrun, would let `unmarshal` read a vector of LEB
   elements counted by a `:length-of` slot, and later read fields that fill
@@ -1256,9 +1260,9 @@ rest: a manifest's `:endian` had no effect on its fields. The checks for each
 correction went into the suite of the feature it corrects, which brings the
 checks from 202 to 217.
 
-### SPECOPS-DRAFT-manifest-D29 — A field without a byte order takes its manifest's; strings are in stream order
+### SPECOPS-D56 — A field without a byte order takes its manifest's; strings are in stream order
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** `process-field` defaulted a field's byte order to big-endian, so
 the manifest's `:endian` never reached a field that gave none, and a manifest
 declared little-endian wrote its fields big-endian. Every probe set `:endian`
@@ -1272,17 +1276,17 @@ else big-endian. `marshal` sizes its serializers from the byte orders of
 every field it writes, inside spans and nested manifests, collected by
 `src/manifest/manifest.lisp:manifest-swap-specs@2e1af03`. A constant string
 stores byte order 0: it is written and read in stream order, and any byte
-order belongs to its codec (SPECOPS-DRAFT-manifest-D6).
+order belongs to its codec (SPECOPS-D33).
 **Alternatives:** Requiring `:endian` on every field (rejected: the manifest's
 `:endian` exists to state it once); giving each nested manifest serializers
 of its own (rejected: nested expansions share one environment by design,
-SPECOPS-DRAFT-manifest-D10). Who owns byte order across the system remains
-the architecture's open question SPECOPS-DRAFT-specops-O3; this settles it
+SPECOPS-D37). Who owns byte order across the system remains
+the architecture's open question SPECOPS-O3; this settles it
 within a manifest.
 
-### SPECOPS-DRAFT-manifest-D30 — A code an enum lacks is read as its integer
+### SPECOPS-D57 — A code an enum lacks is read as its integer
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** `unmarshal` decoded an enumerated field's code to `nil` when the
 enum had no keyword for it, so the value was lost and the record could not be
 written back.
@@ -1296,9 +1300,9 @@ values, vector elements, `:case` values and masque groups all decode through
 newer or vendor codes could not be read at all); keeping `nil` (rejected: the
 value is lost).
 
-### SPECOPS-DRAFT-manifest-D31 — A correction is tested in the suite of the feature it corrects
+### SPECOPS-D58 — A correction is tested in the suite of the feature it corrects
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** The corrections could have been tested by a suite of their own.
 Such a suite gathers checks by when their faults were found rather than by
 what they cover, and must change whenever any of those features does.
@@ -1309,7 +1313,7 @@ reasons above).
 
 ### Implementation
 
-- **Byte orders, SPECOPS-DRAFT-manifest-D29.** In
+- **Byte orders, SPECOPS-D56.** In
   `src/manifest/manifest.lisp:defmanifest@2e1af03`, a field's `:endian`
   defaults to `nil`, the manifest's byte order to big-endian, and a `str`
   directive stores byte order 0. In `src/manifest/manifest.lisp:marshal@2e1af03`,
@@ -1318,7 +1322,7 @@ reasons above).
 - **Keyword defaults.** A default goes through the enum like a given value,
   in `marshal`'s `scalar-value-form` and its masque binder. The scalar clause
   of `generate`, which repeated `scalar-value-form`, now calls it.
-- **Unknown codes, SPECOPS-DRAFT-manifest-D30**, in `enumerated`.
+- **Unknown codes, SPECOPS-D57**, in `enumerated`.
 - **Error wording.** `field-plan` passes a field's name to `selector-form`,
   and `unmarshal`'s `var-of` names both fields: "unmarshal: field :V needs
   field :KIND, which isn't read before it." `marshal`'s message names both as
@@ -1331,7 +1335,7 @@ reasons above).
   `process-item`. The manifest layer compiles with no style warnings, where it
   had 26.
 - **Exports.** `src/package.lisp@2e1af03` exports `stop-rule`, the five
-  protocol functions of SPECOPS-DRAFT-manifest-D28, `stop-effector` and
+  protocol functions of SPECOPS-D55, `stop-effector` and
   `frame-effector`, so that a stop rule can be defined in another package. No
   module that uses `specops` defines any of these names.
 
@@ -1393,14 +1397,14 @@ manifest layer records: `marshal` takes field values from a record when its
 code runs, `defmanifest` can define a record class, `unmarshal` can return an
 instance of it, and a record read from a file writes the file back. They
 answer the Manifest Completion Plan's open questions
-SPECOPS-DRAFT-manifest-complete-O2 and SPECOPS-DRAFT-manifest-complete-O3, and
-build its SPECOPS-DRAFT-manifest-complete-D4 with a class in place of the
+SPECOPS-O8 and SPECOPS-O9, and
+build its SPECOPS-D15 with a class in place of the
 struct it named. A new suite brings the checks from 217 to 258.
 
-### SPECOPS-DRAFT-manifest-D32 — A manifest's record is a CLOS class, defined on request, with its names in the class's package
+### SPECOPS-D59 — A manifest's record is a CLOS class, defined on request, with its names in the class's package
 
-**Status:** Proposed
-**Context:** SPECOPS-DRAFT-manifest-complete-D4 proposed that `defmanifest`
+**Status:** Implemented
+**Context:** SPECOPS-D15 proposed that `defmanifest`
 always define a struct. SBCL treats redefining a struct with different slots
 as an incompatible redefinition, which stops with an error until the image is
 restarted, and a manifest's fields change often while a format is being
@@ -1421,19 +1425,19 @@ class's name. Because the class is defined from the stored fields,
 `defmanifest` expands into the registration followed by
 `define-manifest-record`, which reads them once the registration has run at
 compile time.
-**Alternatives:** A struct, as SPECOPS-DRAFT-manifest-complete-D4 proposed
+**Alternatives:** A struct, as SPECOPS-D15 proposed
 (rejected by the steward: the redefinition problem above); a record for every
 manifest (rejected by the steward: needless types and possible clashes);
 derived names in the package current at the `defmanifest` form (rejected by
 the steward in favor of keeping them beside the class).
 
-### SPECOPS-DRAFT-manifest-D33 — `marshal` takes a run-time record through an options list
+### SPECOPS-D60 — `marshal` takes a run-time record through an options list
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** `marshal` took each field's value from its literal arguments at
 expansion, so a sub-manifest's values had to be a literal plist in the call,
 and a record built or read at run time could not be written
-(SPECOPS-DRAFT-manifest-complete-O3). A reserved keyword argument such as
+(SPECOPS-O9). A reserved keyword argument such as
 `:from` would clash with a format that has a field of that name.
 **Decision:** `marshal`'s arguments may begin with a list of options, which
 cannot be taken for a field since fields begin with keywords:
@@ -1453,12 +1457,12 @@ fetching values with `getf` only (rejected: records would need converting);
 separate generated paths for plists and records (rejected: one generic
 function serves both at the cost of a dispatch per field).
 
-### SPECOPS-DRAFT-manifest-D34 — `unmarshal` takes its options in its params, `(:as :record)` among them
+### SPECOPS-D61 — `unmarshal` takes its options in its params, `(:as :record)` among them
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** `unmarshal` returned values for given keys and a plist otherwise
-(SPECOPS-DRAFT-manifest-D13). Records needed a way to ask for them, and
-SPECOPS-DRAFT-manifest-complete-O2 asked where `unmarshal`'s options belong.
+(SPECOPS-D40). Records needed a way to ask for them, and
+SPECOPS-O8 asked where `unmarshal`'s options belong.
 **Decision:** Options go in `unmarshal`'s `params` argument, which already
 carried the internal sub-lexicon: `(unmarshal png-file source (:as :record))`
 returns an instance of the manifest's record class, and `:as :plist` is the
@@ -1468,13 +1472,13 @@ option, an `:as` other than `:plist` or `:record`, `:as :record` with keys,
 and `:as :record` for a manifest without a record class are expansion errors.
 **Alternatives:** Options after the manifest's name, as in
 `(unmarshal (png-file :record) …)` (rejected in
-SPECOPS-DRAFT-manifest-complete-O2: the name should stay a plain symbol);
+SPECOPS-O8: the name should stay a plain symbol);
 always returning a record when the manifest has one (rejected: the plist stays
 the default, as callers already expect).
 
-### SPECOPS-DRAFT-manifest-D35 — Round trips are canonical
+### SPECOPS-D62 — Round trips are canonical
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** A record read by `unmarshal` and written by `marshal` should
 reproduce its source, but a record holds only named fields.
 **Decision:** A round trip reproduces a canonical source exactly, and writes
@@ -1562,25 +1566,25 @@ Table: Files changed in commits `fed7f35` through `4f9c6d4`.
 
 - **Destinations that cannot be patched.** A manifest with a `:length-of`
   slot cannot be written to a function, record or not; buffering is the
-  plan's SPECOPS-DRAFT-manifest-complete-D2.
+  plan's SPECOPS-D13.
 - **Exact round trips** of sources that are not canonical, should a format
-  need them (SPECOPS-DRAFT-manifest-D35).
+  need them (SPECOPS-D62).
 - The items left from the previous update remain.
 
 ## Update 2026-11-01 — Variable structure
 
 This installment covers commits `a12b394` through `d7ba27f`, which build the
-Manifest Completion Plan's SPECOPS-DRAFT-manifest-complete-D5 and answer its
-SPECOPS-DRAFT-manifest-complete-O4. A sub-manifest became a field plan, so
+Manifest Completion Plan's SPECOPS-D16 and answer its
+SPECOPS-O10. A sub-manifest became a field plan, so
 that a `:case` field can choose one and a manifest can repeat one: by a
 count, by a count field, until an instance matches a condition, to the end of
 the source, or until a length slot's bytes are used. Count fields can be
 computed on write. One manifest now reads and writes any sequence of PNG
 chunks. The checks went from 258 to 292.
 
-### SPECOPS-DRAFT-manifest-D36 — A sub-manifest is a field plan, expanded by the macro that holds its parent
+### SPECOPS-D63 — A sub-manifest is a field plan, expanded by the macro that holds its parent
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** Both macros expanded a sub-manifest in a clause of their own,
 which kept the region map and the shared environment. A sub-manifest could
 therefore appear only as a field by itself, not as a `:case` branch or as the
@@ -1598,15 +1602,15 @@ gensym names were normalized.
 only they hold); a separate mechanism for `:case` branches and repeats
 (rejected: one plan serves both, and nests).
 
-### SPECOPS-DRAFT-manifest-D37 — A `:case` branch may be a sub-manifest, `(key (manifest name))`
+### SPECOPS-D64 — A `:case` branch may be a sub-manifest, `(key (manifest name))`
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** Chunked formats choose a record's layout by a tag, as PNG does
-by a chunk's type. SPECOPS-DRAFT-manifest-complete-D5 asked for `:case` to
+by a chunk's type. SPECOPS-D16 asked for `:case` to
 choose a sub-manifest, with a default branch.
 **Decision:** A branch written `(key (manifest name))` is stored like the
 `manifest` directive and read and written through a manifest plan. Keys stay
-codes through the selector's enum (SPECOPS-DRAFT-manifest-D20), so a tag the
+codes through the selector's enum (SPECOPS-D47), so a tag the
 enum lacks takes the `otherwise` branch, which may read raw bytes counted by a
 length slot. `marshal` gives each kind of branch its value: a sub-manifest
 branch takes literal nested values, or a record form, from the given value or
@@ -1620,16 +1624,16 @@ the steward: `(manifest name)` mirrors the directive and cannot be taken for
 a width spec); string keys compared with `equalp` (rejected: an enum of the
 tags' codes keeps keys as integers).
 
-### SPECOPS-DRAFT-manifest-D38 — A repeated sub-manifest is a scan whose elements are instances
+### SPECOPS-D65 — A repeated sub-manifest is a scan whose elements are instances
 
-**Status:** Proposed
-**Context:** SPECOPS-DRAFT-manifest-complete-D5 asked for sub-manifests
+**Status:** Implemented
+**Context:** SPECOPS-D16 asked for sub-manifests
 repeated by a count, by a count or length field, or until an instance
 matching a condition on its fields, read as a list. A PNG file is a signature
 and chunks up to IEND.
 **Decision:** Options after the child's name in the `manifest` directive make
 it a repeat: `:count n`, `:count :field`, `:until (field value …)`,
-`:until :end`, or `:until :length` (SPECOPS-DRAFT-manifest-D40). In
+`:until :end`, or `:until :length` (SPECOPS-D67). In
 `src/manifest/scan.lisp:field-plan@d7ba27f` a repeat is a scan plan whose
 element is the manifest plan, whose assembler,
 `src/manifest/scan.lisp:list-assembler@d7ba27f`, collects a list on read and
@@ -1647,16 +1651,16 @@ out.
 **Alternatives:** A separate `repeat` directive (rejected by the steward:
 options on `manifest` keep one directive for sub-manifests); conditions
 written as code (rejected: no logic in manifests,
-SPECOPS-DRAFT-manifest-D2); an empty repeat as an error (rejected: it must
+SPECOPS-D29); an empty repeat as an error (rejected: it must
 round-trip).
 
-### SPECOPS-DRAFT-manifest-D39 — Slots inside a repeated instance resolve within that instance
+### SPECOPS-D66 — Slots inside a repeated instance resolve within that instance
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** Regions are named by keywords fixed at expansion, made unique per
-sub-manifest field by prefixes (SPECOPS-DRAFT-manifest-D11). A repeat writes
+sub-manifest field by prefixes (SPECOPS-D38). A repeat writes
 its child's code once and runs it for each instance, so every instance has
-the same region names. SPECOPS-DRAFT-manifest-complete-O4 asked how repeated
+the same region names. SPECOPS-O10 asked how repeated
 instances are named and addressed.
 **Decision:** Each instance pushes fresh regions onto the map as it is
 written, as spans already did, so a slot inside an instance, such as a chunk's
@@ -1666,9 +1670,9 @@ cover the whole repeat, but not one instance of it.
 slot outside a repeat could address one instance (rejected by the steward as
 more machinery than chunked formats need; possible later).
 
-### SPECOPS-DRAFT-manifest-D40 — A length slot bounds elements of varying width in units
+### SPECOPS-D67 — A length slot bounds elements of varying width in units
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** A `:length-of` slot gave a vector its element count by dividing
 the length by the element width. The elements of a vector of LEBs, and the
 instances of a repeat, have no fixed width, so `unmarshal` could not read
@@ -1685,9 +1689,9 @@ field (rejected: a single sub-manifest may have one, as PNG's IHDR chunk
 does); a units rule for fixed-width vectors too (unneeded: division already
 gives their count, and lets the vector be allocated in advance).
 
-### SPECOPS-DRAFT-manifest-D41 — A `:count-of` slot is backpatched with the elements written
+### SPECOPS-D68 — A `:count-of` slot is backpatched with the elements written
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** Formats such as WOFF hold a count field before the entries it
 counts. Callers supplied count fields themselves.
 **Decision:** A field declared `(:n :u16 :slot (:count-of :entries))` is
@@ -1775,7 +1779,7 @@ done, and with it reading a vector of LEB elements by a length slot. New:
 
 - **Instances addressed from outside a repeat**, by names built at run time,
   should a format need a slot outside a repeat that covers one instance
-  (SPECOPS-DRAFT-manifest-D39).
+  (SPECOPS-D66).
 - **Trailing `:count-of` and `:length-of` slots.** A slot placed after the
   field it covers is resolved before its own position is known, and writing
   fails with a type error rather than a clear message; only checksum slots are
@@ -1792,16 +1796,16 @@ reads. Checksums, length, offset and count slots are compared with the regions
 they cover, including inside repeated instances, and constants are checked as
 before. A failed check signals a condition that the caller can answer with a
 restart. The work answers the Manifest Completion Plan's open question
-SPECOPS-DRAFT-manifest-complete-O1. A new suite brings the checks from 292 to
+SPECOPS-O7. A new suite brings the checks from 292 to
 315.
 
-### SPECOPS-DRAFT-manifest-D42 — A failed check signals a condition with restarts, and `(:check nil)` leaves the checks out
+### SPECOPS-D69 — A failed check signals a condition with restarts, and `(:check nil)` leaves the checks out
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** `unmarshal` read checksum, length and offset slots as plain values,
 so a corrupt file passed silently, while a constant that did not match
 signalled a plain error, which ended the read.
-SPECOPS-DRAFT-manifest-complete-O1 asked what a failed check should do. A
+SPECOPS-O7 asked what a failed check should do. A
 caller reading trusted data wants no cost; a caller reading a damaged file
 wants to see its contents anyway; most callers want corruption reported.
 **Decision:** A failed check signals `manifest-check-failed`, a subclass of
@@ -1818,21 +1822,21 @@ leaves every check out of the expansion, including those of nested manifests,
 since a restart cannot spare the cost of computing a checksum. After a length
 fails, `continue` reads on from where the field ended.
 **Alternatives:** A plain error with an option to turn checks off, as
-SPECOPS-DRAFT-manifest-complete-O1 suggested (rejected by the steward: a
+SPECOPS-O7 suggested (rejected by the steward: a
 damaged file could be read only in a separate mode, and the record could not be
 repaired as it is read); returning a status with the values (rejected: a caller
 that ignores it lets corrupt data pass); restarts with no option (rejected by
 the steward: the checks' work could not be skipped).
 
-### SPECOPS-DRAFT-manifest-D43 — Checks are placed at expansion from a region table, with variables only for the regions they need
+### SPECOPS-D70 — Checks are placed at expansion from a region table, with variables only for the regions they need
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** `marshal` records regions in a list built as its code runs,
 pushing an entry for every region of every instance
-(SPECOPS-DRAFT-manifest-D8). Read the same way, a file of many chunks would
+(SPECOPS-D35). Read the same way, a file of many chunks would
 allocate for each of them. Slots inside a repeated instance must resolve
-within it (SPECOPS-DRAFT-manifest-D39), and selective reads
-(SPECOPS-DRAFT-manifest-complete-D3) will need to know which fields and spans
+within it (SPECOPS-D66), and selective reads
+(SPECOPS-D14) will need to know which fields and spans
 lie where.
 **Decision:** `src/manifest/manifest.lisp:manifest-regions@1cc7600` builds a
 region table at expansion: each named field and span, with the span holding it
@@ -1856,11 +1860,11 @@ its region.
 only what checks need (rejected by the steward: the general table costs nothing
 when the code runs, and selective reads can extend it).
 
-### SPECOPS-DRAFT-manifest-D44 — An integer source is checksummed through a buffer of its units, made once
+### SPECOPS-D71 — An integer source is checksummed through a buffer of its units, made once
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** `unmarshal` reads integers and `(units . integer)` pairs as well
-as vectors (SPECOPS-DRAFT-manifest-D12), but a checksum function reads a
+as vectors (SPECOPS-D39), but a checksum function reads a
 buffer. Integer sources are mostly packed values, rarely checksummed. Whether
 the source is an integer is known only when the code runs.
 **Decision:** When the source is not a vector, a checksum check reads
@@ -1878,11 +1882,11 @@ them (rejected by the steward: the check would be lost, or a source the reader
 accepts refused); a fresh buffer for each check (rejected: repeated work in
 each instance of a repeat).
 
-### SPECOPS-DRAFT-manifest-D45 — Every checksum function takes a buffer, a start and an end
+### SPECOPS-D72 — Every checksum function takes a buffer, a start and an end
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** A `:checksum-of` slot calls its function as `(fn buffer start
-end)` (SPECOPS-DRAFT-manifest-D9), which `checksum.lisp:crc@10b1568` follows.
+end)` (SPECOPS-D36), which `checksum.lisp:crc@10b1568` follows.
 `adler32-checksum` takes its bounds as keyword arguments, so it would fail
 as a `:by` function if called by a manifest, and checked reads call these
 functions on every read for manifests with a checksum slot.
@@ -1898,9 +1902,9 @@ keeps the interface of the library it came from, and the PNG test's
 - **`src/manifest/manifest.lisp`.**
   - The condition `manifest-check-failed` and
     `src/manifest/manifest.lisp:check-failed@1cc7600`, per
-    SPECOPS-DRAFT-manifest-D42.
+    SPECOPS-D69.
   - `manifest-regions`, `manifest-checksums-p` and `source-units`, per
-    SPECOPS-DRAFT-manifest-D43 and SPECOPS-DRAFT-manifest-D44.
+    SPECOPS-D70 and SPECOPS-D71.
   - In `src/manifest/manifest.lisp:unmarshal@1cc7600`, the `:check` option,
     passed to nested expansions with `:as`; the buffer's variable in the
     sub-lexicon; a local `process-item` that records where a region begins and
@@ -1908,7 +1912,7 @@ keeps the interface of the library it came from, and the PNG test's
     slot's check, and `emit-ready-checks`, which places it; and
     `constant-failed`, which the constant checks of strings, terminators and
     masques now call. A string reports its first differing unit only.
-- **`src/checksum.lisp`.** `adler32`, per SPECOPS-DRAFT-manifest-D45.
+- **`src/checksum.lisp`.** `adler32`, per SPECOPS-D72.
 - **`src/package.lisp`.** Exports `manifest-check-failed` and its readers
   `check-manifest`, `check-field`, `check-kind`, `check-expected`,
   `check-actual` and `check-position`.
@@ -1967,7 +1971,7 @@ Table: Files changed in commit `1cc7600`, and the documents updated in commits
 | `src/package.lisp` | Modified | Exports the condition and its readers |
 | `test/manifest.lisp` | Modified | The checked reads suite |
 | `doc/Log.Manifest.md` | Modified | This update |
-| `doc/Plan.ManifestComplete.md` | Modified | Progress installment for checked reads; SPECOPS-DRAFT-manifest-complete-O1 answered |
+| `doc/Plan.ManifestComplete.md` | Modified | Progress installment for checked reads; SPECOPS-O7 answered |
 
 ### Metrics
 
@@ -1998,18 +2002,18 @@ Plan's sixth milestone, destinations. A manifest with slots or checksums can
 now be written to a function, a stream or any vector, since `marshal` writes
 it through a buffer wherever it cannot be patched in place. The buffer may be
 one the caller keeps across calls, which answers the plan's open question
-SPECOPS-DRAFT-manifest-complete-O6 for writing. A vector too small signals a
+SPECOPS-O12 for writing. A vector too small signals a
 condition of its own. One walker over nested manifests now serves the code
 that needs them all, which fixes the byte orders of sub-manifests chosen by
 `:case`. A fault in writing to streams was found and removed on the way. The
 checks went from 315 to 335.
 
-### SPECOPS-DRAFT-manifest-D46 — A manifest with slots is written through a buffer to any destination it cannot patch in place
+### SPECOPS-D73 — A manifest with slots is written through a buffer to any destination it cannot patch in place
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** Slots are backpatched through the destination's `write`, and
-checksums read the destination itself (SPECOPS-DRAFT-manifest-D7,
-SPECOPS-DRAFT-manifest-D9). In `src/manifest/manifest.lisp:marshal@1cc7600` a
+checksums read the destination itself (SPECOPS-D34,
+SPECOPS-D36). In `src/manifest/manifest.lisp:marshal@1cc7600` a
 function had no `write`, so any slot failed by calling `nil`, and a checksum
 was handed the function or stream it was to read. A stream was patched by
 seeking to a recorded position, which counts from where `marshal` began,
@@ -2019,7 +2023,7 @@ anything else in a stream therefore had its slots written over earlier bytes:
 a length slot written after a 2-byte header gave `#(3 7 0 1 0 5 9)` for
 `#(7 7 3 1 0 5 9)`. The GOFF writer writes records partway into a stream, and
 was spared only because its END record has no slots.
-SPECOPS-DRAFT-manifest-complete-D2 planned a buffer for destinations that
+SPECOPS-D13 planned a buffer for destinations that
 cannot be patched and read.
 **Decision:** At expansion,
 `src/manifest/manifest.lisp:manifest-slots-p@b63b7d2` decides whether the
@@ -2031,21 +2035,21 @@ buffer, a simple array grown by doubling, in which slots are resolved and
 checksums computed; when the record is complete the buffer is passed on, to a
 stream by one `write-sequence`, to a function by one call per unit, and to a
 vector by `aref`. Streams are never sought or read back. This amends
-SPECOPS-DRAFT-manifest-D7, whose streams were patched by seeking.
+SPECOPS-D34, whose streams were patched by seeking.
 **Alternatives:** Patching streams that can seek, after fixing the positions
 (rejected by the steward: deciding at run time whether a stream can seek has
 many pitfalls, and pipes and sockets cannot); buffering every manifest
-(rejected in SPECOPS-DRAFT-manifest-complete-D2: manifests without slots would
+(rejected in SPECOPS-D13: manifests without slots would
 pay for it); patching every vector in place (rejected: `crc` declares a simple
 byte array, so a checksum failed on a vector with a fill pointer or of general
 elements, as the new suite showed).
 
-### SPECOPS-DRAFT-manifest-D47 — A caller may keep the buffer across calls in a `manifest-buffer`
+### SPECOPS-D74 — A caller may keep the buffer across calls in a `manifest-buffer`
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** A buffer made for every call puts pressure on the garbage
 collector when many records are written. A buffer kept across calls needs an
-owner, and SPECOPS-DRAFT-manifest-complete-O6 asked who owns it, how large it
+owner, and SPECOPS-O12 asked who owns it, how large it
 grows, and whether writing and reading share one.
 **Decision:** By default `marshal` makes a fresh buffer of 256 units for each
 call that needs one. Given `(:buffer b)` in its options, it takes the array
@@ -2062,9 +2066,9 @@ above); a special variable holding a buffer (rejected: a nested or concurrent
 call would share it); passing the array itself (rejected: an array replaced as
 it grows would be lost to the caller).
 
-### SPECOPS-DRAFT-manifest-D48 — A vector too small signals `manifest-overrun`, and a fill pointer is neither read nor set
+### SPECOPS-D75 — A vector too small signals `manifest-overrun`, and a fill pointer is neither read nor set
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** A vector destination too small for its record failed inside
 `aref`, with a message that named neither the manifest nor the vector's size.
 Adjustable vectors and vectors with fill pointers raised the question of
@@ -2085,11 +2089,11 @@ caller's concern, and such a vector would still need the buffer for
 checksums); bounding a vector by its fill pointer (rejected: it would differ
 from `aref`, and a vector with a fill pointer of 0 could hold nothing).
 
-### SPECOPS-DRAFT-manifest-D49 — One walker visits every manifest nested in another, `:case` branches included
+### SPECOPS-D76 — One walker visits every manifest nested in another, `:case` branches included
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** `marshal` sizes its serializers from the byte orders of every
-manifest it expands (SPECOPS-DRAFT-manifest-D29), but
+manifest it expands (SPECOPS-D56), but
 `src/manifest/manifest.lisp:manifest-swap-specs@1cc7600` walked spans and
 sub-manifest fields and not sub-manifests chosen by `:case`. A branch whose
 manifest used a byte order its parent lacked indexed past the serializers.
@@ -2106,11 +2110,11 @@ given `:checksum-of`, replaces `manifest-checksums-p`.
 
 - **`src/manifest/manifest.lisp`.**
   - `walk-manifest`, `manifest-swap-specs` and `manifest-slots-p`, per
-    SPECOPS-DRAFT-manifest-D49.
-  - `manifest-overrun` and `signal-overrun`, per SPECOPS-DRAFT-manifest-D48;
+    SPECOPS-D76.
+  - `manifest-overrun` and `signal-overrun`, per SPECOPS-D75;
     `manifest-buffer`, `reusable-buffer` and
     `src/manifest/manifest.lisp:grow-buffer@b63b7d2`, per
-    SPECOPS-DRAFT-manifest-D46 and SPECOPS-DRAFT-manifest-D47.
+    SPECOPS-D73 and SPECOPS-D74.
   - In `src/manifest/manifest.lisp:marshal@b63b7d2`: the `:buffer` option; a
     local `in-place` function that sets the vector's checked `enter` and its
     `write`; the dispatch on the destination, chosen at expansion by
@@ -2166,8 +2170,8 @@ The new suite checks, among other things:
 The faults these checks guard against were reproduced by hand on a checkout of
 `1cc7600`: a length slot written to a stream after a header, `png-file` written
 to a function, `png-file` written to a 50-byte vector, and the `:case` branch,
-each failing as the contexts of SPECOPS-DRAFT-manifest-D46,
-SPECOPS-DRAFT-manifest-D48 and SPECOPS-DRAFT-manifest-D49 describe. The manifest layer has no style warnings, and
+each failing as the contexts of SPECOPS-D73,
+SPECOPS-D75 and SPECOPS-D76 describe. The manifest layer has no style warnings, and
 the five test scripts in `test/` pass, among them the GOFF writer's, which
 writes to a stream through `marshal`. The architecture systems
 `specops.arch.6502`, `.s390x`, `.x86`, `.z80` and `.wasm`, and the three
@@ -2183,7 +2187,7 @@ Table: Files changed in commit `b63b7d2`, and the documents updated after it.
 | `src/package.lisp` | Modified | Exports the buffer and the overrun condition |
 | `test/manifest.lisp` | Modified | The destinations suite; the `:case` byte-order check |
 | `doc/Log.Manifest.md` | Modified | This update |
-| `doc/Plan.ManifestComplete.md` | Modified | Progress installment for destinations; SPECOPS-DRAFT-manifest-complete-O6 answered for writing; a note under SPECOPS-DRAFT-manifest-complete-D2 |
+| `doc/Plan.ManifestComplete.md` | Modified | Progress installment for destinations; SPECOPS-O12 answered for writing; a note under SPECOPS-D13 |
 
 ### Metrics
 
@@ -2213,16 +2217,16 @@ is read only as far as each read needs, its units are kept so that checksums
 can read them again, and a read takes exactly one record, so that records can
 be read from one stream in sequence. The buffer the units are kept in may be
 the caller's, which answers the reading side of the plan's
-SPECOPS-DRAFT-manifest-complete-O6. The second half of the milestone,
+SPECOPS-O12. The second half of the milestone,
 selective reads, follows in its own installment. A new suite brings the checks
 from 335 to 348.
 
-### SPECOPS-DRAFT-manifest-D50 — A stream is a source of `deserializer-for`, read as far as each read needs and kept
+### SPECOPS-D77 — A stream is a source of `deserializer-for`, read as far as each read needs and kept
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** `unmarshal` read vectors, integers and `(units . integer)` pairs
-(SPECOPS-DRAFT-manifest-D12), at any index. Every field is read at or after
-the cursor, but a checksum reads its region again (SPECOPS-DRAFT-manifest-D43),
+(SPECOPS-D39), at any index. Every field is read at or after
+the cursor, but a checksum reads its region again (SPECOPS-D70),
 so a stream's units must be kept at least until the record's checksums are
 done. Three places used the source other than through the deserializers: the
 end rule took its `length`, `emit-scan` checked vectors for overruns, and
@@ -2237,7 +2241,7 @@ nothing for it. A read first calls
 `src/serial.lisp:fill-stream-source@239b2f7`, which reads with
 `read-sequence` up to the last unit the read needs and no further, and
 signals an error when the stream ends first. The stream is never sought, as
-destinations are not (SPECOPS-DRAFT-manifest-D46), and every unit of the
+destinations are not (SPECOPS-D73), and every unit of the
 record is kept. `src/serial.lisp:source-end-p@239b2f7` tells the end rule
 whether a vector or a stream has a unit at a position, reading one unit ahead
 of a stream only then. The top-level `unmarshal` wraps a stream in a
@@ -2245,14 +2249,14 @@ of a stream only then. The top-level `unmarshal` wraps a stream in a
 **Alternatives:** Wrapping the deserializers in `unmarshal` (rejected: nested
 expansions build their own); seeking a file stream to skip or to read a region
 again (rejected by the steward for the reasons of
-SPECOPS-DRAFT-manifest-D46); reading a stream in blocks ahead of need
+SPECOPS-D73); reading a stream in blocks ahead of need
 (rejected: the stream would be left past the end of the record); dropping
 units no check still needs (deferred: the record is kept whole, as it is when
 written through a buffer).
 
-### SPECOPS-DRAFT-manifest-D51 — A read from a stream takes exactly one record
+### SPECOPS-D78 — A read from a stream takes exactly one record
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** A trailing pad, the rest of a fixed buffer after its terminator,
 and fields of known size move the cursor without reading units. A stream read
 only as far as reads need would be left inside such a record, and formats such
@@ -2265,25 +2269,25 @@ this milestone.
 **Alternatives:** Leaving the stream where the last read stopped (rejected:
 the next read would begin inside the record's padding or buffer).
 
-### SPECOPS-DRAFT-manifest-D52 — `unmarshal` keeps a stream's units in the `manifest-buffer` that `marshal` uses
+### SPECOPS-D79 — `unmarshal` keeps a stream's units in the `manifest-buffer` that `marshal` uses
 
-**Status:** Proposed
-**Context:** SPECOPS-DRAFT-manifest-D47 let a caller keep `marshal`'s buffer
+**Status:** Implemented
+**Context:** SPECOPS-D74 let a caller keep `marshal`'s buffer
 across calls and intended stream sources to accept the same object, which
-SPECOPS-DRAFT-manifest-complete-O6 asked about for reading.
+SPECOPS-O12 asked about for reading.
 **Decision:** `(:buffer b)` in `unmarshal`'s params gives a stream source the
 array a `manifest-buffer` holds, when its elements are of the manifest's unit
 type, and the grown array is stored back when the record is read. One type
 serves both directions, and one instance may serve both, since each call
 leaves the buffer free when it returns.
-**Alternatives:** A separate buffer type for reading (rejected: SPECOPS-DRAFT-manifest-D47
+**Alternatives:** A separate buffer type for reading (rejected: SPECOPS-D74
 intended one); passing the array itself (rejected there: a grown array would be
 lost to the caller).
 
 ### Implementation
 
 - **`src/serial.lisp`.** `stream-source`, `fill-stream-source` and
-  `source-end-p`, per SPECOPS-DRAFT-manifest-D50, placed before
+  `source-end-p`, per SPECOPS-D77, placed before
   `deserializer-for`, whose vector case became a local `from-vector` that the
   stream case shares. `src/serial.lisp:grow-buffer@239b2f7` moved here from
   `manifest.lisp`, since both directions use it.
@@ -2291,8 +2295,8 @@ lost to the caller).
   `src/manifest/manifest.lisp:unmarshal@239b2f7`: the `:buffer` option; the
   top-level binding of the source, which wraps a stream; the checksum's buffer,
   chosen by the kind of source; and the read to the record's end, which also
-  stores the grown array back, per SPECOPS-DRAFT-manifest-D51 and
-  SPECOPS-DRAFT-manifest-D52.
+  stores the grown array back, per SPECOPS-D78 and
+  SPECOPS-D79.
 - **`src/manifest/scan.lisp`.** The end rule,
   `src/manifest/scan.lisp:stop-effector@239b2f7` on `end-rule`, asks
   `source-end-p`.
@@ -2347,7 +2351,7 @@ Table: Files changed in commit `239b2f7`, and the documents updated after it.
 | `src/manifest/scan.lisp` | Modified | The end rule asks `source-end-p` |
 | `test/manifest.lisp` | Modified | The stream sources suite |
 | `doc/Log.Manifest.md` | Modified | This update |
-| `doc/Plan.ManifestComplete.md` | Modified | Progress installment for stream sources; SPECOPS-DRAFT-manifest-complete-O6 answered for reading; key paths deferred |
+| `doc/Plan.ManifestComplete.md` | Modified | Progress installment for stream sources; SPECOPS-O12 answered for reading; key paths deferred |
 
 ### Metrics
 
@@ -2363,12 +2367,12 @@ Stream sources, outstanding since this log began, are done. New:
   sub-manifests, such as `(:ihdr :width)`, are deferred by the steward: a key
   that names a sub-manifest field returns the whole sub-record.
 - **Units kept for the whole record.** A record read from a stream is held
-  whole, as SPECOPS-DRAFT-manifest-D50 decided; dropping units no check still
+  whole, as SPECOPS-D77 decided; dropping units no check still
   needs would serve records too large to hold.
 - **A stream's element type** must match the manifest's unit; a character
   stream cannot be read.
 - **The reader protocol of the architecture.** The stream source is a
-  candidate base for the protocol that SPECOPS-DRAFT-specops-O4 asks
+  candidate base for the protocol that SPECOPS-O4 asks
   disassembly to offer; that question remains open.
 - The other items of the previous updates remain.
 
@@ -2380,18 +2384,18 @@ those fields and the fields that locate them, and passes over the rest,
 reading no more of a field than finding its end needs. A read from a vector
 stops after its last key; a read from a stream still takes the whole record.
 Only the slots in the part read are checked. This builds the plan's
-SPECOPS-DRAFT-manifest-complete-D3 and amends SPECOPS-DRAFT-manifest-D13. Key
+SPECOPS-D14 and amends SPECOPS-D40. Key
 paths into sub-manifests are deferred by the steward. A new suite brings the
 checks from 348 to 360.
 
-### SPECOPS-DRAFT-manifest-D53 — A keyed read decodes its keys and the fields that locate them
+### SPECOPS-D80 — A keyed read decodes its keys and the fields that locate them
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** `unmarshal` read every named field whatever keys it was given, so
 that counts and lengths were available to later fields
-(SPECOPS-DRAFT-manifest-D13). Reading one field of a large file decoded all of
-it. SPECOPS-DRAFT-manifest-complete-D3 planned a closure of the requested keys
-computed at expansion, and the region table of SPECOPS-DRAFT-manifest-D43 was
+(SPECOPS-D40). Reading one field of a large file decoded all of
+it. SPECOPS-D14 planned a closure of the requested keys
+computed at expansion, and the region table of SPECOPS-D70 was
 built in a general form for it.
 **Decision:** At expansion, `src/manifest/manifest.lisp:manifest-selection@cb931c8`
 gives each field of the manifest, spans' fields included, a mode: read, which
@@ -2405,20 +2409,20 @@ and is passed over by the length. A key the manifest lacks is an expansion
 error. A key that names a sub-manifest field gives its whole record: key paths
 into sub-manifests, such as `(:ihdr :width)`, are deferred by the steward.
 Reads without keys decode every field, as before. This amends
-SPECOPS-DRAFT-manifest-D13.
+SPECOPS-D40.
 **Alternatives:** Decoding every field, as before (kept for reads without
 keys); a parser that decodes fields lazily when the code runs (rejected in
-SPECOPS-DRAFT-manifest-complete-D3: it loses the specialization expansion
+SPECOPS-D14: it loses the specialization expansion
 gives); key paths now (deferred by the steward).
 
-### SPECOPS-DRAFT-manifest-D54 — A field is passed over through its plan's skip effector
+### SPECOPS-D81 — A field is passed over through its plan's skip effector
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** Passing over a field must find its end. For some kinds that is
 known before reading; for others, such as terminated or LEB fields, the
 elements must be read, though not decoded, enum-mapped or collected. Field
-plans and their effectors (SPECOPS-DRAFT-manifest-D18,
-SPECOPS-DRAFT-manifest-D19) already know how each kind ends.
+plans and their effectors (SPECOPS-D45,
+SPECOPS-D46) already know how each kind ends.
 **Decision:** `src/manifest/scan.lisp:skip-effector@cb931c8` emits the code
 that moves the cursor past a plan's field. A scalar, a field of fixed size, or
 one whose element count is known before reading moves the cursor at once. A
@@ -2430,18 +2434,18 @@ reading their elements only when the stop rule decides by their values, as
 `:until` reads in each instance only the fields its condition tests, through
 a nested read of those fields alone. Pads, strings, scalars and masques move
 the cursor by their width. Streams are read past, never sought, as the steward
-decided for them (SPECOPS-DRAFT-manifest-D50).
+decided for them (SPECOPS-D77).
 **Alternatives:** Reading and discarding each field (rejected: it decodes,
 maps enums and allocates for nothing); seeking file streams (rejected by the
 steward); computing each sub-manifest's fixed size at expansion (deferred: a
 skipped child of fixed fields already moves the cursor with no reads).
 
-### SPECOPS-DRAFT-manifest-D55 — A selective read stops after its last key, but takes a stream's whole record, and checks only the part read
+### SPECOPS-D82 — A selective read stops after its last key, but takes a stream's whole record, and checks only the part read
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** Fields after the last key need not be reached, but a read from a
-stream takes exactly one record (SPECOPS-DRAFT-manifest-D51). Checks
-(SPECOPS-DRAFT-manifest-D42, SPECOPS-DRAFT-manifest-D43) need their slot
+stream takes exactly one record (SPECOPS-D78). Checks
+(SPECOPS-D69, SPECOPS-D70) need their slot
 fields read and their regions located, so checking everything would turn a
 selective read into a full one.
 **Decision:** The boundary is the top-level item that holds the last key.
@@ -2462,8 +2466,8 @@ record could not be read).
 
 - **`src/manifest/manifest.lisp`.**
   - `manifest-leaves`, `leaf-names`, `field-dependencies` and
-    `manifest-selection`, per SPECOPS-DRAFT-manifest-D53 and
-    SPECOPS-DRAFT-manifest-D55.
+    `manifest-selection`, per SPECOPS-D80 and
+    SPECOPS-D82.
   - In `src/manifest/manifest.lisp:unmarshal@cb931c8`: the selection, given
     by the keys at the top level or by an internal `:-+select+-` param for a
     nested manifest, `nil` passing over it; the modes and boundary, with the
@@ -2474,7 +2478,7 @@ record could not be read).
     selection returns. A key that names nothing is reported.
 - **`src/manifest/scan.lisp`.** `skip-effector` and its methods,
   `null-assembler` and `rule-reads-elements-p`, per
-  SPECOPS-DRAFT-manifest-D54. `emit-scan` declares the element ignorable, since
+  SPECOPS-D81. `emit-scan` declares the element ignorable, since
   a skip collects nothing.
 - **`test/manifest.lisp`.** `test/manifest.lisp:run-selective-read-demo@cb931c8`,
   with the macro `test/manifest.lisp:each-key-agrees@cb931c8` and
@@ -2530,7 +2534,7 @@ Table: Files changed in commit `cb931c8`, and the documents updated after it.
 | `src/manifest/scan.lisp` | Modified | `skip-effector`, `null-assembler`, `rule-reads-elements-p` |
 | `test/manifest.lisp` | Modified | The selective reads suite |
 | `doc/Log.Manifest.md` | Modified | This update |
-| `doc/Plan.ManifestComplete.md` | Modified | Progress installment for selective reads; a note under SPECOPS-DRAFT-manifest-complete-D3 |
+| `doc/Plan.ManifestComplete.md` | Modified | Progress installment for selective reads; a note under SPECOPS-D14 |
 
 ### Metrics
 
@@ -2543,32 +2547,32 @@ Table: Files changed in commit `cb931c8`, and the documents updated after it.
 Selective reads, outstanding since this log began, are done. New:
 
 - **Key paths into sub-manifests**, such as `(:ihdr :width)`, deferred by the
-  steward (SPECOPS-DRAFT-manifest-D53).
+  steward (SPECOPS-D80).
 - **Fields read only for the tail.** A field before the boundary that only an
   item after it needs is read from vectors too, where the tail is not reached
-  (SPECOPS-DRAFT-manifest-D55).
+  (SPECOPS-D82).
 - The other items of the previous updates remain.
 
 ## Update 2026-11-01 — Placed fields and WOFF
 
 This installment covers commit `52b81e5`, which builds the Manifest Completion
-Plan's eighth milestone, WOFF (SPECOPS-DRAFT-manifest-complete-D6). A WOFF
+Plan's eighth milestone, WOFF (SPECOPS-D17). A WOFF
 file's table directory holds, for each table, its offset, length and checksum,
 while the tables follow the whole directory, in an order of their own. That
-needs what SPECOPS-DRAFT-manifest-D39 left open: a slot in one instance of a
+needs what SPECOPS-D66 left open: a slot in one instance of a
 repeat covering data written outside it. Placed fields provide it, after
 lisp-binary's pointers and region tags, which the prior-art evaluation
-[SPECOPS-DRAFT-lisp-binary-tools](Eval.LispBinaryTools.md) proposed in its
-SPECOPS-DRAFT-lisp-binary-tools-O1. A WOFF and an sfnt manifest in the tests
+[SPECOPS-0004](Eval.LispBinaryTools.md) proposed in its
+SPECOPS-O13. A WOFF and an sfnt manifest in the tests
 read real fonts and WOFF files, and fontTools accepts what they write. A new
 suite brings the checks from 360 to 377.
 
-### SPECOPS-DRAFT-manifest-D56 — A field may be placed: written where a place directive for its tag stands, its slots backpatched there
+### SPECOPS-D83 — A field may be placed: written where a place directive for its tag stands, its slots backpatched there
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** A WOFF directory entry describes a table that is written after
 all the entries. Slots resolve within their instance
-(SPECOPS-DRAFT-manifest-D39), and instances are not addressed from outside a
+(SPECOPS-D66), and instances are not addressed from outside a
 repeat. The WOFF specification also stores tables in the source font's order,
 which need not be the directory's: in all seven rustdoc WOFFs and both sfnt
 fonts examined, the orders differ.
@@ -2590,33 +2594,33 @@ directives across nested manifests.
 **Alternatives:** Paired repeats, instance *i* of one describing instance *i*
 of another (rejected by the steward: a table's data would be split from its
 entry, and reading would still assume directory order); instance names built
-at run time, such as `:tables/3/data`, as SPECOPS-DRAFT-manifest-D39 deferred
+at run time, such as `:tables/3/data`, as SPECOPS-D66 deferred
 (rejected: heavier, and no help with the order); offsets computed by the
-caller (rejected: the purpose of SPECOPS-DRAFT-manifest-complete-D6).
+caller (rejected: the purpose of SPECOPS-D17).
 
-### SPECOPS-DRAFT-manifest-D57 — A placed field is read at the offset its `:offset-of` slot gives
+### SPECOPS-D84 — A placed field is read at the offset its `:offset-of` slot gives
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** Reading tables in sequence fails for real files, whose tables
 are not in directory order. Following offsets on read was deferred by the
 plan's Scope and Non-Goals. A stream source keeps the units read
-(SPECOPS-DRAFT-manifest-D50), so an offset behind the cursor can be read
+(SPECOPS-D77), so an offset behind the cursor can be read
 again, and one ahead is read to.
 **Decision:** In `src/manifest/manifest.lisp:unmarshal@52b81e5`, a placed
 field is read at the value of its `:offset-of` slot field, which must be read
 before it; the cursor then returns. A placed field with no `:offset-of` slot
 is an expansion error. The directive moves the cursor past the furthest unit
 read by its tag's fields and aligns it, so a stream is still taken one record
-at a time (SPECOPS-DRAFT-manifest-D51). Checks work as for any field, and a
+at a time (SPECOPS-D78). Checks work as for any field, and a
 selective read passing over a placed field reads its offset and length fields
 only. The steward brought this forward for placed fields only; following
 offsets to structures that are not placed stays deferred.
 **Alternatives:** Reading placed data in queue order (rejected: wrong for
 every real file examined); general pointers now (deferred by the steward).
 
-### SPECOPS-DRAFT-manifest-D58 — Fields that describe data the manifest does not hold are given, not derived
+### SPECOPS-D85 — Fields that describe data the manifest does not hold are given, not derived
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** A WOFF table may be zlib-compressed. Its original length and
 checksum, and the header's `totalSfntSize`, describe the uncompressed font,
 which is not in the file, and SpecOps has no deflate compressor. An sfnt's
@@ -2628,22 +2632,22 @@ the caller or carried in a record; the layout fields, offsets, compressed
 lengths, the file's length and the table count, are slots. Compressed files
 then read with no failed check and write back exactly, and
 `src/checksum.lisp:sfnt-checksum@52b81e5`, with the slot signature of
-SPECOPS-DRAFT-manifest-D45, serves callers computing checksums.
+SPECOPS-D72, serves callers computing checksums.
 **Alternatives:** Slots for the original length and checksum (rejected by the
 steward: valid only for uncompressed tables, so every real file examined would
 fail its checks); an option to treat a field as zero during a checksum, as
-SPECOPS-DRAFT-manifest-complete-D6 noted for TrueType (deferred).
+SPECOPS-D17 noted for TrueType (deferred).
 
-### SPECOPS-DRAFT-manifest-D59 — Placed fields are written in the order they were queued
+### SPECOPS-D86 — Placed fields are written in the order they were queued
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** A record read from a file whose tables are out of directory
 order holds its entries in directory order. Writing them back in the file's
 order would need an order other than the record's.
 **Decision:** The directive writes its fields in the order they were queued,
 which for a repeat is the order of its instances. A file stored in another
 order is written back valid but reordered, a canonical round trip in the sense
-of SPECOPS-DRAFT-manifest-D35.
+of SPECOPS-D62.
 **Alternatives:** An option ordering placed data by the offsets read
 (rejected by the steward for now: exact round trips of such files are not
 needed).
@@ -2654,7 +2658,7 @@ needed).
   - `src/manifest/manifest.lisp:defmanifest@52b81e5` stores `:place` on fields
     and on sub-manifests, taking it out of a sub-manifest's options, and
     parses the `place` directive.
-  - `manifest-places`, per SPECOPS-DRAFT-manifest-D56.
+  - `manifest-places`, per SPECOPS-D83.
   - In `marshal`, local `placed-item`, `placed-field` and `place-directive`;
     the queues, a plist by tag, bound at the top level and shared through the
     sub-lexicon; the check, when the code ends, that every queue was written.
@@ -2664,7 +2668,7 @@ needed).
     the directive, read or passed over.
   - `src/manifest/manifest.lisp:manifest-selection@52b81e5` adds a placed
     field's offset field to what it needs.
-- **`src/checksum.lisp`.** `sfnt-checksum`, per SPECOPS-DRAFT-manifest-D58.
+- **`src/checksum.lisp`.** `sfnt-checksum`, per SPECOPS-D85.
 - **`test/manifest.lisp`.** The manifests
   `test/manifest.lisp:woff-file@52b81e5`, `woff-entry`,
   `test/manifest.lisp:sfnt-file@52b81e5` and `sfnt-entry`, and probes of placed
@@ -2711,7 +2715,7 @@ The new suite checks, among other things:
 - **Streams and selective reads:** two WOFFs read in sequence from a stream,
   offsets read backwards and forwards; the flavor, the table count and the
   entries read alone. Because `woff-file` wraps every field in one span, the
-  whole record is the part read (SPECOPS-DRAFT-manifest-D55): reading
+  whole record is the part read (SPECOPS-D82): reading
   `:flavor` reads the file's length, the table count and each entry's offset
   and length, 5 reads against 18 for a full read, and no table data.
 - **Checks:** a wrong file length, and a wrong signature as a constant.
@@ -2744,8 +2748,8 @@ Table: Files changed in commit `52b81e5`, and the documents updated after it.
 | `src/checksum.lisp` | Modified | `sfnt-checksum` |
 | `test/manifest.lisp` | Modified | WOFF and sfnt manifests, `verify-woff`, `hand-woff`, the placed fields and WOFF suite |
 | `doc/Log.Manifest.md` | Modified | This update |
-| `doc/Plan.ManifestComplete.md` | Modified | Progress installment for WOFF; a note under SPECOPS-DRAFT-manifest-complete-D6; Scope and Non-Goals |
-| `doc/Eval.LispBinaryTools.md` | Modified | SPECOPS-DRAFT-lisp-binary-tools-O1 answered in part |
+| `doc/Plan.ManifestComplete.md` | Modified | Progress installment for WOFF; a note under SPECOPS-D17; Scope and Non-Goals |
+| `doc/Eval.LispBinaryTools.md` | Modified | SPECOPS-O13 answered in part |
 
 ### Metrics
 
@@ -2762,11 +2766,11 @@ it. New:
 - **General pointers and offset bases.** Following an offset to a structure
   that is not placed, and offsets counted from a base other than the
   top-level record's start, as TIFF and OpenType tables need, remain
-  deferred (SPECOPS-DRAFT-lisp-binary-tools-O1).
+  deferred (SPECOPS-O13).
 - **Limits of placed fields.** A placed field cannot be inside a span or
   covered by a `:count-of` slot, and the slots over it must come before it.
 - **Treating a field as zero during a checksum**, for an sfnt's `head`
-  (SPECOPS-DRAFT-manifest-D58).
+  (SPECOPS-D85).
 - **Out of scope for WOFF:** compression, the metadata and private blocks, and
   checking a file for overlapping or extra data on read.
 - **Large test functions.** Many expansions inlined in one function can
@@ -2785,9 +2789,9 @@ an error for a group value that does not fit, and lets a masque group select a
 `:case` branch. Binary and hexadecimal masks, on which every architecture
 module relies, are unchanged. The checks went from 377 to 382.
 
-### SPECOPS-DRAFT-manifest-D60 — Decimal mask positions count digits from the right, as binary positions count bits
+### SPECOPS-D87 — Decimal mask positions count digits from the right, as binary positions count bits
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** `src/serial.lisp:quantify-mask-string@d524c3c` gave a decimal
 mask's group positions as powers of ten of their offsets from the left end.
 That is right only where the mask is symmetric. Evaluated at `266d471`,
@@ -2814,9 +2818,9 @@ the same.
 wrong away from a symmetric mask); a separate function for decimal masks
 (rejected: one form of positions serves every base).
 
-### SPECOPS-DRAFT-manifest-D61 — `masque` takes an `:overflow` parameter, `:mask` by default
+### SPECOPS-D88 — `masque` takes an `:overflow` parameter, `:mask` by default
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** `masque` masks each value to its group with `logand`, so a value
 too wide is cut off silently. The steward considered making masking opt-in,
 since an assembler's known-good code pays for it on every instruction. But a
@@ -2841,9 +2845,9 @@ three modes); range checks in the
 manifest layer alone (rejected by the steward: the check belongs to `masque`,
 where any caller can ask for it).
 
-### SPECOPS-DRAFT-manifest-D62 — A manifest masque is written with `:overflow :error`, read in decimal, and sized by its largest value
+### SPECOPS-D89 — A manifest masque is written with `:overflow :error`, read in decimal, and sized by its largest value
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** The plan asked for decimal masques in `unmarshal`, which rejected
 them, and for an error when a group's value does not fit, which `marshal`
 truncated. `defmanifest` sized a masque by the bit count `quantify-mask-string`
@@ -2856,19 +2860,19 @@ while a negative value is written as two's complement.
 the bits of its largest value: `d:1a2bb` takes 17 bits, so 3 bytes.
 `src/manifest/manifest.lisp:unmarshal@e340210` reads a decimal masque's groups
 by powers of ten and checks its constant digits, and its static groups, as
-`:constant` checks (SPECOPS-DRAFT-manifest-D42). A signed decimal group is an
+`:constant` checks (SPECOPS-D69). A signed decimal group is an
 expansion error.
 **Alternatives:** Checking each group's range by its signedness in the
 manifest layer (not taken: `:overflow :error` accepts either reading, so an
 unsigned group given -1 or a signed one given 200 in 8 bits is written; noted
 under Outstanding Work).
 
-### SPECOPS-DRAFT-manifest-D63 — A masque group may select a `:case` branch
+### SPECOPS-D90 — A masque group may select a `:case` branch
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** The plan asked for masque keyword groups to be registered so that
 `:case` and `:count` could refer to them on write. `marshal` found selectors
-only among fields, not masque groups. Since SPECOPS-DRAFT-manifest-D20,
+only among fields, not masque groups. Since SPECOPS-D47,
 selectors are read through variables rather than a `values` plist. On write, a
 vector's own length is written, so `:count` needs nothing.
 **Decision:** `src/manifest/manifest.lisp:find-field@e340210` finds a stored
@@ -2878,12 +2882,12 @@ sets its selector variable, as a field does. On read, an enumerated group
 that is a selector also keeps its raw code, since branch keys are compared as
 codes. Selective reads read the masque that holds a selector the key needs.
 **Alternatives:** Registering groups in a run-time plist, as the plan first
-proposed (superseded by the selector variables of SPECOPS-DRAFT-manifest-D20).
+proposed (superseded by the selector variables of SPECOPS-D47).
 
 ### Implementation
 
 - **`src/serial.lisp`.** `quantify-mask-string`, `masque` and `unmasque`, per
-  SPECOPS-DRAFT-manifest-D60 and SPECOPS-DRAFT-manifest-D61. The unused
+  SPECOPS-D87 and SPECOPS-D88. The unused
   `mask-overflow` binding the steward had begun in `masque` became the
   `:overflow` parameter.
 - **`src/manifest/manifest.lisp`.** In `defmanifest`, a decimal masque's
@@ -2891,12 +2895,12 @@ proposed (superseded by the selector variables of SPECOPS-DRAFT-manifest-D20).
   selector variable; in `unmarshal`, the masque branch rewritten around local
   `extract` and `fit` functions that serve binary and decimal masks alike, and
   raw codes for enumerated selector groups; `find-field`, per
-  SPECOPS-DRAFT-manifest-D62 and SPECOPS-DRAFT-manifest-D63.
+  SPECOPS-D89 and SPECOPS-D90.
 - **`test/manifest.lisp`.** The probes
   `test/manifest.lisp:decimal-masque-probe@e340210` and
   `test/manifest.lisp:masque-selector-probe@e340210`, and five checks in
   `test/manifest.lisp:run-masque-demo@e340210`, the suite of the feature they
-  complete (SPECOPS-DRAFT-manifest-D31).
+  complete (SPECOPS-D58).
 
 ### Verification
 
@@ -2944,7 +2948,7 @@ log began, are done. New:
 - **Floats**, the other half of the milestone, next.
 - **Signedness in range checks.** `:overflow :error` accepts a value that fits
   its group as unsigned or as two's complement, so it does not tell a signed
-  group from an unsigned one (SPECOPS-DRAFT-manifest-D62).
+  group from an unsigned one (SPECOPS-D89).
 - **Architecture modules that do not load.** `specops.arch.m68k`, with an
   unbound `*m68k-layout*`, and `specops.arch.superh`, with an invalid
   initialization argument, fail to load at `266d471` as well as after this
@@ -2958,14 +2962,14 @@ log began, are done. New:
 
 This installment covers commit `5862d3a`, which completes the Manifest
 Completion Plan's ninth milestone with the `:f` class reserved since
-SPECOPS-DRAFT-manifest-D5: IEEE binary floats of 16, 32, 64 and 128 bits. It
-follows the prior-art evaluation's SPECOPS-DRAFT-lisp-binary-tools-O7, which
+SPECOPS-D32: IEEE binary floats of 16, 32, 64 and 128 bits. It
+follows the prior-art evaluation's SPECOPS-O19, which
 pointed to lisp-binary's floats of every IEEE width, as the steward settled it.
 A new suite brings the checks from 382 to 396.
 
-### SPECOPS-DRAFT-manifest-D64 — A float field holds an IEEE binary float of 16, 32, 64 or 128 bits as its bit pattern
+### SPECOPS-D91 — A float field holds an IEEE binary float of 16, 32, 64 or 128 bits as its bit pattern
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** The `:f` class was reserved but not built. Formats store floats
 in IEEE binary formats, of 32 and 64 bits most often, and of 16 bits in
 graphics and machine learning; the evaluation found lisp-binary covering half
@@ -2988,9 +2992,9 @@ format holds, ties to even, and a finite value too large for it is an error.
 four formats); quad floats read as double floats (rejected: they would not
 round-trip); octuple precision (not taken: no format in view needs it).
 
-### SPECOPS-DRAFT-manifest-D65 — Floats are converted arithmetically, and through SBCL's own floats where it has them
+### SPECOPS-D92 — Floats are converted arithmetically, and through SBCL's own floats where it has them
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** Common Lisp has no portable way to make an infinity or a NaN, nor
 to reach a float's bits; SBCL has both for single and double floats. Reading a
 NaN as a keyword loses its payload, which some formats use. SBCL 2.3.4's
@@ -3025,7 +3029,7 @@ rounding above); `decode-float` and `encode-float` as names (not possible:
 
 - **`src/serial.lisp`.** `float-format`, the exponent and fraction widths of
   each format; `float-special-p`; the portable pair and the pair the manifest
-  layer calls, per SPECOPS-DRAFT-manifest-D65.
+  layer calls, per SPECOPS-D92.
 - **`src/manifest/manifest.lisp`.** `defmanifest`'s type parser marks `:f`
   fields and the four keywords with a `:float` subtype; `marshal` and
   `unmarshal` send float fields through field plans, with vector, LEB and
@@ -3079,7 +3083,7 @@ Table: Files changed in commit `5862d3a`, and the documents updated after it.
 | `test/manifest.lisp` | Modified | Float probes and the float suite |
 | `doc/Log.Manifest.md` | Modified | This update |
 | `doc/Plan.ManifestComplete.md` | Modified | Progress installment for floats; a note under its Floats item |
-| `doc/Eval.LispBinaryTools.md` | Modified | SPECOPS-DRAFT-lisp-binary-tools-O7 answered for floats |
+| `doc/Eval.LispBinaryTools.md` | Modified | SPECOPS-O19 answered for floats |
 
 ### Metrics
 
@@ -3091,13 +3095,13 @@ Table: Files changed in commit `5862d3a`, and the documents updated after it.
 
 Floats, outstanding since this log began, are done. New:
 
-- **Widths count bytes, not units.** SPECOPS-DRAFT-manifest-D5 says a width
+- **Widths count bytes, not units.** SPECOPS-D32 says a width
   counts output units, but `defmanifest` stores `(ash width (- unit-spec))`, so
   widths count bytes: in a 16-bit manifest `(:u 2)` takes one unit and
   `(:u 4)` two, and a 32-bit float there is `(:f 4)`. A width of less than a
   unit, such as `(:u 1)` in 16-bit units, would take none. The record or the
   code needs reconciling, for the steward to decide.
-- **A quad negative zero** reads as 0 (SPECOPS-DRAFT-manifest-D65).
+- **A quad negative zero** reads as 0 (SPECOPS-D92).
 - **The float functions are not exported**, like the checksum functions.
 - The other items of the previous updates remain.
 
@@ -3108,12 +3112,12 @@ the Manifest Completion Plan's tenth milestone: the manifest suites run behind
 ASDF's `test-op`, rewritten to the Square testing standard, as the steward
 asked. `(asdf:test-system :specops)` runs 397 tests, one for each of the 396
 checks and the PNG verification that the suites held at `5862d3a`, with 566
-assertions; all pass. The architecture's SPECOPS-DRAFT-specops-D1 is amended
+assertions; all pass. The architecture's SPECOPS-D1 is amended
 in the same update to allow a test system its libraries.
 
-### SPECOPS-DRAFT-manifest-D66 — The manifest tests are a Square test system, `specops/test`, behind `test-op`
+### SPECOPS-D93 — The manifest tests are a Square test system, `specops/test`, behind `test-op`
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** At `5862d3a` the tests were one file of 3,824 lines,
 `test/manifest.lisp`, in package `specops`, loaded by the system
 `specops/demo.png` and run by hand: 22 functions from
@@ -3153,20 +3157,20 @@ tests left in package `specops` (not taken: the steward chose an explicit
 import list, which Square's package rule asks for); the `check` functions
 kept beside FiveAM (rejected: Square names them as a non-conforming pattern).
 
-### SPECOPS-DRAFT-manifest-D67 — The program and format scripts move to `scripts/`, outside the test system
+### SPECOPS-D94 — The program and format scripts move to `scripts/`, outside the test system
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** `test/` also held five scripts, `test-build.lisp`,
 `test-emit.lisp`, `test-goff.lisp`, `test-program.lisp` and
 `test-wasm-macro.lisp`, which load source files directly and print their
 results. They test the program builder and the ELF, GOFF and WebAssembly
-writers, which the architecture's SPECOPS-DRAFT-specops-O5 leaves without a
+writers, which the architecture's SPECOPS-O5 leaves without a
 suite. Their names follow Square's `test-*` pattern, but Square's layout
 reserves `test/` for the test system's files.
 **Decision:** The scripts move unchanged to `scripts/`, apart from the path
 in each header, and are run by hand from the repository root, as before.
 Suites for the program builder and the format writers wait for
-SPECOPS-DRAFT-specops-O5 and the revision of those writers.
+SPECOPS-O5 and the revision of those writers.
 **Alternatives:** Converting the scripts now into `program` and `formats`
 suites (rejected by the steward: he will revise the GOFF, ELF and other
 tools, and wants a more rigorous test discipline applied to them then than
@@ -3190,7 +3194,7 @@ these scripts carry).
   `test/test-manifest-reads.lisp:keys-read-apart@e4a1f9a` names the keys whose
   selective read differs from the full read, where the old helper gave a
   boolean for each.
-- **`scripts/`.** The five scripts, per SPECOPS-DRAFT-manifest-D67.
+- **`scripts/`.** The five scripts, per SPECOPS-D94.
 - **`test/manifest.lisp`.** Removed.
 
 The tests were converted from `test/manifest.lisp` mechanically, each with
@@ -3245,7 +3249,7 @@ Table: Files changed in commit `e4a1f9a`, and the documents updated after it.
 | `doc/Eval.LispBinaryTools.md` | Modified | Committed with this change; recorded in the update for floats |
 | `doc/Log.Manifest.md` | Modified | This update |
 | `doc/Plan.ManifestComplete.md` | Modified | Progress installment for the tests; a note under Packaging and tests |
-| `doc/Arch.SpecOps.md` | Modified | SPECOPS-DRAFT-specops-D1 amended for test systems; the project structure and SPECOPS-DRAFT-specops-O5 brought up to date |
+| `doc/Arch.SpecOps.md` | Modified | SPECOPS-D1 amended for test systems; the project structure and SPECOPS-O5 brought up to date |
 | `AGENTS.md` | Modified | Square's block, routing test work to the `square-*` skills |
 
 ### Metrics
@@ -3270,7 +3274,7 @@ Suites behind `test-op`, outstanding since the plan began, are done. New:
 - **A slot read by name.** One test reads a scan plan's `rule` slot with
   `slot-value`, since the class has no reader for it; the symbol is in the
   import list.
-- **The scripts** in `scripts/` are not under Square (SPECOPS-DRAFT-manifest-D67).
+- **The scripts** in `scripts/` are not under Square (SPECOPS-D94).
 - **Square's matcher list** names `has-accessors` and `instance-of`, which
   cl-hamcrest does not have; a matter for Square, outside this project.
 - The other items of the previous updates remain.

@@ -1,37 +1,41 @@
 ---
-id:            SPECOPS-DRAFT-specops
+id:            SPECOPS-0001
 title:         The SpecOps Architecture
 genre:         Architecture
 scope:         project
 project:       SpecOps
 language:      en
-status:        Draft
+status:        Current
+authors:
+  - Andrew Sengul
+approved-by:   Andrew Sengul
+reviewed:      2026-11-01
 provenance:
   assistant:   claude-opus (OpenCode)
   session:     Compass adoption; Restructure
 relates-to:
-  - SPECOPS-DRAFT-manifest
-  - SPECOPS-DRAFT-restructure
+  - SPECOPS-0006
+  - SPECOPS-0005
 decisions:
-  - SPECOPS-DRAFT-specops-D1
-  - SPECOPS-DRAFT-specops-D2
-  - SPECOPS-DRAFT-specops-D3
-  - SPECOPS-DRAFT-specops-D4
-  - SPECOPS-DRAFT-specops-D5
-  - SPECOPS-DRAFT-specops-D6
-  - SPECOPS-DRAFT-specops-D7
-  - SPECOPS-DRAFT-specops-D8
-  - SPECOPS-DRAFT-specops-D9
-  - SPECOPS-DRAFT-specops-D10
-  - SPECOPS-DRAFT-specops-D11
+  - SPECOPS-D1
+  - SPECOPS-D2
+  - SPECOPS-D3
+  - SPECOPS-D4
+  - SPECOPS-D5
+  - SPECOPS-D6
+  - SPECOPS-D7
+  - SPECOPS-D8
+  - SPECOPS-D9
+  - SPECOPS-D10
+  - SPECOPS-D11
 open-questions:
-  - SPECOPS-DRAFT-specops-O1
-  - SPECOPS-DRAFT-specops-O2
-  - SPECOPS-DRAFT-specops-O3
-  - SPECOPS-DRAFT-specops-O4
-  - SPECOPS-DRAFT-specops-O5
-  - SPECOPS-DRAFT-specops-O6
-glossary:      SPECOPS-DRAFT-glossary
+  - SPECOPS-O1
+  - SPECOPS-O2
+  - SPECOPS-O3
+  - SPECOPS-O4
+  - SPECOPS-O5
+  - SPECOPS-O6
+glossary:      SPECOPS-0002
 cites:
   - title:    z/Architecture Principles of Operation
     locator:  instruction formats (RR, RX, RS, RI, RIL, SS and others)
@@ -56,7 +60,7 @@ step. The declarative binary-format layer is covered in detail by the
 [Manifest development log](Log.Manifest.md); this record places it in the
 whole. The repository was later reorganized into a core and modules of three
 kinds, and its systems renamed, as chronicled in the
-[Restructure development log, SPECOPS-DRAFT-restructure](Log.Restructure.md).
+[Restructure development log, SPECOPS-0005](Log.Restructure.md).
 Module design, the object-format and binary-format sections, the Project
 structure appendix, and notes in Open Questions and the Roadmap describe that
 layout; code references remain pinned to `1e53ae7`. Terms are defined in the
@@ -128,7 +132,7 @@ applies to low-level code on all of them at once.
   imperative read/write split, and a dependency on it.
 - **Conventional text assemblers.** Deliberately not followed: SpecOps input
   is Lisp data, and width is an explicit operand instead of being implied by
-  register names (SPECOPS-DRAFT-specops-D2, SPECOPS-DRAFT-specops-D3).
+  register names (SPECOPS-D2, SPECOPS-D3).
 
 **Comparable systems.** These also generate assemblers or disassemblers from
 instruction-set descriptions. They are not recorded as influences; the steward
@@ -157,7 +161,7 @@ record's Alternatives therefore names its source: *Recorded*, with the place
 where the alternative was discussed, or *Reconstructed*, for an alternative
 inferred while drafting this record, for the steward to confirm or correct.
 
-### SPECOPS-DRAFT-specops-D1 — Portable Common Lisp with no library dependencies
+### SPECOPS-D1 — Portable Common Lisp with no library dependencies
 
 **Status:** Proposed
 **Context:** SpecOps aims to bridge platforms, and a Lisp library dependency
@@ -174,15 +178,15 @@ Development tools that need libraries, such as the `lquery` scraper
 `z80/comber.lisp`, stay outside every ASDF system. A test system is the one
 exception: it may depend on the libraries of its testing standard, as
 `specops.asd:specops/test@e4a1f9a` depends on FiveAM and cl-hamcrest
-(SPECOPS-DRAFT-manifest-D66). No other system depends on a test system, so
+(SPECOPS-D93). No other system depends on a test system, so
 `specops` and the modules remain freestanding.
-**Alternatives:** Recorded (SPECOPS-DRAFT-manifest-D9): depending on Ironclad
+**Alternatives:** Recorded (SPECOPS-D36): depending on Ironclad
 for checksums, rejected to keep the core free of dependencies. Holding test
 systems to the rule as well, with a test harness of SpecOps's own (rejected by
 the steward, who adopted the Square testing standard and its two libraries
 for test systems only).
 
-### SPECOPS-DRAFT-specops-D2 — Assembly input is Lisp list forms
+### SPECOPS-D2 — Assembly input is Lisp list forms
 
 **Status:** Proposed
 **Context:** Assembly input must be easy to generate from Lisp programs and
@@ -194,9 +198,9 @@ operands patterned on the architecture's standard syntax:
 time, so they may be any Lisp expression. Disassembly returns the same form.
 **Alternatives:** Recorded (README, "Basic Usage"): conventional text syntax,
 which is left to front ends that produce list forms rather than parsed in the
-core (SPECOPS-DRAFT-specops-O1).
+core (SPECOPS-O1).
 
-### SPECOPS-DRAFT-specops-D3 — Operation width is an explicit operand
+### SPECOPS-D3 — Operation width is an explicit operand
 
 **Status:** Proposed
 **Context:** On x86 and M68K the same mnemonic acts at several widths.
@@ -211,7 +215,7 @@ registers in the conventional style, rejected for the core because they are
 incompatible with symbolic register binding. An architecture may still offer
 them as a mapping layer.
 
-### SPECOPS-DRAFT-specops-D4 — One prototype instance per architecture, consulted at macroexpansion
+### SPECOPS-D4 — One prototype instance per architecture, consulted at macroexpansion
 
 **Status:** Proposed
 **Context:** Specification macros must expand differently for each
@@ -230,7 +234,7 @@ tables without CLOS dispatch. These would avoid the load-order constraint (the
 prototype must be bound before any specification compiles), but would give up
 method specialization of the expansion.
 
-### SPECOPS-DRAFT-specops-D5 — Bit fields are composed from mask strings at compile time
+### SPECOPS-D5 — Bit fields are composed from mask strings at compile time
 
 **Status:** Proposed
 **Context:** Most fixed-width encodings are fields packed into a word. Writing
@@ -245,7 +249,7 @@ manifest masques.
 the layout is not visible as a picture of the word), or explicit `dpb`/`ldb`
 forms (no single readable layout).
 
-### SPECOPS-DRAFT-specops-D6 — Operands are checked by generated `determine` forms
+### SPECOPS-D6 — Operands are checked by generated `determine` forms
 
 **Status:** Proposed
 **Context:** Every instruction must reject invalid operands with a useful
@@ -264,7 +268,7 @@ drift from the accepted operands; or a generic type check with a fixed
 message, which cannot tell the user which operand formats an instruction
 accepts.
 
-### SPECOPS-DRAFT-specops-D7 — Two disassembly strategies, combinable
+### SPECOPS-D7 — Two disassembly strategies, combinable
 
 **Status:** Proposed
 **Context:** Some instruction sets map whole encoded values to instructions
@@ -279,7 +283,7 @@ then the battery.
 table-driven sets); a decoder alone (impossible for masked fields without
 enumerating every operand value).
 
-### SPECOPS-DRAFT-specops-D8 — Duplex specification where the encoding allows
+### SPECOPS-D8 — Duplex specification where the encoding allows
 
 **Status:** Proposed
 **Context:** Writing the encoder and decoder separately doubles the work and
@@ -295,7 +299,7 @@ next to their encoder.
 removes); always duplex (rejected: asymmetric encodings cannot be expressed
 without contortion).
 
-### SPECOPS-DRAFT-specops-D9 — Output is a vector of fixed-width units composed by `serialize`
+### SPECOPS-D9 — Output is a vector of fixed-width units composed by `serialize`
 
 **Status:** Proposed
 **Context:** Encoders produce integers of varying widths, sometimes optional
@@ -309,7 +313,7 @@ returns an `(unsigned-byte breadth)` vector.
 **Alternatives:** Reconstructed: writing bytes from each encoder (rejected:
 forces every encoder to know the output width and byte order).
 
-### SPECOPS-DRAFT-specops-D10 — Registers may be bound symbolically and reserved
+### SPECOPS-D10 — Registers may be bound symbolically and reserved
 
 **Status:** Proposed
 **Context:** Generated code often needs "some free register", and host
@@ -321,13 +325,13 @@ with `:bind`. Registers are drawn from the assembler's register pool, from
 which blocked register files are excluded. Assembler subclasses may extend
 this to bar reserved resources. At `1e53ae7` the pool is built but not yet
 used: `locate` draws from the program model directly, so blocking a file has
-no effect on `:store` (see also SPECOPS-DRAFT-specops-O6).
+no effect on `:store` (see also SPECOPS-O6).
 **Alternatives:** Reconstructed: leaving allocation to a register allocator
 outside the assembler, so that the assembler accepts only concrete registers.
 That keeps the assembler simple, but then every code generator must
 reimplement allocation and know each host's reserved registers.
 
-### SPECOPS-DRAFT-specops-D11 — A program model independent of instruction set and object format
+### SPECOPS-D11 — A program model independent of instruction set and object format
 
 **Status:** Proposed
 **Context:** Raw `assemble` produces a code vector, but real output needs
@@ -386,12 +390,12 @@ An instruction set is described by top-level forms, compiled once:
   module defines its own `@` constructor family in its package and its own
   operand types over them. Disassemblers emit `(@ …)` forms, so their output
   can be assembled again.
-- **Validation** is the `determine` form of SPECOPS-DRAFT-specops-D6.
-- **Symbolic registers** come from the pool of SPECOPS-DRAFT-specops-D10.
+- **Validation** is the `determine` form of SPECOPS-D6.
+- **Symbolic registers** come from the pool of SPECOPS-D10.
 
 ## Encoding and serialization design
 
-- **Bit fields** use `masque` (SPECOPS-DRAFT-specops-D5). Instruction formats
+- **Bit fields** use `masque` (SPECOPS-D5). Instruction formats
   shared by many instructions are defined once with `mqbase`, which yields a
   macro per format producing encoder and decoder.
 - **Byte-variable encodings** (x86) compose a list of optional parts (prefixes,
@@ -400,26 +404,26 @@ An instruction set is described by top-level forms, compiled once:
   execution mode, `:label` for branch targets, `:assembler-type` for ISA
   variants. `specops.lisp:compose@1e53ae7` and `program.lisp:%make-code-api@1e53ae7`
   provide it, and patch forward label references after the pass.
-- **Serialization** follows SPECOPS-DRAFT-specops-D9. Byte order across units
+- **Serialization** follows SPECOPS-D9. Byte order across units
   is handled per output: `program.lisp:asm-endianness@1e53ae7` when a program
   is emitted, swap modes in the manifest layer, and in one case by the encoder
   itself (`6502/base.lisp:enc-displ@1e53ae7`); see
-  SPECOPS-DRAFT-specops-O3.
+  SPECOPS-O3.
 
 ## Disassembly design
 
 `specops.lisp:interpret@1e53ae7` walks a code vector of the assembler's unit
 type. At each point it reads candidate patterns of the lengths in the
 assembler's disassembly segment and calls `interpret-element`. That looks the
-pattern up in the decoder, then tries the battery (SPECOPS-DRAFT-specops-D7).
+pattern up in the decoder, then tries the battery (SPECOPS-D7).
 A matching entry may read further units through a reader closure to complete
 the instruction. The result is a list of instruction forms in the input syntax
-of SPECOPS-DRAFT-specops-D2. Input vectors must have the correct element type.
+of SPECOPS-D2. Input vectors must have the correct element type.
 A vector typed in at the REPL is a simple vector, and will not disassemble.
 
 ## Program and object-format design
 
-`program.lisp` realizes SPECOPS-DRAFT-specops-D11. The `program` macro takes
+`program.lisp` realizes SPECOPS-D11. The `program` macro takes
 `params` (name, entry, store, execution mode) and section forms (`code`,
 `data`, `rodata`, `bss`), and matches its keywords by name, so that it works
 from any architecture package. Code segments are assembled in two passes:
@@ -433,7 +437,7 @@ structure). Each writer is now a format module, `specops.format.elf`,
 `specops.format.goff` and `specops.format.wasm`, kept apart from the
 architecture modules because one instruction set may be written in several
 formats: s390x code goes into ELF on Linux and GOFF on z/OS
-(SPECOPS-DRAFT-restructure-D4). The ELF and GOFF writers have packages of
+(SPECOPS-D24). The ELF and GOFF writers have packages of
 their own. WebAssembly is split in two: its instruction set is an
 architecture module, and its binary module writer a format module that
 depends on it and is still in the architecture's package.
@@ -445,38 +449,38 @@ own contents (lengths, offsets, checksums). The manifest layer describes such
 a record once, with `defmanifest`, and generates a writer (`marshal`) and a
 reader (`unmarshal`). Manifests contain no logic, regions nest, and
 sub-manifests inline into their parent. Its decisions are recorded as
-SPECOPS-DRAFT-manifest-D1 through SPECOPS-DRAFT-manifest-D14 in the
+SPECOPS-D28 through SPECOPS-D41 in the
 [Manifest development log](Log.Manifest.md). Character codecs for string
 fields are code tables defined with `defcodetable`, in the map modules
 `specops.map.cp437` and `specops.map.ebcdic` (CP437, EBCDIC code pages 037 and
-310; SPECOPS-DRAFT-restructure-D5). The GOFF END record is the
+310; SPECOPS-D25). The GOFF END record is the
 first object-format record written through a manifest; the design intends the
 format writers to move onto manifests generally. The PNG manifests in
 `test/helpers.lisp` are a test case for the layer, not a format module
-(SPECOPS-DRAFT-restructure-D7).
+(SPECOPS-D27).
 
 ## Module design
 
 Every system under `mod/` is a module: an ASDF system in
 `mod/<kind>/<name>/`, named `specops.<kind>.<name>`, whose package has the
-same name (SPECOPS-DRAFT-restructure-D1, SPECOPS-DRAFT-restructure-D2). The
+same name (SPECOPS-D21, SPECOPS-D22). The
 one exception is the WebAssembly format module, whose file is still in the
 package of its architecture module. There are three kinds:
 
 - **Architecture modules** (`mod/arch/`, `specops.arch.<isa>`) each implement
   one instruction set. They are named for the instruction set, not for a
   machine or product family: the System Z module is `s390x`
-  (SPECOPS-DRAFT-restructure-D3). Variants and older modes of an instruction
+  (SPECOPS-D23). Variants and older modes of an instruction
   set belong to its module, as execution modes or ISA types.
 - **Format modules** (`mod/format/`, `specops.format.<format>`) each write one
   object or container format through `emit-program` methods, and in time
-  through manifests (SPECOPS-DRAFT-restructure-D4). They are for the formats
+  through manifests (SPECOPS-D24). They are for the formats
   that carry programs. Image and other media formats are outside SpecOps's
   scope; native readers for them belong in projects of their own that depend
-  on SpecOps (SPECOPS-DRAFT-restructure-D7).
+  on SpecOps (SPECOPS-D27).
 - **Map modules** (`mod/map/`, `specops.map.<name>`) each hold a two-way
   mapping between value spaces that belongs to no single architecture or
-  format, such as a code table (SPECOPS-DRAFT-restructure-D5). An opcode map
+  format, such as a code table (SPECOPS-D25). An opcode map
   is not a map module; it belongs to its architecture.
 
 Dependencies run one way. Map modules depend only on the core. Format modules
@@ -494,7 +498,7 @@ An architecture module depends on `specops` and has its own package using
    with class-allocated instruction tables (lexicon, decoder or battery),
    disassembly segment and breadth, and its storage and program model.
    Per-program state, namely the register pool and reservations, belongs to
-   each instance (SPECOPS-DRAFT-specops-D10);
+   each instance (SPECOPS-D10);
 2. a prototype variable `*assembler-prototype-<arch>*`, bound before any
    specification is compiled;
 3. operand support: qualify, derive and verbalize functions for `determine`,
@@ -527,15 +531,15 @@ instructions are specified, and how they are disassembled.
 
 ## Open Questions
 
-### SPECOPS-DRAFT-specops-O1 — Where do text-syntax front ends live?
+### SPECOPS-O1 — Where do text-syntax front ends live?
 
-SPECOPS-DRAFT-specops-D2 leaves conventional text syntax to front ends that
+SPECOPS-D2 leaves conventional text syntax to front ends that
 produce list forms. Are these per-architecture parsers in each module, a
 shared parsing toolkit in the core, or separate systems? Should they map
 width-named registers onto the explicit width operands of
-SPECOPS-DRAFT-specops-D3?
+SPECOPS-D3?
 
-### SPECOPS-DRAFT-specops-O2 — What unit breadth do byte-oriented instruction sets use?
+### SPECOPS-O2 — What unit breadth do byte-oriented instruction sets use?
 
 The README describes Z80, 6502 and x86 output as vectors of 8-bit elements,
 but `specops.lisp:assembler@1e53ae7` gives `%breadth` a class-allocated
@@ -545,7 +549,7 @@ byte-oriented module declare a breadth of 8? Does `assemble` always return
 the instruction set's natural unit, or does `program`/`emit-program` alone
 decide the octet layout?
 
-### SPECOPS-DRAFT-specops-O3 — Who owns byte order?
+### SPECOPS-O3 — Who owns byte order?
 
 Byte order is handled in three places: by `asm-endianness` when a program is
 emitted, by swap modes in manifests, and inside individual encoders (the 6502
@@ -554,7 +558,7 @@ while `serialize` splits values most-significant first). Should endianness be
 a property of the assembler that `serialize` applies, leaving encoders to
 produce plain integers?
 
-### SPECOPS-DRAFT-specops-O4 — What reader protocol does disassembly offer?
+### SPECOPS-O4 — What reader protocol does disassembly offer?
 
 `specops.lisp:interpret@1e53ae7` reads the disassembly segment
 (`asm-msk-segment`) for every assembler, a slot that encoding-only
@@ -567,7 +571,7 @@ contract between `interpret` and decoder or battery entries (how many units
 are read, how entries request more, how prefixes chain) needs to be fixed in
 one place, with tests for round trips.
 
-### SPECOPS-DRAFT-specops-O5 — How is a module's conformance verified?
+### SPECOPS-O5 — How is a module's conformance verified?
 
 The module contract under Module design is not checked anywhere. At
 `1e53ae7`, in a clean image:
@@ -588,12 +592,12 @@ The test scripts load source files directly and cover System Z,
 minimum per-module suite (README examples assembling to their stated vectors,
 and disassembling back), and should it be the module's ASDF `test-op`?
 
-Since `e4a1f9a` the scripts are in `scripts/` (SPECOPS-DRAFT-manifest-D67),
+Since `e4a1f9a` the scripts are in `scripts/` (SPECOPS-D94),
 and the core's manifest layer has a test system under the Square standard
-behind `test-op` (SPECOPS-DRAFT-manifest-D66), a pattern a module's suite
+behind `test-op` (SPECOPS-D93), a pattern a module's suite
 could follow.
 
-### SPECOPS-DRAFT-specops-O6 — What is the supported public API?
+### SPECOPS-O6 — What is the supported public API?
 
 `package.lisp` exports names that are not defined (`join`, `label-delta`,
 `process-operands`, `make-array-writer`, `asm-promodel`, `derive-promodel`,
@@ -610,24 +614,24 @@ separate packages?
 
 1. **Restore load health.** Every module system loads in a clean image, and
    the README examples assemble to the vectors it shows
-   (SPECOPS-DRAFT-specops-O5).
+   (SPECOPS-O5).
 2. **Test suites.** Per-module and core suites behind ASDF `test-op`,
    absorbing the test scripts and the manifest demos in `test/`.
-3. **Settle units and byte order** (SPECOPS-DRAFT-specops-O2,
-   SPECOPS-DRAFT-specops-O3), and fix the disassembly reader protocol
-   (SPECOPS-DRAFT-specops-O4) so that every duplex module disassembles.
+3. **Settle units and byte order** (SPECOPS-O2,
+   SPECOPS-O3), and fix the disassembly reader protocol
+   (SPECOPS-O4) so that every duplex module disassembles.
 4. **Package the format layer.** Put `elf.lisp`, `goff.lisp` and the
    per-architecture program helpers into ASDF systems, and move record
    layouts onto manifests as the manifest layer matures. The writers are now
-   the format modules of SPECOPS-DRAFT-restructure-D4. The s390x module's
+   the format modules of SPECOPS-D24. The s390x module's
    `program.lisp`, with its methods of the program protocol, is now part of
    its system, but still holds the GOFF attribute constants beside z/OS
    layout helpers; the constants are to move to the GOFF module.
-5. **Define the public API** (SPECOPS-DRAFT-specops-O6), then document it in
+5. **Define the public API** (SPECOPS-O6), then document it in
    a Ref.
 6. **Complete the large instruction sets.** Finish x86 (remaining
    instructions, disassembly), add ARM, and finish the WebAssembly tables.
-7. **Text front ends** (SPECOPS-DRAFT-specops-O1).
+7. **Text front ends** (SPECOPS-O1).
 
 ## Appendices
 
@@ -636,7 +640,7 @@ separate packages?
 `(assemble *assembler-prototype-m68k* (:addi :b 10 :d1))` passes through the
 design as follows. This is the README's example, and describes the intended
 path. At `1e53ae7` the M68K module does not load
-(SPECOPS-DRAFT-specops-O5).
+(SPECOPS-O5).
 
 1. At load time, `specop-68k addi` expanded through `specops`. The module's
    `form-process` rewrote its `determine` form into `determine-in-context`,
@@ -655,12 +659,12 @@ path. At `1e53ae7` the M68K module does not load
 `(interpret *assembler-prototype-m68k* nil #(1537 10))`, on a vector of type
 `(unsigned-byte 16)`, is designed to reverse steps 4 and 5 through the decoder
 and battery and return `((:addi :b 10 :d1))`. Even with the module loading,
-this needs the reader protocol of SPECOPS-DRAFT-specops-O4.
+this needs the reader protocol of SPECOPS-O4.
 
 ### Project structure
 
-The layout at `e4a1f9a`, after the restructure of SPECOPS-DRAFT-restructure and
-the move of the tests to the Square standard (SPECOPS-DRAFT-manifest-D66):
+The layout at `e4a1f9a`, after the restructure of SPECOPS-0005 and
+the move of the tests to the Square standard (SPECOPS-D93):
 
 ```text
 specops.asd            systems specops (src/) and specops/test (test/)
