@@ -62,6 +62,10 @@ fields from when it is given (:from RECORD); NIL when RECORD holds no value for 
                                     (:s32 (setf width 4 signed t))
                                     (:u64 (setf width 8 signed nil))
                                     (:s64 (setf width 8 signed t))
+                                    (:f16 (setf width 2 subtype-list '(:float)))
+                                    (:f32 (setf width 4 subtype-list '(:float)))
+                                    (:f64 (setf width 8 subtype-list '(:float)))
+                                    (:f128 (setf width 16 subtype-list '(:float)))
                                     (:str (setf width 1)))
                                   (error "Type symbols are only valid for 8-bit output.")))
                      (list (destructuring-bind (is-signed count &rest subtypes) predicate
@@ -98,7 +102,9 @@ fields from when it is given (:from RECORD); NIL when RECORD holds no value for 
                              ;;     (setf width        count
                              ;;           subtype-list subtypes))
                              ;; (print (list :sty subtypes))
-                             (when (eq :s is-signed) (setf signed t)))))
+                             (when (eq :s is-signed) (setf signed t))
+                             ;; (:f width): an IEEE binary float, held as its bit pattern
+                             (when (eq :f is-signed) (push :float subtype-list)))))
                    (values width signed subtype-list type-indicator type-conditions)))
                (process-field (field-spec)
                  (destructuring-bind (symbol predicate &key endian enumerate-by end-by
@@ -738,7 +744,7 @@ written to a stream or a function. A vector too small signals manifest-overrun."
                                                 (push (list ,closure ,index ,index) ,map)))
 
                             ,(cond
-                               ((intersection '(:vec :leb :case) subtypes)
+                               ((intersection '(:vec :leb :case :float) subtypes)
                                 (let ((plan (simplify-plan
                                              (field-plan item :selector-form #'selector-form
                                                               :enum-of #'enum-of
@@ -1333,7 +1339,7 @@ keeps in B, a manifest-buffer, the units read from a stream."
                                 ((eq type :pad) `(incf ,cursor ,(pad-count-form mode n cursor base)))
                                  (len `(incf ,cursor ,len))
                                  ((eq type :string) `(incf ,cursor ,(+ (length actual) (if end-by 1 0))))
-                                 ((or (eq type :manifest) (intersection '(:vec :leb :case) subtypes))
+                                 ((or (eq type :manifest) (intersection '(:vec :leb :case :float) subtypes))
                                   (skip-effector (item-plan item) (item-ctx item)))
                                  (t `(incf ,cursor ,length)))  ; scalars and masques
                            reads))))
@@ -1563,7 +1569,7 @@ keeps in B, a manifest-buffer, the units read from a stream."
                             (push `(incf ,cursor ,length) reads)))))
                      (t
                       (cond
-                        ((intersection '(:vec :leb :case) subtypes)
+                        ((intersection '(:vec :leb :case :float) subtypes)
                          (record-read name (read-effector (item-plan item) (item-ctx item))))
                         (t
                          (when name

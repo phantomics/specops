@@ -422,3 +422,120 @@ ends first, signal an error, or return NIL when EOF-ERROR-P is NIL."
           ;; a stream: its units are read as far as this read needs, and kept
           (stream-source (fill-stream-source collected (+ index length))
                          (from-vector (stream-source-array collected) index length signed)))))))
+
+;;; IEEE 754 binary floats as bit patterns: half (16), single (32), double (64) and quad
+;;; (128) precision. A portable arithmetic path serves every width; SBCL's accessors serve
+;;; single and double precision there, keeping every bit pattern, NaN payloads included.
+
+(defun float-format (bits)
+  "The exponent and fraction widths of the IEEE binary format of BITS bits, as two values."
+  (case bits
+    (16  (values 5 10))
+    (32  (values 8 23))
+    (64  (values 11 52))
+    (128 (values 15 112))
+    (t (error "No IEEE binary float format is ~a bits wide; there are 16, 32, 64 and 128." bits))))
+
+(defun float-special-p (value)
+  "True when VALUE is an infinity or a NaN of the implementation's floats."
+  (declare (ignorable value))
+  #+sbcl (and (floatp value) (or (sb-ext:float-infinity-p value) (sb-ext:float-nan-p value)))
+  #-sbcl nil)
+
+(defun portable-encode-float (value bits &optional name)
+  "The bit pattern of VALUE in the IEEE binary format of BITS bits, computed arithmetically:
+VALUE is a real, rounded to the nearest representable value, ties to even, or :INFINITY,
+:-INFINITY or :NAN. A finite value too large for the format is an error, naming NAME."
+  (multiple-value-bind (ew fw) (float-format bits)
+    (let* ((bias (1- (ash 1 (1- ew))))
+           (top (1- (ash 1 ew)))          ; the exponent field of infinities and NaNs
+           (sign-bit (ash 1 (1- bits))))
+      (flet ((pattern (sign exponent fraction)
+               (logior (if sign sign-bit 0) (ash exponent fw) fraction)))
+        (case value
+          (:infinity (pattern nil top 0))
+          (:-infinity (pattern t top 0))
+          (:nan (pattern nil top (ash 1 (1- fw))))
+          (t
+           (unless (realp value)
+             (error "Field ~s: ~s is not a number, :INFINITY, :-INFINITY or :NAN." name value))
+           (when (float-special-p value)
+             (return-from portable-encode-float
+               (portable-encode-float (cond ((not (= value value)) :nan) ; not reached for NaN on SBCL
+                                            ((plusp value) :infinity)
+                                            (t :-infinity))
+                                      bits name)))
+           (let* ((sign (if (floatp value) (minusp (float-sign value)) (minusp value)))
+                  (r (abs (rational value))))
+             (if (zerop r)
+                 (pattern sign 0 0)
+                 ;; E is the exponent of R's leading bit: 2^E <= R < 2^(E+1)
+                 (let ((e (- (integer-length (numerator r)) (integer-length (denominator r)))))
+                   (when (< r (expt 2 e)) (decf e))
+                   (let* ((normal (>= e (- 1 bias)))
+                          (scale (if normal e (- 1 bias)))
+                          ;; the significand, its leading bit included, rounded to FW bits
+                          (full (round (* r (expt 2 (- fw scale))))))
+                     (when (and normal (= full (ash 1 (1+ fw))))   ; rounding carried a bit up
+                       (setf full (ash full -1)) (incf e))
+                     (let ((exponent (if normal (+ e bias) 0)))
+                       (when (>= exponent top)
+                         (error "Field ~s: ~s is too large for a ~a-bit float." name value bits))
+                       ;; a subnormal that rounded up to 2^FW is the least normal, which
+                       ;; the sum gives
+                       (+ (pattern sign exponent 0)
+                          (if normal (- full (ash 1 fw)) full)))))))))))))
+
+(defun portable-decode-float (pattern bits)
+  "The value of PATTERN in the IEEE binary format of BITS bits, computed arithmetically: a
+single float for 16 and 32 bits, a double float for 64, and an exact rational for 128; or
+:INFINITY, :-INFINITY or :NAN. A negative zero of 128 bits reads as 0."
+  (multiple-value-bind (ew fw) (float-format bits)
+    (let* ((bias (1- (ash 1 (1- ew))))
+           (top (1- (ash 1 ew)))
+           (sign (logbitp (1- bits) pattern))
+           (exponent (ldb (byte ew fw) pattern))
+           (fraction (ldb (byte fw 0) pattern)))
+      (if (= exponent top)
+          (cond ((plusp fraction) :nan) (sign :-infinity) (t :infinity))
+          (let* ((magnitude (if (zerop exponent)
+                                (* fraction (expt 2 (- 1 bias fw)))
+                                (* (+ (ash 1 fw) fraction) (expt 2 (- exponent bias fw)))))
+                 (r (if sign (- magnitude) magnitude)))
+            (case bits
+              ((16 32) (if (and sign (zerop magnitude)) (- 0f0) (coerce r 'single-float)))
+              (64 (if (and sign (zerop magnitude)) (- 0d0) (coerce r 'double-float)))
+              (t r)))))))
+
+(defun encode-float-bits (value bits &optional name)
+  "The bit pattern of VALUE in the IEEE binary format of BITS bits, for writing; see
+portable-encode-float. On SBCL, a float given for single or double precision goes through
+its own floats, which keep a NaN's payload. A rational always takes the portable path,
+which rounds exactly: SBCL's conversion of a rational to a single float can truncate."
+  #+sbcl
+  (when (and (member bits '(32 64)) (floatp value))
+    (let ((x (handler-case (coerce value (if (= bits 32) 'single-float 'double-float))
+               (arithmetic-error ()
+                 (error "Field ~s: ~s is too large for a ~a-bit float." name value bits)))))
+      (when (and (sb-ext:float-infinity-p x) (not (float-special-p value)))
+        (error "Field ~s: ~s is too large for a ~a-bit float." name value bits))
+      (return-from encode-float-bits
+        (if (= bits 32)
+            (ldb (byte 32 0) (sb-kernel:single-float-bits x))
+            (logior (ash (ldb (byte 32 0) (sb-kernel:double-float-high-bits x)) 32)
+                    (sb-kernel:double-float-low-bits x))))))
+  (portable-encode-float value bits name))
+
+(defun decode-float-bits (pattern bits)
+  "The value of PATTERN in the IEEE binary format of BITS bits, for reading; see
+portable-decode-float. On SBCL, single and double precision give its own floats, so an
+infinity or a NaN, its payload included, reads as a float rather than a keyword."
+  #+sbcl
+  (case bits
+    (32 (return-from decode-float-bits
+          (sb-kernel:make-single-float (if (logbitp 31 pattern) (- pattern (ash 1 32)) pattern))))
+    (64 (return-from decode-float-bits
+          (let ((high (ldb (byte 32 32) pattern)))
+            (sb-kernel:make-double-float (if (logbitp 31 high) (- high (ash 1 32)) high)
+                                         (ldb (byte 32 0) pattern))))))
+  (portable-decode-float pattern bits))

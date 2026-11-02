@@ -3678,3 +3678,147 @@ offsets given, in any order. Returns T if all checks pass."
       (format t "~&placed field and WOFF checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
               pass (count t results) (length results))
       pass)))
+
+;;; ===========================================================================
+;;; Part X — IEEE floats: half, single, double and quad precision
+;;; ===========================================================================
+
+(defmanifest float-probe (:unit 8 :endian :big :record t)
+  (:half   (:f 2) :default 0)
+  (:single :f32   :default 0)
+  (:double (:f 8) :default 0)
+  (:quad   :f128  :default 0))
+
+(defmanifest float-le-probe (:unit 8 :endian :little)
+  (:single (:f 4) :default 0))
+
+(defmanifest float-vec-probe (:unit 8 :endian :big)
+  (:n     :u8 :slot (:count-of :v))
+  (:v     (:f 4 :vec) :count :n)
+  (:after :u8 :default 0))
+
+(defmanifest float-case-probe (:unit 8 :endian :big)
+  (:kind  :u8 :default 0)
+  (:v     (:case :kind (0 :u 4) (1 :f 4) (2 :f 8)) :default 0)
+  (:after :u8 :default 0))
+
+;; Two 16-bit units hold a single float: widths count bytes, whatever the unit.
+(defmanifest float-word-probe (:unit 16 :endian :big)
+  (:x (:f 4) :default 0))
+
+(defmanifest float-bad-width-probe (:unit 8 :endian :big)
+  (:x (:f 3) :default 0))
+
+(defun hex-units (v &optional (digits 2))
+  "The units of V as one hexadecimal string."
+  (format nil "~{~v,'0x~}" (loop :for u :across v :append (list digits u))))
+
+(defun run-float-demo ()
+  "Marshal and unmarshal IEEE binary floats of 16, 32, 64 and 128 bits: rounding, subnormals,
+infinities, NaN and negative zero, vectors, :case branches and wider units, with the portable
+path checked against SBCL's own floats. Returns T if all checks pass."
+  (let ((results nil))
+    (flet ((check (label got want)
+             (let ((ok (equalp got want)))
+               (push ok results)
+               (format t "~&  ~:[FAIL~;ok  ~]  ~a~%" ok label)
+               (unless ok
+                 (format t "~&          got  ~s~%          want ~s~%" got want)))))
+      (format t "~&float checks:~%")
+
+      ;; 1. The four formats, written and read back with their Lisp types.
+      (let ((buf (ub8 30)))
+        (marshal float-probe buf :half 1.5 :single -2.5 :double 0.1d0 :quad -2)
+        (check "float-probe: half, single, double and quad precision written big-endian"
+               (hex-units buf)
+               (concatenate 'string "3E00" "C0200000" "3FB999999999999A" "C0000000000000000000000000000000"))
+        (check "float-probe, read back: single floats for half and single, a double, and an exact rational for quad"
+               (let ((p (unmarshal float-probe buf)))
+                 (list p (mapcar (lambda (k) (type-of (getf p k))) '(:half :single :double))))
+               '((:half 1.5 :single -2.5 :double 0.1d0 :quad -2) (single-float single-float double-float)))
+        (check "float-probe, as a record written back, and :double read alone"
+               (list (equalp buf (let ((out (ub8 30))) (marshal float-probe out (:from (unmarshal float-probe buf (:as :record)))) out))
+                     (eql 0.1d0 (unmarshal float-probe buf nil :double)))
+               '(t t)))
+      (check "float-le-probe and float-word-probe: byte order per field, and two 16-bit units"
+             (list (let ((buf (ub8 4))) (marshal float-le-probe buf :single 1.0) (coerce buf 'list))
+                   (let ((buf (make-array 2 :element-type '(unsigned-byte 16))))
+                     (marshal float-word-probe buf :x 1.0)
+                     (list (coerce buf 'list) (unmarshal float-word-probe buf))))
+             '((0 0 #x80 #x3F) ((#x3F80 0) (:x 1.0))))
+
+      ;; 2. Rounding, extremes and subnormals.
+      (check "rounding to nearest, ties to even: integers, rationals and doubles narrowed"
+             (list (encode-float-bits 16777217 32) (encode-float-bits 16777219 32)
+                   (encode-float-bits 1/10 64) (encode-float-bits 1/3 16) (encode-float-bits 0.1d0 32)
+                   (encode-float-bits 65504 16))
+             (list #x4B800000 #x4B800002 #x3FB999999999999A #x3555 #x3DCCCCCD #x7BFF))
+      (check "subnormals: the least of each format, written and read back exactly"
+             (list (encode-float-bits (expt 2 -24) 16) (encode-float-bits (expt 2 -149) 32)
+                   (encode-float-bits (expt 2 -1074) 64) (encode-float-bits (expt 2 -16494) 128)
+                   (rational (decode-float-bits 1 16)) (rational (decode-float-bits 1 32))
+                   (decode-float-bits 1 128))
+             (list 1 1 1 1 (expt 2 -24) (expt 2 -149) (expt 2 -16494)))
+      (check "quad precision: 1/3 rounded to 113 bits and read back as that exact rational"
+             (let ((bits (encode-float-bits 1/3 128)))
+               (list (format nil "~32,'0x" bits) (decode-float-bits bits 128) (= (decode-float-bits bits 128) 1/3)))
+             (list "3FFD5555555555555555555555555555" (/ #x15555555555555555555555555555 (expt 2 114)) nil))
+      (check "values too large for their format are errors; so is a float of 24 bits"
+             (list (signals-error-p (lambda () (encode-float-bits 65520 16)))
+                   (signals-error-p (lambda () (encode-float-bits 1d300 32)))
+                   (signals-error-p (lambda () (encode-float-bits (expt 10 400) 64)))
+                   (signals-error-p (lambda () (let ((buf (ub8 2))) (marshal float-probe buf :half 70000))))
+                   (signals-error-p (lambda () (macroexpand-1 '(marshal float-bad-width-probe d :x 1.0)))))
+             '(t t t t t))
+
+      ;; 3. Infinities, NaN and negative zero.
+      (check "keywords for infinities and NaN, written in every format, and read back from half and quad"
+             (list (mapcar (lambda (bits) (encode-float-bits :infinity bits)) '(16 32 64 128))
+                   (encode-float-bits :-infinity 16) (encode-float-bits :nan 32)
+                   (decode-float-bits #x7C00 16) (decode-float-bits #xFC00 16) (decode-float-bits #x7E00 16)
+                   (decode-float-bits (ash #x7FFF 112) 128))
+             (list (list #x7C00 #x7F800000 #x7FF0000000000000 (ash #x7FFF 112))
+                   #xFC00 #x7FC00000 :infinity :-infinity :nan :infinity))
+      (check "negative zero, written and read back in every format but quad"
+             (list (encode-float-bits (- 0.0) 32) (encode-float-bits (- 0d0) 64) (encode-float-bits (- 0.0) 16)
+                   (float-sign (decode-float-bits #x80000000 32)) (float-sign (decode-float-bits #x8000 16))
+                   (decode-float-bits (ash 1 127) 128))
+             (list #x80000000 #x8000000000000000 #x8000 -1.0 -1.0 0))
+      #+sbcl
+      (check "SBCL: infinities and a NaN with its payload read as SBCL floats and written back bit for bit"
+             (list (sb-ext:float-infinity-p (decode-float-bits #x7F800000 32))
+                   (sb-ext:float-nan-p (decode-float-bits #x7FC00001 32))
+                   (encode-float-bits (decode-float-bits #x7FC00001 32) 32)
+                   (encode-float-bits (decode-float-bits #xFFF8000000000123 64) 64)
+                   (let ((buf (->bytes #(#x7F #xC0 0 1)))) (hex-units (let ((out (ub8 4))) (marshal float-le-probe out :single (unmarshal float-le-probe (reverse buf) nil :single)) out))))
+             (list t t #x7FC00001 #xFFF8000000000123 "0100C07F"))
+
+      ;; 4. The portable path against SBCL's floats.
+      #+sbcl
+      (check "SBCL: the portable path agrees with SBCL's floats on 20000 random patterns of 32 and 64 bits"
+             (let ((*random-state* (sb-ext:seed-random-state 11)) (bad 0))
+               (dotimes (i 10000)
+                 (dolist (bits '(32 64))
+                   (let* ((p (random (ash 1 bits))) (v (portable-decode-float p bits)))
+                     (unless (keywordp v)
+                       (unless (and (eql v (decode-float-bits p bits)) (eql (portable-encode-float v bits) p)
+                                    (eql (encode-float-bits v bits) p))
+                         (incf bad))))))
+               bad)
+             0)
+
+      ;; 5. Vectors and :case branches.
+      (let ((buf (ub8 14)))
+        (marshal float-vec-probe buf :v #(1.0 -0.5 2.25) :after 9)
+        (check "float-vec-probe: a vector of single floats counted by a :count-of slot, written and read back"
+               (list (hex-units buf) (unmarshal float-vec-probe buf))
+               (list "033F800000BF0000004010000009" '(:n 3 :v #(1.0 -0.5 2.25) :after 9))))
+      (check "float-case-probe: a float branch chosen when the code runs, written and read back"
+             (list (let ((k 2) (buf (ub8 10))) (marshal float-case-probe buf :kind k :v 0.5d0 :after 9) (hex-units buf))
+                   (unmarshal float-case-probe (->bytes #(1 #x3F #xC0 0 0 9)))
+                   (unmarshal float-case-probe (->bytes #(0 0 0 0 7 9))))
+             (list "023FE000000000000009" '(:kind 1 :v 1.5 :after 9) '(:kind 0 :v 7 :after 9))))
+    (let ((pass (every #'identity results)))
+      (format t "~&float checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
+              pass (count t results) (length results))
+      pass)))

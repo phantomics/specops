@@ -41,6 +41,8 @@
    (signed :initarg  :signed
            :initform nil)
    (enum   :initarg  :enum
+           :initform nil)
+   (float  :initarg  :float      ;; the bits of an IEEE float the field holds, or NIL
            :initform nil)))
 
 (defclass scan-plan   (field-plan)
@@ -213,7 +215,8 @@ LAST-P is true.")
   ((bits :initarg :bits)
    (signed :initarg :signed :initform nil)
    (enum :initarg :enum :initform nil)
-   (codec :initarg :codec :initform nil)))
+   (codec :initarg :codec :initform nil)
+   (float :initarg :float :initform nil)))  ;; the bits of the IEEE floats elements are, or NIL
 
 (defclass leb-assembler (assembler)
   ((signed :initarg :signed
@@ -254,15 +257,17 @@ a vector or a string, each encoded by the rule of terminator-code-form."
   (if enum `(enumerated ,form (gethash ',enum *enums*)) form))
 
 (defmethod assemble-effector ((a vector-assembler) ctx)
-  (with-slots (bits signed enum codec) a
+  (with-slots (bits signed enum codec float) a
     (destructuring-bind (&key name element count trailer &allow-other-keys) ctx
       (let* ((v (gensym "V")) (j (gensym "J"))
-             (etype (cond (enum t) ((null bits) 'integer)
+             ;; a float element may read as a keyword or, at 128 bits, a rational
+             (etype (cond ((or enum float) t) ((null bits) 'integer)
                           (signed `(signed-byte ,bits)) (t `(unsigned-byte ,bits))))
-             (x (let ((s (if signed
-                             `(if (logbitp ,(1- bits) ,element) (- ,element ,(ash 1 bits)) ,element)
-                             element)))
-                  (if enum `(enumerated ,s (gethash ',enum *enums*)) s))))
+             (x (cond (float `(decode-float-bits ,element ,float))
+                      (t (let ((s (if signed
+                                      `(if (logbitp ,(1- bits) ,element) (- ,element ,(ash 1 bits)) ,element)
+                                      element)))
+                           (if enum `(enumerated ,s (gethash ',enum *enums*)) s))))))
         (when (and count trailer)
           (error "Field ~s: a counted field cannot drop trailing elements." name))
         (list :bindings (if count
@@ -476,7 +481,7 @@ and :last (true when the element just yielded was the final one)."))
           :last `(null ,src))))
 
 (defmethod disassemble-effector ((a vector-assembler) ctx)
-  (with-slots (bits signed enum codec) a
+  (with-slots (bits signed enum codec float) a
     (destructuring-bind (&key name value &allow-other-keys) ctx
       (let ((src (gensym "SRC")) (j (gensym "J")) (enc (gensym "ENC")) (x (gensym "X")))
         ;; any sequence is accepted; a vector or a string is used as it is
@@ -486,7 +491,8 @@ and :last (true when the element just yielded was the final one)."))
               :more `(< ,j (length ,src))
               :next `(let ((,x (aref ,src ,j)))
                        (incf ,j)
-                       (cond ((characterp ,x) ,(if codec `(funcall ,enc ,x) `(char-code ,x)))
+                       (cond ,@(and float `((t (encode-float-bits ,x ,float ',name))))
+                             ((characterp ,x) ,(if codec `(funcall ,enc ,x) `(char-code ,x)))
                              ,@(and enum `(((keywordp ,x)
                                             (or (getf (rest (gethash ',enum *enums*)) ,x)
                                                 (error "Field ~s: ~s is not in enum ~a." ',name ,x ',enum)))))
@@ -519,8 +525,11 @@ RULE, and writes them with WRITE, an expansion-time function of an element form.
 
 (defmethod read-effector ((p scalar-plan) ctx)
   (destructuring-bind (&key read-at cursor &allow-other-keys) ctx
-    (with-slots (width signed enum) p
-      `(prog1 ,(enum-decode-form (funcall read-at cursor width signed) enum) (incf ,cursor ,width)))))
+    (with-slots (width signed enum float) p
+      `(prog1 ,(if float
+                   `(decode-float-bits ,(funcall read-at cursor width nil) ,float)
+                   (enum-decode-form (funcall read-at cursor width signed) enum))
+         (incf ,cursor ,width)))))
 
 (defmethod read-effector ((p scan-plan) ctx)
   (destructuring-bind (&key name read-at cursor src &allow-other-keys) ctx
@@ -533,8 +542,9 @@ RULE, and writes them with WRITE, an expansion-time function of an element form.
                  cursor src :width (and (not element) width)))))
 
 (defmethod write-effector ((p scalar-plan) ctx)
-  (destructuring-bind (&key value write &allow-other-keys) ctx
-    (funcall write (slot-value p 'width) value)))
+  (destructuring-bind (&key name value write &allow-other-keys) ctx
+    (with-slots (width float) p
+      (funcall write width (if float `(encode-float-bits ,value ,float ',name) value)))))
 
 (defmethod write-effector ((p scan-plan) ctx)
   (destructuring-bind (&key name value write &allow-other-keys) ctx
@@ -679,6 +689,8 @@ initargs. The class must be defined when the field's code is expanded."
                          stop-by type-indicator type-conditions &allow-other-keys) item
     (when (and stop-by (or end-by count))
       (error "Field ~s: :stop-by cannot be combined with :end-by or :count." name))
+    (when (and (member :float subtypes) (member :leb subtypes))
+      (error "Field ~s: a float cannot be a LEB." name))
     (cond ((eq type :manifest)
            (destructuring-bind (child &rest options &key count until &allow-other-keys) actual
              (loop :for (key) :on options :by #'cddr
@@ -743,13 +755,25 @@ initargs. The class must be defined when the field's code is expanded."
                :assembler (make-instance 'vector-assembler
                                          :bits (and (not leb) (* length unit-bits))
                                          :signed (and (not leb) signed)
-                                         :enum enumerate-by :codec codec))))
+                                         :enum enumerate-by :codec codec
+                                         :float (float-bits name subtypes length unit-bits)))))
           ((member :leb subtypes)
            (check-leb-width name length unit-bits)
            (make-instance 'scan-plan :rule (make-instance 'continuation-rule)
                                      :assembler (make-instance 'leb-assembler :signed signed
                                                                               :enum enumerate-by)))
-          (t (make-instance 'scalar-plan :width length :signed signed :enum enumerate-by)))))
+          (t (make-instance 'scalar-plan :width length :signed signed :enum enumerate-by
+                                         :float (float-bits name subtypes length unit-bits))))))
+
+(defun float-bits (name subtypes length unit-bits)
+  "The width in bits of the IEEE float a field of LENGTH units holds, when SUBTYPES mark it
+as a float; NIL otherwise. A width with no IEEE binary format is an expansion error."
+  (when (member :float subtypes)
+    (let ((bits (* length unit-bits)))
+      (handler-case (progn (float-format bits) bits)
+        (error ()
+          (error "Field ~s: a float of ~a units is ~a bits wide; floats are 16, 32, 64 or 128."
+                 name length bits))))))
 
 (defun simplify-plan (p)
   "A case plan whose selector is a constant reduces to its branch at expansion."
