@@ -74,6 +74,8 @@ decisions:
   - SPECOPS-DRAFT-manifest-D61
   - SPECOPS-DRAFT-manifest-D62
   - SPECOPS-DRAFT-manifest-D63
+  - SPECOPS-DRAFT-manifest-D64
+  - SPECOPS-DRAFT-manifest-D65
 relates-to:
   - SPECOPS-DRAFT-manifest-complete
   - SPECOPS-DRAFT-restructure
@@ -102,9 +104,9 @@ which reads them back out. It covers the path from a freeform `marshal` macro to
 manifest-driven writing and reading, and the PNG test format used to exercise
 it. The chronicled state is commit `10b1568`; the updates at the end of this
 log carry the record forward: that of 2026-10-30 to commit `653345f`, three
-of 2026-10-31, to commits `738105a`, `d030f5c` and `2e1af03`, and eight of
+of 2026-10-31, to commits `738105a`, `d030f5c` and `2e1af03`, and nine of
 2026-11-01, to commits `4f9c6d4`, `d7ba27f`, `1cc7600`, `b63b7d2`, `239b2f7`,
-`cb931c8`, `52b81e5` and `e340210`. The repository restructure that followed
+`cb931c8`, `52b81e5`, `e340210` and `5862d3a`. The repository restructure that followed
 moved the files this log names (see
 [SPECOPS-DRAFT-restructure](Log.Restructure.md)); code references stay pinned
 to the commits that held the work.
@@ -2945,4 +2947,151 @@ log began, are done. New:
 - **Relative offsets.** `src/assembler.lisp:locate-relative@e340210` writes a
   negative offset as a sign bit and a magnitude, where a branch displacement is
   usually two's complement; this may be a fault, outside this work.
+- The other items of the previous updates remain.
+
+## Update 2026-11-01 — Floats
+
+This installment covers commit `5862d3a`, which completes the Manifest
+Completion Plan's ninth milestone with the `:f` class reserved since
+SPECOPS-DRAFT-manifest-D5: IEEE binary floats of 16, 32, 64 and 128 bits. It
+follows the prior-art evaluation's SPECOPS-DRAFT-lisp-binary-tools-O7, which
+pointed to lisp-binary's floats of every IEEE width, as the steward settled it.
+A new suite brings the checks from 382 to 396.
+
+### SPECOPS-DRAFT-manifest-D64 — A float field holds an IEEE binary float of 16, 32, 64 or 128 bits as its bit pattern
+
+**Status:** Proposed
+**Context:** The `:f` class was reserved but not built. Formats store floats
+in IEEE binary formats, of 32 and 64 bits most often, and of 16 bits in
+graphics and machine learning; the evaluation found lisp-binary covering half
+to octuple precision. Common Lisp's float types do not portably include half
+or quad precision.
+**Decision:** `(:f width)` declares a float, and `:f16`, `:f32`, `:f64` and
+`:f128` are keywords for it in 8-bit units, beside `:u8` and the rest.
+`src/manifest/manifest.lisp:defmanifest@5862d3a` marks the field's subtypes,
+and `src/manifest/scan.lisp:field-plan@5862d3a` builds its plan with the
+format's width in bits, checked by `src/manifest/scan.lisp:float-bits@5862d3a`:
+a width other than 16, 32, 64 or 128 bits, or a float that is also a LEB, is an
+expansion error. A float is written and read as the integer of its bit
+pattern, so byte order per field, vectors, `:case` branches, records and
+selective reads work as for integers; the scalar plan and the vector
+assembler convert each value. Half floats read as single floats, which hold
+them exactly; single and double floats as such; quad floats as exact
+rationals, so that they round-trip. A value is rounded to the nearest the
+format holds, ties to even, and a finite value too large for it is an error.
+**Alternatives:** 32 and 64 bits only (rejected by the steward in favour of the
+four formats); quad floats read as double floats (rejected: they would not
+round-trip); octuple precision (not taken: no format in view needs it).
+
+### SPECOPS-DRAFT-manifest-D65 — Floats are converted arithmetically, and through SBCL's own floats where it has them
+
+**Status:** Proposed
+**Context:** Common Lisp has no portable way to make an infinity or a NaN, nor
+to reach a float's bits; SBCL has both for single and double floats. Reading a
+NaN as a keyword loses its payload, which some formats use. SBCL 2.3.4's
+`coerce` of a rational to a single float is not correctly rounded for some
+values near and below the least normal single float: comparing the two paths
+on 100,000 random rationals in that range, while the work was built, found a
+third rounded differently, and exact
+rounding computed in Python agreed with the arithmetic path in every case
+examined, `#x444` where SBCL gave `#x443` for one. Common Lisp leaves that
+rounding to the implementation.
+**Decision:** `src/serial.lisp:portable-encode-float@5862d3a` and
+`src/serial.lisp:portable-decode-float@5862d3a` convert between numbers and
+bit patterns arithmetically for every width, exactly rounded, with subnormals
+and negative zero; they read infinities and NaN as `:infinity`, `:-infinity`
+and `:nan`, and take those keywords on write. `src/serial.lisp:encode-float-bits@5862d3a`
+and `src/serial.lisp:decode-float-bits@5862d3a`, which the manifest layer
+calls, use SBCL's float bit accessors for 32 and 64 bits, behind `#+sbcl`, so
+there an infinity or a NaN, its payload included, reads as an SBCL float and
+writes back bit for bit. On write, only a value that is already a float takes
+SBCL's path, whose conversions between single and double are the hardware's
+and correctly rounded; a rational always takes the arithmetic one. Elsewhere,
+and for 16 and 128 bits everywhere, the arithmetic path serves. A quad
+negative zero reads as 0, which a rational cannot sign.
+**Alternatives:** An error for infinities and NaN everywhere (rejected:
+formats store them; the steward chose keywords and SBCL's floats); keywords on
+SBCL too (rejected: NaN payloads would be lost); SBCL's `coerce` for rationals
+(rejected: the
+rounding above); `decode-float` and `encode-float` as names (not possible:
+`decode-float` is a Common Lisp function).
+
+### Implementation
+
+- **`src/serial.lisp`.** `float-format`, the exponent and fraction widths of
+  each format; `float-special-p`; the portable pair and the pair the manifest
+  layer calls, per SPECOPS-DRAFT-manifest-D65.
+- **`src/manifest/manifest.lisp`.** `defmanifest`'s type parser marks `:f`
+  fields and the four keywords with a `:float` subtype; `marshal` and
+  `unmarshal` send float fields through field plans, with vector, LEB and
+  `:case` fields.
+- **`src/manifest/scan.lisp`.** A `float` slot on `scalar-plan` and
+  `vector-assembler`, holding the format's width in bits, whose read and write
+  effectors decode and encode; `float-bits`; a float vector's elements are of
+  type `t`, since they may read as keywords or rationals.
+- **`test/manifest.lisp`.** Six probes and
+  `test/manifest.lisp:run-float-demo@5862d3a`.
+
+### Verification
+
+The run command is that of the update of 2026-11-01 for placed fields and
+WOFF, with `(specops::run-float-demo)` added.
+
+Table: The suite added in this installment, and the totals at commit `5862d3a`.
+
+| Suite | Function | Checks | Result |
+|---|---|---|---|
+| IEEE floats | `run-float-demo` | 14 | 14 pass |
+| All twenty-two suites | from `run-png-demo` to `run-float-demo` | 396 and the PNG verification | All pass |
+
+The new suite checks the four formats with their Lisp types and a record
+round trip; byte order and 16-bit units; rounding of integers, rationals and
+narrowed doubles; the least subnormal of each format; quad precision's 1/3 as
+an exact rational; errors for values too large and a width of 24 bits;
+keywords for infinities and NaN, and negative zero; on SBCL, infinities and a
+NaN payload read and written back bit for bit, and the arithmetic path
+agreeing with SBCL's floats on 20,000 random patterns of 32 and 64 bits; a
+float vector counted by a `:count-of` slot; and a float `:case` branch.
+
+Outside the suite, 29,997 doubles of every magnitude were encoded in half,
+single and double precision and matched Python's `struct.pack` in every case,
+its overflow errors included, and all 65,536 half patterns and 100,000 random
+single patterns, subnormals, infinities and NaN among them, decoded as
+`struct.unpack` decodes them. The manifest layer has no style warnings, the
+five test scripts in `test/` pass, and the architecture systems
+`specops.arch.6502`, `.s390x`, `.x86`, `.z80` and `.wasm`, and the three format
+systems, load.
+
+### Files
+
+Table: Files changed in commit `5862d3a`, and the documents updated after it.
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/serial.lisp` | Modified | IEEE floats as bit patterns, portable and through SBCL's floats |
+| `src/manifest/manifest.lisp` | Modified | The `:f` class and float keywords; float fields through field plans |
+| `src/manifest/scan.lisp` | Modified | Floats in the scalar plan and the vector assembler; `float-bits` |
+| `test/manifest.lisp` | Modified | Float probes and the float suite |
+| `doc/Log.Manifest.md` | Modified | This update |
+| `doc/Plan.ManifestComplete.md` | Modified | Progress installment for floats; a note under its Floats item |
+| `doc/Eval.LispBinaryTools.md` | Modified | SPECOPS-DRAFT-lisp-binary-tools-O7 answered for floats |
+
+### Metrics
+
+- Test checks: 396 automated checks plus 1 structural PNG verification, up
+  from 382.
+- Regressions at `5862d3a`: 0.
+
+### Outstanding Work
+
+Floats, outstanding since this log began, are done. New:
+
+- **Widths count bytes, not units.** SPECOPS-DRAFT-manifest-D5 says a width
+  counts output units, but `defmanifest` stores `(ash width (- unit-spec))`, so
+  widths count bytes: in a 16-bit manifest `(:u 2)` takes one unit and
+  `(:u 4)` two, and a 32-bit float there is `(:f 4)`. A width of less than a
+  unit, such as `(:u 1)` in 16-bit units, would take none. The record or the
+  code needs reconciling, for the steward to decide.
+- **A quad negative zero** reads as 0 (SPECOPS-DRAFT-manifest-D65).
+- **The float functions are not exported**, like the checksum functions.
 - The other items of the previous updates remain.

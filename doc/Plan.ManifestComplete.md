@@ -61,8 +61,8 @@ a struct interface, destinations that cannot be patched, and packaging. It
 assumes the decisions recorded in the
 [Manifest development log, SPECOPS-DRAFT-manifest](Log.Manifest.md) and the
 architecture in [SPECOPS-DRAFT-specops](Arch.SpecOps.md). Progress is charted
-in dated updates at the end of this plan; the latest is the eighth update of
-2026-11-01, at commit `e340210`.
+in dated updates at the end of this plan; the latest is the ninth update of
+2026-11-01, at commit `5862d3a`.
 
 ## Problem
 
@@ -360,6 +360,11 @@ nothing could run a rule without effectors).
 - **Floats.** Implement the reserved `:f` class for 32-bit and 64-bit
   IEEE-754 values, with per-field byte order, by converting to and from bit
   patterns around the existing serializers.
+
+  Note: built as SPECOPS-DRAFT-manifest-D64 and SPECOPS-DRAFT-manifest-D65 in
+  the log, for 16 and 128 bits as well, after the prior-art evaluation's
+  SPECOPS-DRAFT-lisp-binary-tools-O7; on SBCL, single and double floats keep
+  infinities and NaN payloads, and elsewhere those read as keywords.
 - **Masques.** Read decimal (`d:`) mask strings; signal an error when a value
   does not fit its group instead of truncating it; register keyword groups in
   `values` and the region map so `:case` and `:count` can refer to them on
@@ -1241,4 +1246,48 @@ correction between larger steps.
 Floats depend on nothing open: a float is written and read as the integer of
 its bit pattern, through the scalar and vector plans as they stand. The Ref
 waits for the public interface of SPECOPS-DRAFT-specops-O6 and `test-op` for
+SPECOPS-DRAFT-specops-O5, as in the update of 2026-10-30.
+
+## Update 2026-11-01 — Progress: floats
+
+This installment charts the plan's progress at commit `5862d3a`, which
+completes the ninth milestone: the `:f` class holds IEEE binary floats of 16,
+32, 64 and 128 bits, as the steward settled them from the prior-art
+evaluation's SPECOPS-DRAFT-lisp-binary-tools-O7. The log's update of the same
+date records the work, with SPECOPS-DRAFT-manifest-D64 and
+SPECOPS-DRAFT-manifest-D65. All twenty-two suites pass: 396 checks and the PNG
+verification. Outside the suite, encodings and decodings matched Python's
+`struct` on some 195,000 values and patterns.
+
+### Progress
+
+Table: State of each Roadmap milestone at commit `5862d3a`. Entries new since
+the previous update are marked "new".
+
+| Milestone | State | Done | Remaining |
+|---|---|---|---|
+| 1. Corrections and records | Partly done | As before | Checksums over `unmarshal` sources that are not simple byte arrays; new: widths that count bytes where SPECOPS-DRAFT-manifest-D5 says units |
+| 2. Field kinds on read | Partly done | As before | SPECOPS-DRAFT-manifest-complete-O5 for fields without a terminator; writing a buffer sized by another field; fixed buffers of LEB elements; trailing `:length-of` and `:count-of` slots |
+| 3. Checked reads | Done | As before | — |
+| 4. Structs and run-time nested values | Done | As before | — |
+| 5. Variable structure | Done | As before | Instances addressed by name from outside a repeat, should a format need it |
+| 6. Destinations | Done | As before | Writing a buffer out in pieces, should a record grow too large to hold whole |
+| 7. Selective reads and stream sources | Done | As before | Units kept for the whole record, should one grow too large to hold |
+| 8. WOFF | Done | As before | — |
+| 9. Floats and masque completion | Done | As before; new: the `:f` class for 16, 32, 64 and 128 bits (SPECOPS-DRAFT-manifest-D64), converted arithmetically and through SBCL's floats (SPECOPS-DRAFT-manifest-D65) | Range checks that tell signed groups from unsigned, should a format need them |
+| 10. Packaging | Partly done | As before | Suites behind `test-op`; a Ref; the checksum and float functions exported |
+
+### Priorities
+
+1. **Packaging:** `test-op`, then a Ref.
+
+Two smaller matters remain between larger steps: checksums over sources that
+are not simple byte arrays, and a decision for the steward on widths. Widths
+count bytes in the code and units in SPECOPS-DRAFT-manifest-D5, and one of the
+two should change before the Ref documents either.
+
+### Dependencies
+
+The Ref waits for the public interface of SPECOPS-DRAFT-specops-O6, and should
+follow the decision on widths, which the interface exposes. `test-op` follows
 SPECOPS-DRAFT-specops-O5, as in the update of 2026-10-30.
