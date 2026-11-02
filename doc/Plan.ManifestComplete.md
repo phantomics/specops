@@ -61,8 +61,8 @@ a struct interface, destinations that cannot be patched, and packaging. It
 assumes the decisions recorded in the
 [Manifest development log, SPECOPS-DRAFT-manifest](Log.Manifest.md) and the
 architecture in [SPECOPS-DRAFT-specops](Arch.SpecOps.md). Progress is charted
-in dated updates at the end of this plan; the latest is the seventh update of
-2026-11-01, at commit `52b81e5`.
+in dated updates at the end of this plan; the latest is the eighth update of
+2026-11-01, at commit `e340210`.
 
 ## Problem
 
@@ -364,6 +364,14 @@ nothing could run a rule without effectors).
   does not fit its group instead of truncating it; register keyword groups in
   `values` and the region map so `:case` and `:count` can refer to them on
   write.
+
+  Note: built as SPECOPS-DRAFT-manifest-D60 through SPECOPS-DRAFT-manifest-D63
+  in the log. Decimal masks first needed fixing in `masque` and `unmasque`
+  themselves, which the progress tables since 2026-10-31 had listed as done.
+  The error for a value too wide comes from a new `:overflow` parameter of
+  `masque`, whose default keeps masking. Keyword groups select `:case`
+  branches through selector variables, which replaced `values`; `:count`
+  needed nothing on write.
 
 ## Reading
 
@@ -1181,3 +1189,56 @@ The Ref waits for the public interface of SPECOPS-DRAFT-specops-O6 and
 `test-op` for SPECOPS-DRAFT-specops-O5, as in the update of 2026-10-30. The
 evaluation's other questions, SPECOPS-DRAFT-lisp-binary-tools-O2 through
 SPECOPS-DRAFT-lisp-binary-tools-O6, bear on work beyond this plan.
+
+## Update 2026-11-01 — Progress: masque completion
+
+This installment charts the plan's progress at commit `e340210`, which
+completes the masque half of the ninth milestone. Decimal masks now work in
+`masque` and `unmasque`, which the earlier progress tables had wrongly listed
+as done; `masque` takes an `:overflow` parameter, `:mask` by default; and
+manifests read decimal masques, signal an error for a group value too wide,
+and let masque groups select `:case` branches. The log's update of the same
+date records the work, with SPECOPS-DRAFT-manifest-D60 through
+SPECOPS-DRAFT-manifest-D63. All twenty-one suites pass: 382 checks and the PNG
+verification.
+
+### Progress
+
+Table: State of each Roadmap milestone at commit `e340210`. Entries new since
+the previous update are marked "new".
+
+| Milestone | State | Done | Remaining |
+|---|---|---|---|
+| 1. Corrections and records | Partly done | As before | Checksums over `unmarshal` sources that are not simple byte arrays |
+| 2. Field kinds on read | Partly done | As before | SPECOPS-DRAFT-manifest-complete-O5 for fields without a terminator; writing a buffer sized by another field; fixed buffers of LEB elements; trailing `:length-of` and `:count-of` slots |
+| 3. Checked reads | Done | As before | — |
+| 4. Structs and run-time nested values | Done | As before | — |
+| 5. Variable structure | Done | As before | Instances addressed by name from outside a repeat, should a format need it |
+| 6. Destinations | Done | As before | Writing a buffer out in pieces, should a record grow too large to hold whole |
+| 7. Selective reads and stream sources | Done | As before | Units kept for the whole record, should one grow too large to hold |
+| 8. WOFF | Done | As before | — |
+| 9. Floats and masque completion | Partly done | New: decimal masks fixed in `masque` and `unmasque` (SPECOPS-DRAFT-manifest-D60); the `:overflow` parameter (SPECOPS-DRAFT-manifest-D61); decimal masques in manifests and range errors on write (SPECOPS-DRAFT-manifest-D62); masque groups as `:case` selectors (SPECOPS-DRAFT-manifest-D63) | The `:f` class; new: range checks that tell signed groups from unsigned |
+| 10. Packaging | Partly done | As before | Suites behind `test-op`; a Ref; the checksum functions exported |
+
+### Priorities
+
+1. **Floats:** the `:f` class, as the steward has settled it from the
+   prior-art evaluation's SPECOPS-DRAFT-lisp-binary-tools-O7. Widths of 16,
+   32, 64 and 128 bits: single and double floats as such, half floats decoded
+   to single floats, which hold them exactly, and quad floats to exact
+   rationals. SBCL's float bit accessors where available, behind a
+   conditional, and a portable arithmetic path elsewhere, which reads and
+   writes infinities and NaN as `:infinity`, `:-infinity` and `:nan`; quad
+   floats use those keywords everywhere. A value too large for its format is
+   an error.
+2. **Packaging:** `test-op`, then a Ref.
+
+Checksums over sources that are not simple byte arrays remain a small
+correction between larger steps.
+
+### Dependencies
+
+Floats depend on nothing open: a float is written and read as the integer of
+its bit pattern, through the scalar and vector plans as they stand. The Ref
+waits for the public interface of SPECOPS-DRAFT-specops-O6 and `test-op` for
+SPECOPS-DRAFT-specops-O5, as in the update of 2026-10-30.

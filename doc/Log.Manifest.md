@@ -70,6 +70,10 @@ decisions:
   - SPECOPS-DRAFT-manifest-D57
   - SPECOPS-DRAFT-manifest-D58
   - SPECOPS-DRAFT-manifest-D59
+  - SPECOPS-DRAFT-manifest-D60
+  - SPECOPS-DRAFT-manifest-D61
+  - SPECOPS-DRAFT-manifest-D62
+  - SPECOPS-DRAFT-manifest-D63
 relates-to:
   - SPECOPS-DRAFT-manifest-complete
   - SPECOPS-DRAFT-restructure
@@ -98,9 +102,9 @@ which reads them back out. It covers the path from a freeform `marshal` macro to
 manifest-driven writing and reading, and the PNG test format used to exercise
 it. The chronicled state is commit `10b1568`; the updates at the end of this
 log carry the record forward: that of 2026-10-30 to commit `653345f`, three
-of 2026-10-31, to commits `738105a`, `d030f5c` and `2e1af03`, and seven of
+of 2026-10-31, to commits `738105a`, `d030f5c` and `2e1af03`, and eight of
 2026-11-01, to commits `4f9c6d4`, `d7ba27f`, `1cc7600`, `b63b7d2`, `239b2f7`,
-`cb931c8` and `52b81e5`. The repository restructure that followed
+`cb931c8`, `52b81e5` and `e340210`. The repository restructure that followed
 moved the files this log names (see
 [SPECOPS-DRAFT-restructure](Log.Restructure.md)); code references stay pinned
 to the commits that held the work.
@@ -2761,4 +2765,184 @@ it. New:
 - **Large test functions.** Many expansions inlined in one function can
   exhaust SBCL's default heap at compilation; helper functions keep the
   suites small.
+- The other items of the previous updates remain.
+
+## Update 2026-11-01 — Masque completion
+
+This installment covers commit `e340210`, the masque half of the Manifest
+Completion Plan's ninth milestone. Decimal masks, which commits `5e0976e` and
+`d524c3c` began, now compose and decompose correctly in `masque` and
+`unmasque`; `masque` takes an `:overflow` parameter choosing what a value too
+wide for its group does; and the manifest layer reads decimal masques, signals
+an error for a group value that does not fit, and lets a masque group select a
+`:case` branch. Binary and hexadecimal masks, on which every architecture
+module relies, are unchanged. The checks went from 377 to 382.
+
+### SPECOPS-DRAFT-manifest-D60 — Decimal mask positions count digits from the right, as binary positions count bits
+
+**Status:** Proposed
+**Context:** `src/serial.lisp:quantify-mask-string@d524c3c` gave a decimal
+mask's group positions as powers of ten of their offsets from the left end.
+That is right only where the mask is symmetric. Evaluated at `266d471`,
+`(masque "d:1a2bb" (a 7) (b 45))` gave a number of some 300 digits for 17245;
+`unmasque` extracted one digit of each group, giving `(2 4)` for `d:aabb` over
+1234; and it never compared a decimal mask's constant digits, so `d:1a2bb`
+matched 97245. The plan's updates since 2026-10-31 listed decimal masques in
+`masque` and `unmasque` as done; they were only partly so. No module uses a
+decimal mask, while binary and hexadecimal masks appear in every architecture
+module.
+**Decision:** `src/serial.lisp:quantify-mask-string@e340210` gives every
+mask's positions in one form: each group's lowest position from the right
+end, and the top of the last, in bits, or in digits for a decimal mask, whose
+factor is then the base they are powers of. `src/serial.lisp:masque@e340210`
+scales a decimal group by ten to the power of its position, and
+`src/serial.lisp:unmasque@e340210` extracts the digits from its position to
+the next, and returns `nil` when the value less its groups is not the mask's
+constant digits, as binary and hexadecimal masks return `nil` when their
+constant bits differ. The binary and hexadecimal paths are not changed: all
+786 mask strings in the repository's Lisp files give the same values from
+`quantify-mask-string` before and after, and `masque`'s expansion of them is
+the same.
+**Alternatives:** Keeping powers of ten as the decimal positions (rejected:
+wrong away from a symmetric mask); a separate function for decimal masks
+(rejected: one form of positions serves every base).
+
+### SPECOPS-DRAFT-manifest-D61 — `masque` takes an `:overflow` parameter, `:mask` by default
+
+**Status:** Proposed
+**Context:** `masque` masks each value to its group with `logand`, so a value
+too wide is cut off silently. The steward considered making masking opt-in,
+since an assembler's known-good code pays for it on every instruction. But a
+negative value, a signed immediate or displacement, depends on the mask to
+become two's complement within its group; unmasked, it sets every bit above
+the group and makes the whole word negative. A constant value's mask can be
+folded by the compiler; this was not measured.
+**Decision:** `masque`'s parameter alist, which already takes
+`:with-processor`, takes `(:overflow . mode)`. `:mask`, the default, keeps
+today's behaviour: `logand` to the group's width, or the remainder modulo ten
+to the width of a decimal group. `:error` signals an error unless the value
+fits the group as an unsigned or a two's complement number, then masks it; a
+literal that does not fit is an error at expansion. `nil` leaves values as
+they are, for code known to give values that fit. The `:with-processor` branch,
+whose masking splits a value into units, is not affected, and `unmasque` takes
+no such parameter.
+**Alternatives:** Masking off by default (rejected by the steward: unmasked
+negative values would corrupt whole words, and every call site would need an
+audit first); separate parameters for masking and for errors (rejected: they
+are three behaviours of one choice, and the steward chose one parameter with
+three modes); range checks in the
+manifest layer alone (rejected by the steward: the check belongs to `masque`,
+where any caller can ask for it).
+
+### SPECOPS-DRAFT-manifest-D62 — A manifest masque is written with `:overflow :error`, read in decimal, and sized by its largest value
+
+**Status:** Proposed
+**Context:** The plan asked for decimal masques in `unmarshal`, which rejected
+them, and for an error when a group's value does not fit, which `marshal`
+truncated. `defmanifest` sized a masque by the bit count `quantify-mask-string`
+returns, which for a decimal mask counts digits, so `d:9999` would get one
+byte.
+**Decision:** `src/manifest/manifest.lisp:marshal@e340210` writes every
+masque with `(:overflow . :error)`, so a group value too wide is an error,
+while a negative value is written as two's complement.
+`src/manifest/manifest.lisp:defmanifest@e340210` sizes a decimal masque by
+the bits of its largest value: `d:1a2bb` takes 17 bits, so 3 bytes.
+`src/manifest/manifest.lisp:unmarshal@e340210` reads a decimal masque's groups
+by powers of ten and checks its constant digits, and its static groups, as
+`:constant` checks (SPECOPS-DRAFT-manifest-D42). A signed decimal group is an
+expansion error.
+**Alternatives:** Checking each group's range by its signedness in the
+manifest layer (not taken: `:overflow :error` accepts either reading, so an
+unsigned group given -1 or a signed one given 200 in 8 bits is written; noted
+under Outstanding Work).
+
+### SPECOPS-DRAFT-manifest-D63 — A masque group may select a `:case` branch
+
+**Status:** Proposed
+**Context:** The plan asked for masque keyword groups to be registered so that
+`:case` and `:count` could refer to them on write. `marshal` found selectors
+only among fields, not masque groups. Since SPECOPS-DRAFT-manifest-D20,
+selectors are read through variables rather than a `values` plist. On write, a
+vector's own length is written, so `:count` needs nothing.
+**Decision:** `src/manifest/manifest.lisp:find-field@e340210` finds a stored
+field by name inside spans and masque groups, and both macros look selectors
+and their enums up through it. On write, a masque group that is a selector
+sets its selector variable, as a field does. On read, an enumerated group
+that is a selector also keeps its raw code, since branch keys are compared as
+codes. Selective reads read the masque that holds a selector the key needs.
+**Alternatives:** Registering groups in a run-time plist, as the plan first
+proposed (superseded by the selector variables of SPECOPS-DRAFT-manifest-D20).
+
+### Implementation
+
+- **`src/serial.lisp`.** `quantify-mask-string`, `masque` and `unmasque`, per
+  SPECOPS-DRAFT-manifest-D60 and SPECOPS-DRAFT-manifest-D61. The unused
+  `mask-overflow` binding the steward had begun in `masque` became the
+  `:overflow` parameter.
+- **`src/manifest/manifest.lisp`.** In `defmanifest`, a decimal masque's
+  width; in `marshal`, `(:overflow . :error)` and the masque binder setting a
+  selector variable; in `unmarshal`, the masque branch rewritten around local
+  `extract` and `fit` functions that serve binary and decimal masks alike, and
+  raw codes for enumerated selector groups; `find-field`, per
+  SPECOPS-DRAFT-manifest-D62 and SPECOPS-DRAFT-manifest-D63.
+- **`test/manifest.lisp`.** The probes
+  `test/manifest.lisp:decimal-masque-probe@e340210` and
+  `test/manifest.lisp:masque-selector-probe@e340210`, and five checks in
+  `test/manifest.lisp:run-masque-demo@e340210`, the suite of the feature they
+  complete (SPECOPS-DRAFT-manifest-D31).
+
+### Verification
+
+The run command is that of the update of 2026-11-01 for placed fields and
+WOFF.
+
+Table: Checks added in commit `e340210`, and the totals there.
+
+| Suite | Checks | Added |
+|---|---|---|
+| `run-masque-demo` | 11 → 16 | Decimal `masque` and `unmasque`, constant digits included; the three `:overflow` modes, an error both when the code runs and at expansion; a decimal masque in 3 units, written, read, and with a wrong constant digit; group values too wide on write, and a negative one as two's complement; an enumerated masque group selecting a `:case` branch, written, read and read selectively |
+| All twenty-one suites | 377 → 382 | All pass, with the PNG verification |
+
+The mask strings of every Lisp file in the repository, 786 of them, were
+collected and passed to `quantify-mask-string` before and after the change,
+with identical results, and `masque`'s default expansion of a hexadecimal mask
+is unchanged form for form. The five test scripts in `test/` pass, the
+manifest layer has no style warnings, and the architecture systems
+`specops.arch.6502`, `.s390x`, `.x86`, `.z80` and `.wasm`, and the three format
+systems, load, rebuilt from source.
+
+### Files
+
+Table: Files changed in commit `e340210`, and the documents updated after it.
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/serial.lisp` | Modified | Decimal positions, groups and constant digits; the `:overflow` parameter |
+| `src/manifest/manifest.lisp` | Modified | Decimal masques in manifests, range errors on write, masque groups as selectors |
+| `test/manifest.lisp` | Modified | Two probes; five checks in the masque suite |
+| `doc/Log.Manifest.md` | Modified | This update |
+| `doc/Plan.ManifestComplete.md` | Modified | Progress installment for masque completion; a note under its masque items |
+
+### Metrics
+
+- Test checks: 382 automated checks plus 1 structural PNG verification, up
+  from 377.
+- Regressions at `e340210`: 0.
+
+### Outstanding Work
+
+Decimal masques, masque range checks and registration, outstanding since this
+log began, are done. New:
+
+- **Floats**, the other half of the milestone, next.
+- **Signedness in range checks.** `:overflow :error` accepts a value that fits
+  its group as unsigned or as two's complement, so it does not tell a signed
+  group from an unsigned one (SPECOPS-DRAFT-manifest-D62).
+- **Architecture modules that do not load.** `specops.arch.m68k`, with an
+  unbound `*m68k-layout*`, and `specops.arch.superh`, with an invalid
+  initialization argument, fail to load at `266d471` as well as after this
+  change; they are outside this work.
+- **Relative offsets.** `src/assembler.lisp:locate-relative@e340210` writes a
+  negative offset as a sign bit and a magnitude, where a branch displacement is
+  usually two's complement; this may be a fault, outside this work.
 - The other items of the previous updates remain.
