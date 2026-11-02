@@ -165,8 +165,13 @@ fields from when it is given (:from RECORD); NIL when RECORD holds no value for 
                                                       (list 'list :binding (list 'quote b)))
                                                   bindings-out))
                                           
-                                          (let* ((masque-width (nth-value 4 (quantify-mask-string
-                                                                             spec-string nil)))
+                                          (let* ((masque-width
+                                                   ;; in bits; a decimal mask counts digits, so its
+                                                   ;; width is that of its largest value
+                                                   (multiple-value-bind (_ factor __ ___ bits)
+                                                       (quantify-mask-string spec-string nil)
+                                                     (declare (ignore _ __ ___))
+                                                     (if factor (integer-length (1- (expt factor bits))) bits)))
                                                  (unit-width
                                                    (+ (ash masque-width (- (+ 3 unit-spec)))
                                                       (if (zerop (logand masque-width
@@ -291,6 +296,16 @@ field: one of KIND, such as :checksum-of, when KIND is given."
                        (return-from manifest-slots-p t))))
                  items)
   nil)
+
+(defun find-field (items name)
+  "The stored field NAME among ITEMS, a manifest's stored fields, inside spans or as a keyword
+group of a masque, whose binding is returned; NIL when there is none."
+  (find-in-manifest items (lambda (i)
+                            (if (eq :masque (getf i :type))
+                                (find-if (lambda (b) (and (not (eq :binding (first b)))
+                                                          (eq name (getf b :name))))
+                                         (getf i :bindings))
+                                (and (eq name (getf i :name)) i)))))
 
 (defun manifest-places (items)
   "The tags under which fields are placed in ITEMS, a manifest's stored fields, or in a
@@ -515,10 +530,14 @@ written to a stream or a function. A vector too small signals manifest-overrun."
                (if (eq :binding (first b))
                    (second b)
                    (destructuring-bind (&key name bind-to default enumerate-by &allow-other-keys) b
-                     (list bind-to
-                           ;; a default goes through the enum like a given value
-                           (or (enumerate enumerate-by (value-source name default))
-                               (error "Masque field ~a not specified." name))))))
+                     (let ((value (or (enumerate enumerate-by (value-source name default))
+                                      (error "Masque field ~a not specified." name)))
+                           (selvar (rest (assoc name selvars))))
+                       ;; a group may select a :case field's branch, as a field may
+                       (push name written)
+                       (list bind-to
+                             ;; a default goes through the enum like a given value
+                             (if selvar `(setf ,selvar ,value) value))))))
              (enumerate (table-name value)
                (cond ((not table-name) value)
                      ((keywordp value)                             ;; literal, resolve now
@@ -531,7 +550,7 @@ written to a stream or a function. A vector too small signals manifest-overrun."
              ;; (selector-form (sel)
              ;;   (or (rest (assoc sel raws)) (var-of sel name)))
              (selector-item (sel)
-               (or (find-in-manifest (rest spec) (lambda (i) (and (eq sel (getf i :name)) i)))
+               (or (find-field (rest spec) sel)
                    (error "marshal: :case selector ~s is not a field of ~a." sel name)))
              (selector-form (sel field)
                (let* ((item (selector-item sel))
@@ -543,8 +562,7 @@ written to a stream or a function. A vector too small signals manifest-overrun."
                        ((constantp v) (enumerate (getf item :enumerate-by) v)) ;; code known now
                        (t (rest (assoc sel selvars))))))                       ;; set when it was written
              (enum-of (sel)
-               (let ((e (getf (find-in-manifest (rest spec) (lambda (i) (and (eq sel (getf i :name)) i)))
-                              :enumerate-by)))
+               (let ((e (getf (find-field (rest spec) sel) :enumerate-by)))
                  (and e (gethash e *enums*))))
              (vec-source-form (name default count end-by)
                (let ((fallback (cond ((vectorp default) default)
@@ -668,7 +686,9 @@ written to a stream or a function. A vector too small signals manifest-overrun."
                      (:masque `(:-masque
                                 (funcall (aref ,serializers ,swap-by)
                                          ;; (masque ,actual ,@(mapcar #'masque-binder bindings))
-                                         (cons ,length (masque ,actual ,@(mapcar #'masque-binder bindings)))
+                                         ;; a value too wide for its group is an error, not truncated
+                                         (cons ,length (masque ,actual ((:overflow . :error))
+                                                               ,@(mapcar #'masque-binder bindings)))
                                          ,enter)))
                      (:manifest
                       (append
@@ -1329,8 +1349,7 @@ keeps in B, a manifest-buffer, the units read from a stream."
                (selector-form (sel field)
                  (or (rest (assoc sel raws)) (var-of sel field)))
                (enum-of (sel)
-                 (let ((e (getf (find-in-manifest (rest spec) (lambda (i) (and (eq sel (getf i :name)) i)))
-                                :enumerate-by)))
+                 (let ((e (getf (find-field (rest spec) sel) :enumerate-by)))
                    (and e (gethash e *enums*))))
                (buffer-form ()
                  ;; what a checksum function reads: the source, the units read from a stream,
@@ -1454,63 +1473,90 @@ keeps in B, a manifest-buffer, the units read from a stream."
                                     reads))))
                         (push `(incf ,cursor ,(+ (length actual) (if end-by 1 0))) reads)))
                      (:masque
-                      (multiple-value-bind (base _ segments symbols bits) (quantify-mask-string actual nil)
-                        (declare (ignore _))
-                        (when (= 1 (first segments))
-                          (error "unmarshal: decimal masque strings like ~s aren't supported yet." actual))
+                      (multiple-value-bind (base factor segments symbols bits) (quantify-mask-string actual nil)
                         (let ((raw (gensym "MQ"))
                               (checks) (sets)
                               (const-mask (1- (ash 1 bits))))
-                          (flet ((group (char)
-                                   ;; width and bit position (from the LSB) of mask group CHAR
-                                   (let ((ix (position (intern (string-upcase char) "KEYWORD") symbols)))
-                                     (unless ix
-                                       (error "unmarshal: group ~a not found in masque ~s." char actual))
-                                     (values (- (nth (1+ ix) segments) (nth ix segments))
-                                             (nth ix segments)))))
+                          (labels ((group (char)
+                                     ;; width and position from the right end of mask group CHAR, in
+                                     ;; bits, or in digits for a decimal mask
+                                     (let ((ix (position (intern (string-upcase char) "KEYWORD") symbols)))
+                                       (unless ix
+                                         (error "unmarshal: group ~a not found in masque ~s." char actual))
+                                       (values (- (nth (1+ ix) segments) (nth ix segments))
+                                               (nth ix segments))))
+                                   (extract (w p)
+                                     ;; the value of the group of width W at P in the masque read
+                                     (if factor
+                                         `(floor (mod ,raw ,(expt factor (+ p w))) ,(expt factor p))
+                                         `(ldb (byte ,w ,p) ,raw)))
+                                   (fit (w form)
+                                     ;; FORM reduced to a group of width W, as masque writes it
+                                     (if factor `(mod ,form ,(expt factor w)) `(ldb (byte ,w 0) ,form))))
                             ;; bits outside every group are the mask string's constant digits
-                            (loop :for s :in symbols :for ix :from 0 :when s
-                                  :do (setf const-mask
-                                            (logandc2 const-mask
-                                                      (ash (1- (ash 1 (- (nth (1+ ix) segments)
-                                                                         (nth ix segments))))
-                                                           (nth ix segments)))))
+                            (unless factor
+                              (loop :for s :in symbols :for ix :from 0 :when s
+                                    :do (setf const-mask
+                                              (logandc2 const-mask
+                                                        (ash (1- (ash 1 (- (nth (1+ ix) segments)
+                                                                           (nth ix segments))))
+                                                             (nth ix segments))))))
                             (dolist (b bindings)
                               (if (eq :binding (first b))
                                   ;; static group, e.g. (p +goff-ptv-prefix+): check it against the constant
                                   (destructuring-bind (char form) (second b)
                                     (multiple-value-bind (w p) (group char)
                                       (when check
-                                        (push `(unless (= (ldb (byte ,w 0) ,form) (ldb (byte ,w ,p) ,raw))
+                                        (push `(unless (= ,(fit w form) ,(extract w p))
                                                  ,(constant-failed
-                                                   `(ldb (byte ,w 0) ,form) `(ldb (byte ,w ,p) ,raw) cursor
+                                                   (fit w form) (extract w p) cursor
                                                    "unmarshal: masque ~s group ~a is ~a, expected ~a."
-                                                   actual `',char `(ldb (byte ,w ,p) ,raw)
-                                                   `(ldb (byte ,w 0) ,form)))
+                                                   actual `',char (extract w p) (fit w form)))
                                               checks))))
                                   ;; keyword group, e.g. (t :kind :u8): read it as a field
                                   (destructuring-bind (&key name bind-to signed enumerate-by &allow-other-keys) b
+                                    (when (and signed factor)
+                                      (error "unmarshal: group ~a of the decimal masque ~s cannot be signed."
+                                             bind-to actual))
                                     (when name
                                       (multiple-value-bind (w p) (group bind-to)
-                                        (let ((var (gensym (string name)))
-                                              (v   (gensym "V")))
+                                        (let* ((var (gensym (string name)))
+                                               (v (gensym "V"))
+                                               ;; an enumerated :case selector keeps its code as well
+                                               (code (and enumerate-by (member name (case-selectors (rest spec)))
+                                                          (gensym (format nil "~a-RAW" name))))
+                                               (form (if signed
+                                                         `(let ((,v ,(extract w p)))
+                                                            (if (logbitp ,(1- w) ,v) (- ,v ,(ash 1 w)) ,v))
+                                                         (extract w p))))
                                           (push (cons name var) vars)
-                                          (push `(setf ,var
-                                                       ,(interpret
-                                                         (if signed
-                                                             `(let ((,v (ldb (byte ,w ,p) ,raw)))
-                                                                (if (logbitp ,(1- w) ,v) (- ,v ,(ash 1 w)) ,v))
-                                                             `(ldb (byte ,w ,p) ,raw))
-                                                         enumerate-by))
+                                          (when code (push (cons name code) raws))
+                                          (push `(setf ,var ,(interpret (if code `(setf ,code ,form) form)
+                                                                        enumerate-by))
                                                 sets)))))))
                             (push `(let ((,raw (funcall (aref ,dsym ,swap-by) ,cursor ,length nil ,src)))
                                      (declare (ignorable ,raw))
                                      ,@(and check
-                                            `((unless (= ,base (logand ,const-mask ,raw))
-                                                ,(constant-failed
-                                                  base `(logand ,const-mask ,raw) cursor
-                                                  "unmarshal: constant bits of masque ~s don't match (read #x~x)."
-                                                  actual raw))))
+                                            (if factor
+                                                ;; less its groups, a decimal masque is its constant digits
+                                                (let ((rest `(- ,raw ,@(loop :for s :in symbols :for ix :from 0
+                                                                             :when s
+                                                                               :collect (multiple-value-bind (w p)
+                                                                                            (values (- (nth (1+ ix) segments)
+                                                                                                       (nth ix segments))
+                                                                                                    (nth ix segments))
+                                                                                          `(* ,(extract w p)
+                                                                                              ,(expt factor p)))))))
+                                                  `((unless (= ,base ,rest)
+                                                      ,(constant-failed
+                                                        base rest cursor
+                                                        "unmarshal: constant digits of masque ~s don't match (read ~a)."
+                                                        actual raw))))
+                                                `((unless (= ,base (logand ,const-mask ,raw))
+                                                    ,(constant-failed
+                                                      base `(logand ,const-mask ,raw) cursor
+                                                      "unmarshal: constant bits of masque ~s don't match (read #x~x)."
+                                                      actual raw)))))
                                      ,@(reverse checks)
                                      ,@(reverse sets))
                                   reads)

@@ -448,6 +448,16 @@ Returns T if all checks pass."
                    (b :delta (:s 1) :default 0))
   (:tail :u8 :default 0))
 
+;; A decimal masque with constant digits: 5 digits, so 17 bits, in 3 units.
+(defmanifest decimal-masque-probe (:unit 8 :endian :big)
+  (masque "d:1a2bb" (a :hi :u8 :default 0) (b :lo :u8 :default 0))
+  (:tail :u8 :default 0))
+
+;; An enumerated masque group selecting a :case field's branch.
+(defmanifest masque-selector-probe (:unit 8 :endian :big)
+  (masque "h:kkxx" (k :kind :u8 :default :grayscale :enumerate-by png-color-type) (x :x :u8 :default 0))
+  (:v (:case :kind (:grayscale :u8) (:rgb :u16)) :default 0))
+
 (defun run-masque-demo ()
   "Marshal and unmarshal masque fields. Returns T if all checks pass."
   (let ((results nil))
@@ -509,7 +519,48 @@ Returns T if all checks pass."
         (marshal masque-default-probe buf :tail 7)
         (check "masque-default-probe, the default :rgb written as 2, and read back"
                (list (coerce buf 'list) (unmarshal masque-default-probe buf))
-               '((2 0 7) (:mode :rgb :delta 0 :tail 7)))))
+               '((2 0 7) (:mode :rgb :delta 0 :tail 7))))
+
+      ;; 6. Decimal masks in masque and unmasque.
+      (check "masque and unmasque, decimal: constant digits, whole groups, and a constant that differs"
+             (list (masque "d:1a2bb" (a 7) (b 45)) (masque "d:aa00bb" (a 3) (b 9))
+                   (unmasque "d:1a2bb" 17245 (a b) (list a b)) (unmasque "d:aabb" 1234 (a b) (list a b))
+                   (unmasque "d:1a2bb" 97245 (a b) (list a b)) (unmasque "d:a.bc" 345 (a b c) (list a b c)))
+             '(17245 30009 (7 45) (12 34) nil (3 4 5)))
+
+      ;; 7. The :overflow parameter of masque.
+      (check ":overflow: :mask by default, NIL leaving values, :error signalling when the code runs and at expansion"
+             (list (masque "h:aabb" (a #x123) (b 4)) (masque "h:aabb" (a -1) (b 0))
+                   (masque "d:aabb" (a 123) (b 4)) (masque "d:aabb" ((:overflow)) (a 123) (b 4))
+                   (let ((x 300)) (signals-error-p (lambda () (masque "h:aabb" ((:overflow . :error)) (a x) (b 1)))))
+                   (let ((x -128)) (masque "h:aabb" ((:overflow . :error)) (a x) (b 1)))
+                   (let ((x 100)) (signals-error-p (lambda () (masque "d:aabb" ((:overflow . :error)) (a x) (b 1)))))
+                   (signals-error-p (lambda () (macroexpand '(masque "h:aabb" ((:overflow . :error)) (a 999) (b 1))))))
+             '(#x2304 #xFF00 2304 12304 t #x8001 t t))
+
+      ;; 8. Decimal masques in manifests.
+      (let ((buf (ub8 4)))
+        (marshal decimal-masque-probe buf :hi 7 :lo 45 :tail 9)
+        (check "decimal-masque-probe: 17245 in 3 units, read back, and a constant digit that differs"
+               (list (coerce buf 'list) (unmarshal decimal-masque-probe buf)
+                     (mapcar #'first (failed-checks (lambda () (unmarshal decimal-masque-probe
+                                                                          (->bytes #(1 #x7B #xDD 9)))))))
+               '((0 #x43 #x5D 9) (:hi 7 :lo 45 :tail 9) (:constant))))
+
+      ;; 9. Values too wide for their groups.
+      (check "a group value too wide is an error on write; a negative one fits as two's complement"
+             (list (let ((k 300)) (signals-error-p (lambda () (marshal masque-probe (ub8 4) :lead 1 :kind k :tail 9))))
+                   (let ((lo 123)) (signals-error-p (lambda () (marshal decimal-masque-probe (ub8 4) :hi 1 :lo lo))))
+                   (let ((k -1) (buf (ub8 4))) (marshal masque-probe buf :lead 1 :kind k :tail 9) (coerce buf 'list)))
+             '(t t (1 3 255 9)))
+
+      ;; 10. A masque group as a :case selector.
+      (check "masque-selector-probe: an enumerated group selects the branch, written and read, in full and selectively"
+             (list (let ((k :rgb) (buf (ub8 4))) (marshal masque-selector-probe buf :kind k :v 513) (coerce buf 'list))
+                   (let ((buf (ub8 3))) (marshal masque-selector-probe buf :v 5) (coerce buf 'list))
+                   (unmarshal masque-selector-probe (->bytes #(2 0 2 1)))
+                   (unmarshal masque-selector-probe (->bytes #(2 0 2 1)) nil :v))
+             '((2 0 2 1) (0 0 5) (:kind :rgb :x 0 :v 513) 513)))
     (let ((pass (every #'identity results)))
       (format t "~&masque checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
               pass (count t results) (length results))

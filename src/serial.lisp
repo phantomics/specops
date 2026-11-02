@@ -201,8 +201,9 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                     (incf bits width)
                     (incf sx)))))
     ;; (print (list :ss segments))
-    (let ((segments (if factor (reverse (cons 1 (loop :for s :in segments :collect (expt factor s))))
-                        (cons 0 (loop :for s :in segments :collect (abs (- s bits)))))))
+    ;; each group's lowest position from the right end, and the top of the last: in bits, or in
+    ;; digits for a decimal mask, whose positions are then powers of its factor
+    (let ((segments (cons 0 (loop :for s :in segments :collect (abs (- s bits))))))
       ;; (print (list :seg segments symbols bits))
       (values (loop :for pair :in (rest (assoc :static params)) ;; values
                     :do (destructuring-bind (sym value) pair
@@ -217,13 +218,20 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
               factor segments symbols bits))))
 
 (defmacro masque (string &rest assignments)
-  "Compose a number as represented by an alphanumeric string laying out fields and static sections."
+  "Compose a number as represented by an alphanumeric string laying out fields and static sections.
+A first argument of parameters may give (:overflow . mode) for a value too wide for its group:
+:mask, the default, reduces it to the group's width (two's complement for a negative value
+in a binary or hexadecimal mask); :error signals an error, unless the value fits the group
+as an unsigned or a two's complement number, which is then masked; NIL leaves it as it is,
+for code known to give values that fit."
   (let* ((base-sym (gensym))
          (params (if (listp (caar assignments)) (first assignments) nil))
          (assignments (if (not params) assignments (rest assignments)))
-         (processor (rest (assoc :with-processor params))))
-    (multiple-value-bind (base _ segments symbols) (quantify-mask-string string params)
-      (declare (ignore _)) ;; the factor is not needed information for masking so it's bound to _
+         (processor (rest (assoc :with-processor params)))
+         (overflow (let ((entry (assoc :overflow params))) (if entry (rest entry) :mask))))
+    (unless (member overflow '(:mask :error nil))
+      (error "masque: :overflow must be :mask, :error or NIL, not ~s." overflow))
+    (multiple-value-bind (base factor segments symbols) (quantify-mask-string string params)
       ;; (format t "~v,'0B~%" 16 (ash (1- (ash 1 length)) (nth index segments)))
 
       (if processor
@@ -251,19 +259,42 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                                                                                 ,(- (* 8 (if big-endian
                                                                                              d (- divs 1 d)))))
                                                                            ,mask))))))))))
-          (let* ((irregular (= 1 (first segments)))
-                 (steps (loop :for assignment :in assignments
-                              :collect (destructuring-bind (key value) assignment
-                                         (let ((index (position (intern (string-upcase key) "KEYWORD")
-                                                                symbols)))
-                                           (when (not index)
-                                             (error "Symbol ~a not found in mask ~a." key string))
-                                           (let ((length (- (nth (1+ index) segments) (nth index segments))))
-                                             (if irregular `(incf ,base-sym (* ,value ,(nth index segments)))
-                                                 `(setf ,base-sym
-                                                        (logior ,base-sym
-                                                                (ash (logand ,value ,(1- (ash 1 length)))
-                                                                     ,(nth index segments)))))))))))
+          (let ((steps
+                  (loop :for assignment :in assignments
+                        :collect
+                        (destructuring-bind (key value) assignment
+                          (let ((index (position (intern (string-upcase key) "KEYWORD") symbols)))
+                            (when (not index)
+                              (error "Symbol ~a not found in mask ~a." key string))
+                            (let* ((low (nth index segments))
+                                   (length (- (nth (1+ index) segments) low))
+                                   (v (gensym "V"))
+                                   ;; the least and greatest values the group holds
+                                   (least (if factor 0 (- (ash 1 (1- length)))))
+                                   (most (if factor (1- (expt factor length)) (1- (ash 1 length))))
+                                   (check `(unless (and (integerp ,v) (<= ,least ,v ,most))
+                                             (error "masque: ~s does not fit group ~a of ~s, which holds ~
+                                                     ~a to ~a." ,v ',key ,string ,least ,most))))
+                              (when (and (eq overflow :error) (integerp value) (not (<= least value most)))
+                                (error "masque: ~s does not fit group ~a of ~s, which holds ~a to ~a."
+                                       value key string least most))
+                              (if factor
+                                  ;; a decimal group: a power of the factor scales the value
+                                  (let ((scale (expt factor low)) (span (expt factor length)))
+                                    (ecase overflow
+                                      (:mask `(incf ,base-sym (* (mod ,value ,span) ,scale)))
+                                      ((nil) `(incf ,base-sym (* ,value ,scale)))
+                                      (:error `(let ((,v ,value))
+                                                 ,check
+                                                 (incf ,base-sym (* ,v ,scale))))))
+                                  (let ((mask (1- (ash 1 length))))
+                                    (ecase overflow
+                                      (:mask `(setf ,base-sym (logior ,base-sym (ash (logand ,value ,mask) ,low))))
+                                      ((nil) `(setf ,base-sym (logior ,base-sym (ash ,value ,low))))
+                                      (:error `(let ((,v ,value))
+                                                 ,check
+                                                 (setf ,base-sym (logior ,base-sym
+                                                                         (ash (logand ,v ,mask) ,low))))))))))))))
             (if (not steps)
                 base `(let ((,base-sym ,base)) ,@steps ,base-sym)))))))
 
@@ -279,8 +310,9 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
                           :collect (let ((index (position (intern (string-upcase key) "KEYWORD")
                                                           symbols)))
                                      (if factor
-                                         (list key `(floor (mod ,value ,(* factor (nth index segments)))
-                                                           ,(nth index segments)))
+                                         ;; a decimal group: the digits from its position to the next's
+                                         (list key `(floor (mod ,value ,(expt factor (nth (1+ index) segments)))
+                                                           ,(expt factor (nth index segments))))
                                          (let ((length (- (nth (1+ index) segments) (nth index segments))))
                                            (decf variant-mask (ash (1- (ash 1 length)) (nth index segments)))
                                            (list key `(logand ,(1- (ash 1 length))
@@ -288,7 +320,13 @@ expressing the (power+3) of 2 corresponding to the width at which output will be
         ;; (print (list :vm (format nil "~v,'0B" 16 variant-mask)
         ;;              (format nil "~v,'0B" 16 base)))
         `(let ((,value ,test-value))
-           ,(if factor `(let ,pairs ,@body)
+           ,(if factor
+                ;; a decimal mask matches when the value less its groups is its constant digits
+                `(if (/= ,base (- ,value ,@(loop :for s :in symbols :for i :from 0 :when s
+                                                 :collect (let ((low (expt factor (nth i segments)))
+                                                                (high (expt factor (nth (1+ i) segments))))
+                                                            `(* (floor (mod ,value ,high) ,low) ,low)))))
+                     nil (let ,pairs ,@body))
                 `(if (/= ,base (logand ,variant-mask ,test-value))
                      nil (let ,pairs ,@body))))))))
 
