@@ -3253,3 +3253,377 @@ Returns T if all checks pass."
       (format t "~&selective read checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
               pass (count t results) (length results))
       pass)))
+
+;;; ===========================================================================
+;;; Part W — placed fields, and WOFF: data written where a place directive stands
+;;; ===========================================================================
+
+;; Entries whose bodies, sub-manifests, are placed after all the entries, 2-aligned.
+(defmanifest placed-entry (:unit 8 :endian :big)
+  (:at :u8 :slot (:offset-of :body))
+  (manifest :body item-probe :place :bodies))
+
+(defmanifest placed-probe (:unit 8 :endian :big)
+  (:n :u8 :slot (:count-of :entries))
+  (manifest :entries placed-entry :count :n)
+  (place :bodies :align 2))
+
+;; A placed vector with its offset, length and checksum, unaligned.
+(defmanifest placed-sum-entry (:unit 8 :endian :big)
+  (:at   :u8 :slot (:offset-of :data))
+  (:len  :u8 :slot (:length-of :data))
+  (:sum  :u8 :slot (:checksum-of :data :by #'byte-sum))
+  (:data (:u 1 :vec) :place :blobs))
+
+(defmanifest placed-sum-probe (:unit 8 :endian :big)
+  (manifest :entries placed-sum-entry :count 2)
+  (place :blobs))
+
+;; Placed fields that are expansion errors.
+(defmanifest placed-no-offset-probe (:unit 8 :endian :big)
+  (:len  :u8 :slot (:length-of :data))
+  (:data (:u 1 :vec) :place :x)
+  (place :x))
+
+(defmanifest placed-no-directive-probe (:unit 8 :endian :big)
+  (:at   :u8 :slot (:offset-of :data))
+  (:data (:u 1 :vec) :count 1 :place :nowhere))
+
+(defmanifest placed-slot-after-probe (:unit 8 :endian :big)
+  (:data (:u 1 :vec) :count 1 :place :x)
+  (:at   :u8 :slot (:offset-of :data))
+  (place :x))
+
+(defmanifest placed-in-span-probe (:unit 8 :endian :big)
+  (span :s
+    (:at   :u8 :slot (:offset-of :data))
+    (:data (:u 1 :vec) :count 1 :place :x))
+  (place :x))
+
+;; WOFF 1.0: a header, a directory of entries sorted by tag, and the tables, each 4-aligned
+;; and padded. The fields describing the uncompressed font are given; the layout is derived.
+(defmanifest woff-entry (:unit 8 :endian :big :record t)
+  (:tag           (:u 4))
+  (:offset        (:u 4) :slot (:offset-of :data))
+  (:comp-length   (:u 4) :slot (:length-of :data))
+  (:orig-length   (:u 4))
+  (:orig-checksum (:u 4))
+  (:data          (:u 1 :vec) :place :tables))
+
+(defmanifest woff-file (:unit 8 :endian :big :record t)
+  (span :file
+    (str "wOFF")
+    (:flavor           (:u 4))
+    (:length           (:u 4) :slot (:length-of :file))
+    (:num-tables       :u16   :slot (:count-of :entries))
+    (_                 :u16   :default 0)
+    (:total-sfnt-size  (:u 4))
+    (:major-version    :u16   :default 0)
+    (:minor-version    :u16   :default 0)
+    (:meta-offset      (:u 4) :default 0)
+    (:meta-length      (:u 4) :default 0)
+    (:meta-orig-length (:u 4) :default 0)
+    (:priv-offset      (:u 4) :default 0)
+    (:priv-length      (:u 4) :default 0)
+    (manifest :entries woff-entry :count :num-tables)
+    (place :tables :align 4)))
+
+;; An sfnt font, TrueType or OpenType: the source a WOFF packs. Table checksums are given,
+;; since head's is computed with its checkSumAdjustment taken as zero.
+(defmanifest sfnt-entry (:unit 8 :endian :big :record t)
+  (:tag      (:u 4))
+  (:checksum (:u 4))
+  (:offset   (:u 4) :slot (:offset-of :data))
+  (:length   (:u 4) :slot (:length-of :data))
+  (:data     (:u 1 :vec) :place :tables))
+
+(defmanifest sfnt-file (:unit 8 :endian :big :record t)
+  (:version        (:u 4))
+  (:num-tables     :u16 :slot (:count-of :entries))
+  (:search-range   :u16)
+  (:entry-selector :u16)
+  (:range-shift    :u16)
+  (manifest :entries sfnt-entry :count :num-tables)
+  (place :tables :align 4))
+
+(defun rd-u16-be (v i)
+  (logior (ash (aref v i) 8) (aref v (+ i 1))))
+
+(defun tag-code (tag)
+  "The code of a 4-character table tag, or TAG itself when it is already a code."
+  (if (stringp tag) (reduce (lambda (a c) (+ (ash a 8) (char-code c))) tag :initial-value 0) tag))
+
+(defun table-checksum (tag data)
+  "The checksum of the sfnt table DATA with tag TAG, as a font's directory gives it: head's is
+computed with its checkSumAdjustment, at 8, taken as zero."
+  (ldb (byte 32 0) (- (sfnt-checksum data 0 (length data))
+                      (if (and (= (tag-code tag) (tag-code "head")) (>= (length data) 12))
+                          (rd-u32-be data 8)
+                          0))))
+
+(defun woff-record (tables &key (flavor #x00010000))
+  "A plist for woff-file from TABLES, a list of (tag data &optional orig-length orig-checksum),
+with the directory sorted by tag, and the original length and checksum of each table those
+of its data when not given, as for a table stored uncompressed."
+  (let ((entries (sort (mapcar (lambda (table)
+                                 (destructuring-bind (tag data &optional orig-length orig-checksum) table
+                                   (list :tag (tag-code tag)
+                                         :orig-length (or orig-length (length data))
+                                         :orig-checksum (or orig-checksum (table-checksum tag data))
+                                         :data data)))
+                               tables)
+                       #'< :key (lambda (e) (getf e :tag)))))
+    (list :flavor flavor :entries entries
+          :total-sfnt-size (+ 12 (* 16 (length entries))
+                              (loop :for e :in entries :sum (* 4 (ceiling (getf e :orig-length) 4)))))))
+
+(defun read-woff (source)
+  (unmarshal woff-file source))
+
+(defun write-woff (record)
+  "WOFF bytes written by woff-file from RECORD, a plist or a woff-file record."
+  (collect-units (lambda (d) (marshal woff-file d (:from record)))))
+
+(defun make-woff (tables &rest args)
+  "WOFF bytes written by woff-file from TABLES, as woff-record takes them."
+  (write-woff (apply #'woff-record tables args)))
+
+(defun hand-woff (tables order)
+  "WOFF bytes built by hand, not through manifests, from TABLES as woff-record takes them,
+with the directory sorted by tag and the tables stored in ORDER, a list of their tags."
+  (let* ((record (woff-record tables))
+         (entries (getf record :entries))
+         (n (length entries))
+         (out (make-array 0 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0))
+         (stored (mapcar (lambda (tag) (find (tag-code tag) entries :key (lambda (e) (getf e :tag)))) order))
+         (offsets (let ((pos (+ 44 (* 20 n))))
+                    (mapcar (lambda (e) (prog1 (cons e pos) (incf pos (* 4 (ceiling (length (getf e :data)) 4)))))
+                            stored)))
+         (end (+ 44 (* 20 n) (loop :for e :in stored :sum (* 4 (ceiling (length (getf e :data)) 4))))))
+    (flet ((u32 (v) (loop :for s :from 24 :downto 0 :by 8 :do (vector-push-extend (ldb (byte 8 s) v) out)))
+           (u16 (v) (vector-push-extend (ldb (byte 8 8) v) out) (vector-push-extend (ldb (byte 8 0) v) out)))
+      (u32 #x774F4646) (u32 (getf record :flavor)) (u32 end) (u16 n) (u16 0)
+      (u32 (getf record :total-sfnt-size)) (u16 0) (u16 0)
+      (dotimes (i 5) (u32 0))
+      (dolist (e entries)
+        (u32 (getf e :tag)) (u32 (rest (assoc e offsets))) (u32 (length (getf e :data)))
+        (u32 (getf e :orig-length)) (u32 (getf e :orig-checksum)))
+      (dolist (e stored)
+        (let ((d (getf e :data)))
+          (loop :for b :across d :do (vector-push-extend b out))
+          (dotimes (i (- (* 4 (ceiling (length d) 4)) (length d))) (vector-push-extend 0 out))))
+      (->bytes out))))
+
+(defun verify-woff (v)
+  "Check the WOFF bytes V by hand, as a user agent must: the signature, length and reserved
+field, the metadata and private blocks absent, the directory sorted by tag, totalSfntSize,
+the tables 4-aligned, following the directory with only zero padding between them and ending
+the file, compressed lengths no greater than original ones, and the checksums of tables
+stored uncompressed. Returns a list of the errors found, NIL when there are none."
+  (let ((errors nil))
+    (flet ((err (fmt &rest args) (push (apply #'format nil fmt args) errors)))
+      (if (< (length v) 44)
+          (err "shorter than a header")
+          (let* ((n (rd-u16-be v 12))
+                 (entries (loop :for i :below n :for at := (+ 44 (* 20 i))
+                                :collect (loop :for k :below 5 :collect (rd-u32-be v (+ at (* 4 k)))))))
+            (unless (= (rd-u32-be v 0) #x774F4646) (err "signature"))
+            (unless (= (rd-u32-be v 8) (length v)) (err "length ~a, file ~a" (rd-u32-be v 8) (length v)))
+            (unless (zerop (rd-u16-be v 14)) (err "reserved field"))
+            (unless (loop :for at :from 24 :below 44 :by 4 :always (zerop (rd-u32-be v at)))
+              (err "metadata or private block"))
+            (unless (or (< n 2) (apply #'< (mapcar #'first entries))) (err "directory not sorted by tag"))
+            (unless (= (rd-u32-be v 16) (+ 12 (* 16 n) (loop :for e :in entries :sum (* 4 (ceiling (fourth e) 4)))))
+              (err "totalSfntSize"))
+            (let ((pos (+ 44 (* 20 n))))
+              (dolist (e (sort (copy-list entries) #'< :key #'second))
+                (destructuring-bind (tag offset comp orig sum) e
+                  (unless (= offset pos) (err "table ~x at ~a, expected at ~a" tag offset pos))
+                  (unless (zerop (mod offset 4)) (err "table ~x not 4-aligned" tag))
+                  (when (> comp orig) (err "table ~x compressed past its length" tag))
+                  (when (> (+ offset comp) (length v)) (err "table ~x past the end" tag))
+                  ;; head's checksum is computed with its checkSumAdjustment, at 8, taken as zero
+                  (when (and (= comp orig) (<= (+ offset comp) (length v))
+                             (/= sum (ldb (byte 32 0)
+                                          (- (sfnt-checksum v offset (+ offset comp))
+                                             (if (and (= tag (tag-code "head")) (>= comp 12))
+                                                 (rd-u32-be v (+ offset 8))
+                                                 0)))))
+                    (err "table ~x checksum" tag))
+                  (setf pos (+ offset (* 4 (ceiling comp 4))))
+                  (unless (loop :for i :from (+ offset comp) :below (min pos (length v)) :always (zerop (aref v i)))
+                    (err "table ~x padding" tag))))
+              (unless (= pos (length v)) (err "data after the last table"))))))
+    (nreverse errors)))
+
+(defun sfnt-record (tables &key (version #x00010000))
+  "A plist for sfnt-file from TABLES, a list of (tag data), with the directory sorted by tag,
+each table's checksum computed, and the binary-search fields derived from the table count."
+  (let* ((entries (sort (mapcar (lambda (table)
+                                  (destructuring-bind (tag data) table
+                                    (list :tag (tag-code tag) :checksum (table-checksum tag data)
+                                          :data data)))
+                                tables)
+                        #'< :key (lambda (e) (getf e :tag))))
+         (n (length entries))
+         (selector (if (plusp n) (floor (log n 2)) 0)))
+    (list :version version :entries entries :search-range (* 16 (expt 2 selector))
+          :entry-selector selector :range-shift (- (* 16 n) (* 16 (expt 2 selector))))))
+
+(defun sfnt->woff-tables (sfnt)
+  "The tables of SFNT, a plist read by sfnt-file, as woff-record takes them, keeping their
+checksums."
+  (mapcar (lambda (e) (list (getf e :tag) (getf e :data) (length (getf e :data)) (getf e :checksum)))
+          (getf sfnt :entries)))
+
+(defparameter *woff-tables*
+  (list (list "head" (->bytes (loop :for i :below 54 :collect (mod (* 7 i) 256))))
+        (list "cmap" (->bytes #(0 0 0 1 0 3 0 1 0 0 0 12 9)))
+        (list "OS/2" (->bytes #(0 4 2 88 0 0 0 0)))
+        (list "name" (->bytes #(1 2 3 4 5 6)))))
+
+(defun run-woff-demo ()
+  "Marshal and unmarshal placed fields, and WOFF files through them: data written where a
+place directive stands, its offsets, lengths and checksums backpatched, and read at the
+offsets given, in any order. Returns T if all checks pass."
+  (let ((results nil))
+    (flet ((check (label got want)
+             (let ((ok (equalp got want)))
+               (push ok results)
+               (format t "~&  ~:[FAIL~;ok  ~]  ~a~%" ok label)
+               (unless ok
+                 (format t "~&          got  ~s~%          want ~s~%" got want)))))
+      (format t "~&placed field and WOFF checks:~%")
+
+      ;; 1. Placed fields.
+      (let ((entries (list (list :body (list :tag 1 :value 5)) (list :body (list :tag 2 :value 6))))
+            (bytes '(2 4 8 0 1 0 5 0 2 0 6 0)))
+        (check "placed-probe: sub-manifest bodies placed after the entries, 2-aligned, offsets backpatched"
+               (list (let ((v (ub8 12))) (list (marshal placed-probe v :entries entries) (coerce v 'list)))
+                     (coerce (collect-units (lambda (d) (marshal placed-probe d :entries entries))) 'list))
+               (list (list 12 bytes) bytes))
+        (check "placed-probe, read back: each body read at its offset"
+               (unmarshal placed-probe (->bytes bytes))
+               '(:n 2 :entries ((:at 4 :body (:tag 1 :value 5)) (:at 8 :body (:tag 2 :value 6))))))
+      (let ((bytes (->bytes #(6 3 6 9 2 9 1 2 3 4 5))))
+        (check "placed-sum-probe: offsets, lengths and checksums of placed vectors, and read back"
+               (list (coerce (collect-units (lambda (d) (marshal placed-sum-probe d
+                                                              :entries (list (list :data #(1 2 3))
+                                                                             (list :data #(4 5))))))
+                             'list)
+                     (multiple-value-list (failed-checks (lambda () (unmarshal placed-sum-probe bytes)))))
+               (list (coerce bytes 'list)
+                     (list nil '(:entries ((:at 6 :len 3 :sum 6 :data #(1 2 3)) (:at 9 :len 2 :sum 9 :data #(4 5)))))))
+        (let ((bad (copy-seq bytes)))
+          (setf (aref bad 7) 3)
+          (check "placed-sum-probe: a changed byte of placed data fails its checksum"
+                 (mapcar (lambda (s) (list (first s) (second s))) (failed-checks (lambda () (unmarshal placed-sum-probe bad))))
+                 '((:checksum :sum)))))
+      (check "placed fields with no offset slot, no place directive, a slot after them, or in a span: expansion errors"
+             (mapcar (lambda (form) (signals-error-p (lambda () (macroexpand-1 form))))
+                     '((unmarshal placed-no-offset-probe s)
+                       (marshal placed-no-directive-probe d :data #(1))
+                       (marshal placed-slot-after-probe d :data #(1))
+                       (marshal placed-in-span-probe d :data #(1))))
+             '(t t t t))
+
+      ;; 2. WOFF files written.
+      (let* ((woff (make-woff *woff-tables*))
+             (plist (read-woff woff)))
+        (check "woff-file: a WOFF of four tables passes the hand verifier, and matches one built by hand"
+               (list (verify-woff woff) (length woff) (rd-u32-be woff 8) (rd-u16-be woff 12)
+                     (equalp woff (hand-woff *woff-tables* '("OS/2" "cmap" "head" "name"))))
+               '(nil 212 212 4 t))
+        (check "woff-file, read back: the directory sorted by tag, each table's data at its offset"
+               (list (mapcar (lambda (e) (getf e :tag)) (getf plist :entries))
+                     (every (lambda (e) (equalp (getf e :data)
+                                                (second (find (getf e :tag) *woff-tables*
+                                                              :key (lambda (tb) (tag-code (first tb)))))))
+                            (getf plist :entries))
+                     (getf plist :total-sfnt-size))
+               (list (mapcar #'tag-code '("OS/2" "cmap" "head" "name")) t (+ 12 64 88)))
+        (check "woff-file, read and written back, through a plist and through records"
+               (list (equalp woff (write-woff plist))
+                     (equalp woff (write-woff (unmarshal woff-file woff (:as :record)))))
+               '(t t)))
+
+      ;; 3. WOFF files whose tables are stored out of directory order, and compressed tables.
+      (let* ((order '("name" "head" "OS/2" "cmap"))
+             (woff (hand-woff *woff-tables* order))
+             (plist (multiple-value-list (failed-checks (lambda () (read-woff woff)))))
+             (rewritten (write-woff (second plist))))
+        (check "a WOFF stored out of directory order: read with no failed check, each table at its offset"
+               (list (verify-woff woff) (first plist)
+                     (equalp (getf (second plist) :entries) (getf (read-woff (make-woff *woff-tables*)) :entries)
+                             ))
+               '(nil nil nil))
+        (check "that WOFF written back in directory order: valid, the same tables, a canonical round trip"
+               (list (verify-woff rewritten) (equalp rewritten (make-woff *woff-tables*)) (equalp rewritten woff))
+               '(nil t nil)))
+      (let* ((tables (list (list "glyf" (->bytes #(120 156 1 2 3 4 5 6 7 8)) 40 #x12345678)
+                           (list "head" (->bytes #(1 2 3 4)))))
+             (woff (hand-woff tables '("head" "glyf"))))
+        (check "a compressed table, its original length and checksum given, read and written back unchanged"
+               (list (verify-woff woff)
+                     (let ((glyf (first (getf (read-woff woff) :entries))))
+                       (list (getf glyf :comp-length) (getf glyf :orig-length) (getf glyf :orig-checksum)))
+                     (equalp (write-woff (read-woff woff))
+                             (hand-woff tables '("glyf" "head"))))
+               '(nil (10 40 #x12345678) t)))
+
+      ;; 4. Streams and selective reads.
+      (let* ((out-of-order (hand-woff *woff-tables* '("name" "head" "OS/2" "cmap")))
+             (woff (make-woff *woff-tables*)))
+        (check "WOFFs from a stream, offsets read backwards and forwards, one after another"
+               (with-source-file (concatenate '(vector (unsigned-byte 8)) out-of-order woff)
+                 (lambda (in)
+                   (list (equalp (read-woff in) (read-woff out-of-order))
+                         (file-position in)
+                         (equalp (read-woff in) (read-woff woff))
+                         (file-position in))))
+               '(t 212 t 424))
+        (check "selective reads: the flavor, the table count and size, and the entries, from vectors and a stream"
+               (list (unmarshal woff-file woff nil :flavor)
+                     (multiple-value-list (unmarshal woff-file out-of-order nil :num-tables :total-sfnt-size))
+                     (equalp (unmarshal woff-file out-of-order nil :entries)
+                             (getf (read-woff out-of-order) :entries))
+                     (with-source-file out-of-order
+                       (lambda (in) (list (unmarshal woff-file in nil :flavor) (file-position in)))))
+               (list #x00010000 (list 4 164) t (list #x00010000 212)))
+        ;; the :file span holds every field, so all of it is the part read, and the file's
+        ;; length is checked: the entries are passed over by their offsets and lengths
+        (check "reading :flavor reads the flavor, the length, the count and each entry's offset and length, no table data"
+               (list (reads-outside-guard (macroexpand-1 '(unmarshal woff-file s nil :flavor)))
+                     (reads-outside-guard (macroexpand-1 '(unmarshal woff-file s))))
+               '(5 18))
+
+        ;; 5. Checks.
+        (let ((bad (copy-seq woff)))
+          (setf (aref bad 11) (1+ (aref bad 11)))
+          (check "a wrong file length fails its check; a wrong signature fails as a constant"
+                 (list (mapcar (lambda (s) (list (first s) (second s) (fourth s) (fifth s)))
+                               (failed-checks (lambda () (read-woff bad))))
+                       (let ((sig (copy-seq woff)))
+                         (setf (aref sig 3) (char-code #\3))
+                         (mapcar #'first (failed-checks (lambda () (read-woff sig))))))
+                 '(((:length :length 212 213)) (:constant)))))
+
+      ;; 6. sfnt fonts, and WOFFs made from them.
+      (check "sfnt-checksum sums big-endian words, the last padded with zeros"
+             (list (sfnt-checksum (->bytes #(0 1 0 0 0 0 0 1 0 0)) 0 10)
+                   (sfnt-checksum (->bytes #(#xFF #xFF #xFF #xFF 0 0 0 1)) 0 8)
+                   (sfnt-checksum (->bytes #(9 0 0 0 0 1)) 1 6))
+             '(#x00010001 0 #x01000000))
+      (let* ((sfnt (collect-units (lambda (d) (marshal sfnt-file d (:from (sfnt-record *woff-tables*))))))
+             (read (unmarshal sfnt-file sfnt))
+             (woff (make-woff (sfnt->woff-tables read) :flavor (getf read :version))))
+        (check "sfnt-file: an sfnt written, read back, and packed as a WOFF with the same tables"
+               (list (length sfnt) (getf read :search-range) (getf read :entry-selector) (getf read :range-shift)
+                     (verify-woff woff) (equalp woff (make-woff *woff-tables*))
+                     (equalp (mapcar (lambda (e) (getf e :data)) (getf read :entries))
+                             (mapcar (lambda (e) (getf e :data)) (getf (read-woff woff) :entries))))
+               (list (+ 12 64 88) 64 2 0 nil t t))))
+    (let ((pass (every #'identity results)))
+      (format t "~&placed field and WOFF checks ~:[FAILED~;PASSED~] (~a of ~a).~%"
+              pass (count t results) (length results))
+      pass)))

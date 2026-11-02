@@ -102,7 +102,7 @@ fields from when it is given (:from RECORD); NIL when RECORD holds no value for 
                    (values width signed subtype-list type-indicator type-conditions)))
                (process-field (field-spec)
                  (destructuring-bind (symbol predicate &key endian enumerate-by end-by
-                                                         count default slot codec stop-by
+                                                         count default slot codec stop-by place
                                                          &allow-other-keys)
                      field-spec
                    (multiple-value-bind (width signed subtype-list type-indicator type-conditions)
@@ -122,7 +122,7 @@ fields from when it is given (:from RECORD); NIL when RECORD holds no value for 
                            :type-indicator type-indicator :type-conditions type-conditions
                            :subtypes (and subtype-list (cons 'list subtype-list))
                            :end-by end-by :swap-by (or this-swap-by swap-by)
-                           :stop-by (list 'quote stop-by)
+                           :stop-by (list 'quote stop-by) :place place
                            :default default)))))
                (process-entry (f accumulator)
                  (typecase (first f)
@@ -176,9 +176,22 @@ fields from when it is given (:from RECORD); NIL when RECORD holds no value for 
                                                               :actual spec-string :swap-by swap-by
                                                               :bindings (cons 'list (reverse bindings-out)))
                                                   accumulator)))))
-                             (:manifest (push (list 'list :type :manifest :name (second f)
-                                                          :actual (list 'quote (cddr f)))
-                                              accumulator))))
+                             ;; :place among the options places the sub-manifest's bytes
+                             (:manifest (let* ((options (rest (cddr f)))
+                                               (place (getf options :place)))
+                                          (push (list 'list :type :manifest :name (second f) :place place
+                                                            :actual (list 'quote
+                                                                          (cons (third f)
+                                                                                (loop :for (k v) :on options
+                                                                                      :by #'cddr
+                                                                                      :unless (eq k :place)
+                                                                                        :append (list k v)))))
+                                                accumulator)))
+                             ;; (place tag :align n): where the fields placed under TAG are written
+                             (:place (destructuring-bind (tag &key align) (rest f)
+                                       (push (list 'list :type :place :tag tag :align align
+                                                         :swap-by swap-by)
+                                             accumulator)))))
                    (t (error "Invalid clause; may not start with ~a." (first f))))
                  accumulator))
         
@@ -279,6 +292,17 @@ field: one of KIND, such as :checksum-of, when KIND is given."
                  items)
   nil)
 
+(defun manifest-places (items)
+  "The tags under which fields are placed in ITEMS, a manifest's stored fields, or in a
+manifest nested in them, and the tags of the place directives there, as two values."
+  (let ((placed nil) (declared nil))
+    (walk-manifest (lambda (item)
+                     (if (eq :place (getf item :type))
+                         (pushnew (getf item :tag) declared)
+                         (when (getf item :place) (pushnew (getf item :place) placed))))
+                   items)
+    (values placed declared)))
+
 (defun find-in-manifest (spec handler)
   (let ((output))
     (loop :for item :in spec :until output
@@ -351,21 +375,32 @@ written to a stream or a function. A vector too small signals manifest-overrun."
          (unit-type `(unsigned-byte ,(ash 1 (+ 3 (or (getf params :unit-spec) 0)))))
          (holder (and (not nested) (getf options :buffer) (gensym "HOLDER")))
          (dest (gensym "DEST")) (in-place (gensym "IN-PLACE")) (limit (gensym "LIMIT"))
+         ;; the tags of placed fields, here or nested, when this is the top-level expansion
+         (place-tags (and (not nested) (manifest-places (rest spec))))
          regions slots slots-of swap-specs offset access enter index write prefix counts
-         values length serializers map b i sub-lexicon written)
+         values length serializers map b i sub-lexicon written
+         ;; the queues of placed fields' writers, by tag, waiting for their place directives
+         places)
 
     (loop :for (key) :on options :by #'cddr
           :unless (member key '(:from :buffer))
             :do (error "marshal: unknown option ~s for manifest ~s." key name))
 
+    (unless nested
+      (multiple-value-bind (placed declared) (manifest-places (rest spec))
+        (dolist (tag placed)
+          (unless (member tag declared)
+            (error "marshal: fields of manifest ~s are placed under ~s, which no place directive ~
+                    declares." name tag)))))
+
     ;; populate the symbol lexicon or import it from an enclosing marshal macro
     (if (getf pairs :-+sub-lexicon+-)
         (destructuring-bind (&key ac-sym en-sym ba-sym in-sym wr-sym pr-sym
-                               vl-sym ln-sym sr-sym mp-sym ct-sym b-sym i-sym)
+                               vl-sym ln-sym sr-sym mp-sym ct-sym b-sym i-sym pl-sym)
             (getf pairs :-+sub-lexicon+-)
           (setf access ac-sym enter en-sym base ba-sym index in-sym write wr-sym prefix pr-sym
                 values vl-sym length ln-sym serializers sr-sym map mp-sym counts ct-sym
-                b b-sym i i-sym
+                b b-sym i i-sym places pl-sym
                 ;; propagate the same lexicon to deeper sub-manifests so nested
                 ;; inlining keeps sharing the top-level environment
                 sub-lexicon (getf pairs :-+sub-lexicon+-)))
@@ -380,10 +415,12 @@ written to a stream or a function. A vector too small signals manifest-overrun."
               counts (gensym "CT")     ; elements written by fields that :count-of slots cover
               b (gensym "BB")
               i (gensym "II")
+              places (and place-tags (gensym "PLACES"))
               sub-lexicon (list :ac-sym access :en-sym enter :ba-sym base :in-sym index
                                 :wr-sym write
                                 :vl-sym values :ln-sym length
-                                :sr-sym serializers :mp-sym map :ct-sym counts :b-sym b :i-sym i)))
+                                :sr-sym serializers :mp-sym map :ct-sym counts :b-sym b :i-sym i
+                                :pl-sym places)))
 
 
     
@@ -527,6 +564,75 @@ written to a stream or a function. A vector too small signals manifest-overrun."
                      (selvar (rest (assoc name selvars))))
                  (push name written)
                  (if selvar `(setf ,selvar ,value) value)))
+             (placed-item (name)
+               ;; the field NAME of this manifest when it is placed, else NIL
+               (find-in-manifest (rest spec) (lambda (i) (and name (eq name (getf i :name))
+                                                              (getf i :place) i))))
+             (placed-field (item context)
+               ;; queue the writing of ITEM, a placed field, under its tag, with the positions
+               ;; of the slots over it, which come before it; the place directive writes it and
+               ;; backpatches them
+               (let* ((name (getf item :name)) (qname (qualify name)) (tag (getf item :place))
+                      (entries (getf slots-of qname))
+                      (positions (mapcar (lambda (e) (declare (ignore e)) (gensym "AT")) entries))
+                      (leaves (mapcar #'first (manifest-leaves (rest spec))))
+                      (at (position item leaves))
+                      (start (gensym "START")) (end (gensym "END")))
+                 (when context
+                   (error "marshal: placed field ~s of manifest ~s cannot be inside a span."
+                          name manifest-name))
+                 (dolist (s slots)
+                   (when (eq name (second (getf s :slot)))
+                     (unless (member (first (getf s :slot)) '(:length-of :offset-of :checksum-of))
+                       (error "marshal: the ~s slot of field ~s cannot cover the placed field ~s."
+                              (first (getf s :slot)) (getf s :name) name))
+                     (unless (< (position s leaves) at)
+                       (error "marshal: the slot field ~s must come before the placed field ~s ~
+                               it covers." (getf s :name) name))))
+                 ;; the field's own writing, with no slots resolved where it stands
+                 (setf (getf slots-of qname) nil)
+                 (let ((body (generate (loop :for (k v) :on item :by #'cddr
+                                             :unless (eq k :place) :append (list k v)))))
+                   (setf (getf slots-of qname) entries)
+                   `((let ,(loop :for p :in positions :for e :in entries
+                                 :collect `(,p (second (assoc ',(first e) ,map))))
+                       (push (lambda ()
+                               (let ((,start ,index))
+                                 ,@body
+                                 (let ((,end ,index))
+                                   (declare (ignorable ,end))
+                                   ,@(loop :for p :in positions
+                                           :for (slot-field kind width swap-by) :in entries
+                                           :collect
+                                           `(funcall ,write (aref ,serializers ,swap-by)
+                                                     (cons ,width
+                                                           ,(ecase kind
+                                                              (:length-of `(- ,end ,start))
+                                                              (:offset-of start)
+                                                              (:checksum-of
+                                                               `(funcall ,(getf (cddr (getf (find slot-field slots
+                                                                                                 :key (lambda (s) (qualify (getf s :name))))
+                                                                                           :slot))
+                                                                                :by)
+                                                                         ,access ,start ,end))))
+                                                     ,p)))))
+                             (getf ,places ,tag)))))))
+             (place-directive (item)
+               ;; write the fields queued under the directive's tag, each aligned when asked
+               (destructuring-bind (&key tag align (swap-by 0) &allow-other-keys) item
+                 (let ((f (gensym "F"))
+                       (pad (and align
+                                 `(loop :repeat ,(pad-count-form :align align index base)
+                                        :do (funcall (aref ,serializers ,swap-by) (cons 1 0) ,enter)))))
+                   (unless places
+                     (error "marshal: manifest ~s has a place directive for ~s, but no field is ~
+                             placed under it." manifest-name tag))
+                   `(:-place
+                     (dolist (,f (reverse (getf ,places ,tag)))
+                       ,@(and pad (list pad))
+                       (funcall ,f))
+                     ,@(and pad (list pad))
+                     (setf (getf ,places ,tag) nil)))))
              (generate (item &optional context)
                (destructuring-bind (&key name type (swap-by 0) default count actual bindings with
                                       length end-by codec slot enumerate-by subtypes items mode n
@@ -538,7 +644,10 @@ written to a stream or a function. A vector too small signals manifest-overrun."
                    
                    ;; (print (list :nn name context))
                    ;; types: ; :scalar | :pad | :masque | :bytes | :sized | :leb | :name | :slot
+                   (when (and (getf item :place) (not (eq type :place)))
+                     (return-from generate (placed-field item context)))
                    (case type
+                     (:place (place-directive item))
                      (:pad `(:-pad
                              (loop :repeat ,(pad-count-form mode n index base)
                                    :do (funcall (aref ,serializers ,swap-by) (cons 1 ,with) ,enter))))
@@ -702,7 +811,8 @@ written to a stream or a function. A vector too small signals manifest-overrun."
                                ;;          (t (error "Field ~a: no value, no default, and no integer :count."
                                ;;                    name)))
                                ;;       ,@(and term-form (list (funcall write-element term))))))
-                               ((and slot (eq :checksum-of (first slot)))
+                               ;; a checksum over a placed field is backpatched where it is placed
+                               ((and slot (eq :checksum-of (first slot)) (not (placed-item (second slot))))
                                 `(funcall (aref ,serializers ,swap-by)
                                           (cons ,length-form
                                                 (destructuring-bind (start end)
@@ -750,6 +860,7 @@ written to a stream or a function. A vector too small signals manifest-overrun."
                           (,enter) (,write) (,map) (,counts)
                            (,serializers (make-array ,(1+ (reduce #'max swap-specs :initial-value 0)) :initial-element nil))
                            ,@(and patching `((,dest nil)))
+                           ,@(and places `((,places nil)))
                            ,@(and holder `((,holder ,(getf options :buffer)))))
                      ,@(and holder (not patching) `((declare (ignore ,holder))))
                      ;; a vector is written in place, with every unit checked against its size
@@ -794,6 +905,15 @@ written to a stream or a function. A vector too small signals manifest-overrun."
                     (error "Manifest not found."))
 
               ;; `((print (list :mmm ,map)))
+
+              ;; a field placed after the last place directive for its tag was never written
+              (and (not nested) places
+                   (let ((tag (gensym "TAG")) (queue (gensym "Q")))
+                     `((loop :for (,tag ,queue) :on ,places :by #'cddr
+                             :when ,queue
+                               :do (error "marshal: fields of manifest ~s placed under ~s come after ~
+                                           its last place directive, so they are not written."
+                                          ',manifest-name ,tag)))))
 
               (and patching
                    (let ((u (gensym "U")))
@@ -934,10 +1054,12 @@ ITEM read before it, or NIL; a field it covers is passed over by its length."
                                      (and (member :vec subtypes) (not count) (not end-by)
                                           (not stop-by))))))))))
 
-(defun manifest-selection (items keys length-sources check-slots)
+(defun manifest-selection (items keys length-sources check-slots &optional offset-sources)
   "What a selective read of KEYS from ITEMS, a manifest's stored fields, does with each
 field, worked out at expansion. LENGTH-SOURCES maps a field to the field of the :length-of
-slot over it; CHECK-SLOTS, the manifest's slots when reads are checked. Returns the modes,
+slot over it, and OFFSET-SOURCES a placed field to the field of its :offset-of slot, which
+is read whether the placed field is read or passed over; CHECK-SLOTS, the manifest's slots
+when reads are checked. Returns the modes,
 an alist of each field and :READ or :SKIP; the boundary, the position among ITEMS of the
 item holding the last key, or -1; and the slots checked, those whose field and region lie
 in the items up to the boundary."
@@ -971,6 +1093,8 @@ in the items up to the boundary."
                          (slot-at (and slot (position-of slot))))
                     (push (cons leaf mode) modes)
                     (setf needed (append (field-dependencies leaf mode (and slot-at (< slot-at at) slot))
+                                         (and (getf leaf :place) (not (eq :place (getf leaf :type)))
+                                              (list (rest (assoc (getf leaf :name) offset-sources))))
                                          needed))))
         (values modes boundary checked)))))
 
@@ -1005,6 +1129,12 @@ keeps in B, a manifest-buffer, the units read from a stream."
                           (when (eq :span (getf it :type)) (scan (getf it :items))))))
                (scan (rest spec)))
              acc))
+         ;; (field . offset field): a placed field is read at the offset its :offset-of slot gives
+         (offset-sources
+           (loop :for (it) :in (manifest-leaves (rest spec))
+                 :for slot := (getf it :slot)
+                 :when (and slot (eq :offset-of (first slot)) (getf it :name))
+                   :collect (cons (second slot) (getf it :name))))
          (in-keys keys)
          ;; the fields a selective read decodes: the keys at the top level, or what a parent
          ;; asks of a nested manifest (NIL to pass over it); :ALL for a full read
@@ -1019,7 +1149,10 @@ keeps in B, a manifest-buffer, the units read from a stream."
          (unit-type `(unsigned-byte ,(ash 1 (+ 3 (or (getf config :unit-spec) 0)))))
          raws sub-lexicon prefix cursor
          ;; a buffer of an integer source's units, made at most once, for checksums
-         buffer)
+         buffer
+         ;; a plist of the furthest unit read by fields placed under each tag, for the place
+         ;; directive that follows them
+         ends)
     
     (loop :for (key) :on params :by #'cddr
           :unless (member key '(:as :check :buffer :-+sub-lexicon+- :-+select+-))
@@ -1032,11 +1165,14 @@ keeps in B, a manifest-buffer, the units read from a stream."
       (error "unmarshal: manifest ~s has no record class; give it (:record t)." name))
 
     (if (getf params :-+sub-lexicon+-)
-        (destructuring-bind (&key cr-sym pr-sym bf-sym &allow-other-keys) (getf params :-+sub-lexicon+-)
-          (setf cursor cr-sym prefix pr-sym buffer bf-sym sub-lexicon (getf params :-+sub-lexicon+-)))
+        (destructuring-bind (&key cr-sym pr-sym bf-sym pe-sym &allow-other-keys)
+            (getf params :-+sub-lexicon+-)
+          (setf cursor cr-sym prefix pr-sym buffer bf-sym ends pe-sym
+                sub-lexicon (getf params :-+sub-lexicon+-)))
         (setf cursor (gensym "CR")
               buffer (and check (manifest-slots-p (rest spec) :checksum-of) (gensym "BUF"))
-              sub-lexicon (list :cr-sym cursor :ds-sym dsym :bf-sym buffer)))
+              ends (and (manifest-places (rest spec)) (gensym "ENDS"))
+              sub-lexicon (list :cr-sym cursor :ds-sym dsym :bf-sym buffer :pe-sym ends)))
           
     ;; (loop :for item :in (rest spec) :do (setf (getf fields (getf item :name)) item))
 
@@ -1051,12 +1187,14 @@ keeps in B, a manifest-buffer, the units read from a stream."
           (region-vars) (slot-starts) (pending) (done)
           ;; for selective reads: each field's mode, :READ or :SKIP, and the position of the
           ;; item holding the last field asked for
-          (modes) (boundary -1))
+          (modes) (boundary -1)
+          ;; the variables holding the cursor while a placed field is read at its offset
+          (saves))
       (multiple-value-bind (regions slots) (manifest-regions (rest spec))
         ;; a selective read checks only the slots whose field and region lie in the part read
         (when (listp select)
           (multiple-value-setq (modes boundary slots)
-            (manifest-selection (rest spec) select length-sources (and check slots))))
+            (manifest-selection (rest spec) select length-sources (and check slots) offset-sources)))
         (when check
           (dolist (s slots)
             (destructuring-bind (&key field kind region by) s
@@ -1153,6 +1291,16 @@ keeps in B, a manifest-buffer, the units read from a stream."
                          :select-manifest #'select-manifest
                          :read-at (lambda (at w sg)
                                     `(funcall (aref ,dsym ,swap-by) ,at ,w ,sg ,src)))))
+               (place-form (item)
+                 ;; a place directive: move past the furthest unit its placed fields were read
+                 ;; to, then align as they were written
+                 (destructuring-bind (&key tag align &allow-other-keys) item
+                   (unless ends
+                     (error "unmarshal: manifest ~s has a place directive for ~s, but no field is ~
+                             placed under it." manifest-name tag))
+                   `(progn (setf ,cursor (max ,cursor (or (getf ,ends ,tag) ,cursor))
+                                 (getf ,ends ,tag) nil)
+                           ,@(and align `((incf ,cursor ,(pad-count-form :align align cursor base)))))))
                (skip-item (item)
                  ;; pass over ITEM: by the length a slot read before it gives, by its known
                  ;; width, or by its plan, which reads only what finding its end needs
@@ -1161,7 +1309,8 @@ keeps in B, a manifest-buffer, the units read from a stream."
                      item
                    (let* ((slot (and name (rest (assoc name length-sources))))
                           (len (and slot (not (eq type :pad)) (rest (assoc slot vars)))))
-                     (push (cond ((eq type :pad) `(incf ,cursor ,(pad-count-form mode n cursor base)))
+                     (push (cond ((eq type :place) (place-form item))
+                                ((eq type :pad) `(incf ,cursor ,(pad-count-form mode n cursor base)))
                                  (len `(incf ,cursor ,len))
                                  ((eq type :string) `(incf ,cursor ,(+ (length actual) (if end-by 1 0))))
                                  ((or (eq type :manifest) (intersection '(:vec :leb :case) subtypes))
@@ -1237,15 +1386,29 @@ keeps in B, a manifest-buffer, the units read from a stream."
                  (let* ((rname (getf item :name))
                         (rv (and rname (rest (assoc rname region-vars))))
                         (at (and rname (rest (assoc rname slot-starts))))
-                        (swap-by (or (getf item :swap-by) 0)))
+                        (swap-by (or (getf item :swap-by) 0))
+                        ;; the tag of a placed field, and where its read returns to
+                        (placed (and (not (eq :place (getf item :type))) (getf item :place)))
+                        (save (and placed (first (push (gensym "SAVE") saves)))))
                    (unless (aref dvector swap-by)
                      (setf (aref dvector swap-by) `(deserializer-for ,(getf config :unit-spec) ,swap-by)))
+                   (when placed
+                     ;; a placed field is read where its offset slot says, and the cursor returns
+                     (let ((off (rest (assoc rname offset-sources))))
+                       (unless off
+                         (error "unmarshal: placed field ~s of manifest ~s has no :offset-of slot, ~
+                                 so it cannot be found." rname manifest-name))
+                       (push `(setf ,save ,cursor ,cursor ,(var-of off rname)) reads)))
                    (when (first rv) (push `(setf ,(first rv) ,cursor) reads))
                    (when at (push `(setf ,at ,cursor) reads))
                    (if (and (not (eq :span (getf item :type))) (eq :skip (mode-of item)))
                        (skip-item item)
                        (read-item item))
                    (when (second rv) (push `(setf ,(second rv) ,cursor) reads))
+                   (when placed
+                     (push `(setf (getf ,ends ,placed) (max (or (getf ,ends ,placed) 0) ,cursor)
+                                  ,cursor ,save)
+                           reads))
                    (when (and rname pending)
                      (push rname done)
                      (emit-ready-checks))))
@@ -1261,7 +1424,8 @@ keeps in B, a manifest-buffer, the units read from a stream."
                      (setf (aref dvector swap-by) `(deserializer-for ,(getf config :unit-spec) ,swap-by)))
 
                    (case type
-                     (:pad (push `(incf ,cursor ,(pad-count-form mode n cursor base)) reads))
+                     (:place (push (place-form item) reads))
+                    (:pad (push `(incf ,cursor ,(pad-count-form mode n cursor base)) reads))
                      (:manifest
                       (record-read name (read-effector (item-plan item) (item-ctx item))))
                      (:span
@@ -1411,6 +1575,8 @@ keeps in B, a manifest-buffer, the units read from a stream."
                         :when start :collect (list start 0)
                         :when end :collect (list end 0))
                 ,@(mapcar (lambda (s) (list (rest s) 0)) slot-starts)
+               ,@(and ends (not nested) `((,ends nil)))
+               ,@(mapcar (lambda (s) (list s 0)) saves)
                 ,@(mapcar #'rest vars)
                 ,@(mapcar #'rest raws))
            ,@(reverse reads)

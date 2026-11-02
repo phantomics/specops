@@ -181,6 +181,17 @@ this function will only work for 1d simple-arrays with such element-types."
     (update-adler32 adler32 sequence :start start :end end)
     (finalize-adler32 adler32)))
 
+(defun sfnt-checksum (buf start end)
+  "The checksum of an sfnt font table in BUF from START to END: the sum, modulo 2^32, of
+its big-endian 32-bit words, the last padded with zeros."
+  (let ((sum 0))
+    (loop :for i :from start :below end :by 4
+          :do (setf sum (ldb (byte 32 0)
+                             (+ sum (loop :for j :below 4
+                                          :sum (ash (if (< (+ i j) end) (aref buf (+ i j)) 0)
+                                                    (* 8 (- 3 j))))))))
+    sum))
+
 (defun adler32 (buf start end)
   "The Adler-32 checksum of BUF from START to END, called as a manifest's :checksum-of
 slots call their functions, like crc."
