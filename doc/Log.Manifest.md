@@ -85,6 +85,7 @@ decisions:
   - SPECOPS-DRAFT-manifest-D68
   - SPECOPS-DRAFT-manifest-D69
   - SPECOPS-DRAFT-manifest-D70
+  - SPECOPS-DRAFT-manifest-D71
 relates-to:
   - SPECOPS-0003
   - SPECOPS-0007
@@ -119,8 +120,9 @@ it. The chronicled state is commit `10b1568`; the updates at the end of this
 log carry the record forward: that of 2026-10-30 to commit `653345f`, three
 of 2026-10-31, to commits `738105a`, `d030f5c` and `2e1af03`, ten of
 2026-11-01, to commits `4f9c6d4`, `d7ba27f`, `1cc7600`, `b63b7d2`, `239b2f7`,
-`cb931c8`, `52b81e5`, `e340210`, `5862d3a` and `e4a1f9a`, and that of 2026-11-02
-to commit `de25ae7`, tagged `v0.1.0`. The repository restructure that followed
+`cb931c8`, `52b81e5`, `e340210`, `5862d3a` and `e4a1f9a`, that of 2026-11-02
+to commit `de25ae7`, tagged `v0.1.0`, and that of 2026-11-11 to commit `adc24c0`,
+tagged `v0.1.1`. The repository restructure that followed
 moved the files this log names (see
 [SPECOPS-0005](Log.Restructure.md)); code references stay pinned
 to the commits that held the work.
@@ -3448,4 +3450,106 @@ examples, and listed there under its limits:
   that locked package.
 - **Reserved options.** `str`'s `:encode-by` is stored and never used, and its
   `:length` has no test.
+- The other items of the previous updates remain.
+
+## Update 2026-11-11 — Release 0.1.1: masque group types
+
+This installment covers commit `adc24c0`, tagged `v0.1.1`, and the update of
+the [Manifest Reference](Ref.Manifest.md) after it. A masque group may now be
+typed `:u` or `:s`, its width taken from the mask, and a type keyword that
+names no type is an expansion error. The steward found the question while
+reading the recursive-manifests Survey, whose sketches typed a one-bit group
+`:u8`. The commit also carries the sketches of the arrays plan and of that
+Survey, brought up to the new form.
+
+### SPECOPS-DRAFT-manifest-D71 — A masque group's type gives only its signedness, written `:u` or `:s`
+
+**Status:** Proposed
+**Context:** A masque group's width and position are those of its letters in
+the mask: `src/manifest/manifest.lisp:unmarshal@v0.1.0` extracts each group
+with `ldb` over the width and offset it finds in the string, and `masque`
+composes it the same way. The binding's type, a field's type, was used only
+for its signedness, so `(p :constructed :u8)` on a single letter was a
+one-bit unsigned group that read as eight bits. The keyword `:s`, which no
+type defined, passed through as unsigned without an error, so a group meant
+to be signed was read wrong. In a manifest of 16-bit units, a group typed
+`:u8` was an error, although its width was never used. The Reference did not
+say any of this.
+**Decision:** A group's type may be `:u` or `:s`, for unsigned and signed,
+with the width the mask gives; `src/manifest/manifest.lisp:defmanifest@adc24c0`
+reads them as `(:u 1)` and `(:s 1)`, whose width a group ignores, so they
+serve in manifests of any unit. A field's type keyword that names no type is
+now an expansion error: `:u` or `:s` alone, with a message saying that a
+field's type is `(:u width)` and that the keyword alone is a group's, and any
+other unknown keyword. The Reference says that a group's type gives only its
+signedness, and that a field type such as `:u8` is accepted in 8-bit
+manifests with its width ignored. The version is 0.1.1.
+**Alternatives:** Documenting the existing behaviour alone (not taken: the
+steward chose to add `:u` and `:s` as well, and documentation alone would
+have left `:s` silently unsigned); a width that disagrees with its group made
+an expansion error (not taken for now: it would break manifests that use
+`:u8` loosely, and decimal masks count digits, not bits); a boolean `:flag`
+type for one-bit groups, read as `t` and `nil` (deferred by the steward to a
+later release, as more natural for attributes such as `:wide` and `:blink`;
+it changes what a record holds, and what a `:case` on the group keys on).
+
+### Implementation
+
+- **`src/manifest/manifest.lisp`.** In `defmanifest`, `group-field` gives a
+  binding typed `:u` or `:s` the type `(:u 1)` or `(:s 1)`; the type parser
+  signals an error for `:u` and `:s` alone in a field and for an unknown
+  keyword, where it left the width unset.
+- **`test/test-manifest-basics.lisp`.** Two probes, `group-type-probe`, of a
+  one-bit, a four-bit signed and a three-bit group in 8-bit units, and
+  `word-group-probe`, of two signed and unsigned groups in a 16-bit unit; and
+  three tests, from
+  `test/test-manifest-basics.lisp:group-types-u-and-s-take-their-widths-from-the-mask@adc24c0`
+  to
+  `test/test-manifest-basics.lisp:a-field-typed-u-or-s-alone-or-an-unknown-keyword-is-an-expansion-error@adc24c0`.
+- **`test/test-manifest-ref.lisp`.** The Reference's masque example types its
+  group `:u`.
+- **`specops.asd`.** Version 0.1.1 for both systems.
+- **`doc/Plan.OverArrays.md`, `doc/Survey.RecursiveManifests.md`.** Their
+  sketches type groups `:u`; the plan's Lexter cell writes its format byte as
+  the constant `(masque "h:00")`.
+- **`doc/Ref.Manifest.md`.** Written after the commit: version 0.1.1, its code
+  references pinned to `v0.1.1`, group types under the masque directive, and
+  the expansion error for a type keyword that names no type, under field types.
+
+### Verification
+
+Run with `sbcl --non-interactive --eval '(asdf:test-system :specops)'`. At
+`adc24c0`, `manifest-basics` has 72 tests with 91 assertions, and the root
+suite 430 tests with 657 assertions; all pass. No existing test used a type
+keyword that the parser now refuses.
+
+### Files
+
+Table: Files changed in commit `adc24c0`, and the documents updated after it.
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/manifest/manifest.lisp` | Modified | Group types `:u` and `:s`; unknown type keywords refused |
+| `test/test-manifest-basics.lisp` | Modified | Group types, and the expansion errors |
+| `test/test-manifest-ref.lisp` | Modified | The masque example typed `:u` |
+| `specops.asd` | Modified | Version 0.1.1 |
+| `doc/Plan.OverArrays.md` | Modified | Sketches with group types `:u` |
+| `doc/Survey.RecursiveManifests.md` | Modified | Sketches with group types `:u`, and the steward's inline constant digit |
+| `doc/Ref.Manifest.md` | Modified | Release 0.1.1 and group types, after the commit |
+| `doc/Log.Manifest.md` | Modified | This update |
+
+### Metrics
+
+- Tests: 430, with 657 assertions, up from 427 and 650.
+- Regressions at `adc24c0`: 0.
+
+### Outstanding Work
+
+New:
+
+- **A `:flag` type** for one-bit groups, deferred by the steward, and
+  **widths checked against groups**, not taken for now
+  (SPECOPS-DRAFT-manifest-D71).
+- **Bare numbers as constants,** such as `0` for a zero byte, in place of
+  `(masque "h:00")` or `(pad 0 1)`, which the steward has asked to weigh.
 - The other items of the previous updates remain.

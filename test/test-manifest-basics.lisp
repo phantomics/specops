@@ -48,6 +48,28 @@
   (masque "h:pptt" (p #x00) (t :kind :u8 :default 0))
   (:tail :u8 :default 0))
 
+;; Constants: bare numbers in as few units as they need, one of a given width, and units in
+;; stream order, in big- and little-endian manifests and in 16-bit units.
+(defmanifest bare-number-probe (:unit 8 :endian :big)
+  (:a :u8 :default 1)
+  0
+  #x010203
+  (4 . #x010203)
+  (:b :u8 :default 2))
+
+(defmanifest wasm-header-probe (:unit 8 :endian :little)
+  (vec 0 #x61 #x73 #x6D)                         ; "\0asm", in stream order
+  (4 . 1))                                       ; version 1, little-endian
+
+(defmanifest word-constant-probe (:unit 16 :endian :big)
+  #x010203
+  (vec 1 2))
+
+;; A length slot over a span that holds constants.
+(defmanifest constant-span-probe (:unit 8 :endian :big)
+  (:len :u8 :slot (:length-of :s))
+  (span :s 0 (vec 7 8) (:x :u8 :default 0)))
+
 ;; Groups typed :u and :s, whose widths the masks give: one, four and three bits, and two
 ;; bytes of a 16-bit unit, where a type like :u8 is not allowed.
 (defmanifest group-type-probe (:unit 8 :endian :big)
@@ -602,6 +624,63 @@ when the manifest is defined, with a message that names the type."
     (marshal le-string-probe buf :x #x0102)
     (is (equalp '(:x #x0102)
                 (unmarshal le-string-probe buf)))))
+
+;;; ============================================================
+;;; Constants: bare numbers and vec
+;;; ============================================================
+
+(def-test bare-numbers-are-constants-in-as-few-units-as-they-need ()
+  "A bare number is a constant in as few units as it needs, zero in one, and (width . value)
+one of that many units, in the manifest's byte order; neither is a field of the plist, and a
+selective read passes over them."
+  (let ((buf (ub8 10)))
+    (is (eql 10 (marshal bare-number-probe buf)))
+    (is (equalp '(1  0  1 2 3  0 1 2 3  2) (coerce buf 'list)))
+    (is (equalp '(:a 1 :b 2) (unmarshal bare-number-probe buf)))
+    (is (eql 2 (unmarshal bare-number-probe buf nil :b)))))
+
+(def-test constants-in-a-little-endian-manifest-and-vec-in-stream-order ()
+  "In a little-endian manifest a constant of a given width is written least significant unit
+first, and vec writes its units in stream order: the WebAssembly header."
+  (let ((buf (ub8 8)))
+    (marshal wasm-header-probe buf)
+    (is (equalp '(0 #x61 #x73 #x6D  1 0 0 0) (coerce buf 'list)))
+    (is (null (unmarshal wasm-header-probe buf)))))
+
+(def-test constants-in-a-manifest-of-16-bit-units ()
+  "In 16-bit units a bare number takes as many 16-bit units as it needs, and vec elements are
+one unit each."
+  (let ((buf (make-array 4 :element-type '(unsigned-byte 16))))
+    (marshal word-constant-probe buf)
+    (is (equalp '(#x0001 #x0203 1 2) (coerce buf 'list)))))
+
+(def-test a-constant-that-differs-on-read-fails-as-a-constant ()
+  "A constant that differs on read signals manifest-check-failed of kind :constant at the
+unit where it begins, with a report that names the constant and the manifest."
+  (let ((c (handler-case (unmarshal wasm-header-probe (->bytes #(0 #x61 #x73 #x6D 2 0 0 0)))
+             (manifest-check-failed (c) c))))
+    (is (eq :constant (check-kind c)))
+    (is (eql 4 (check-position c)))
+    (is-true (search "constant #x1 of manifest WASM-HEADER-PROBE" (princ-to-string c))))
+  (let ((c (handler-case (unmarshal wasm-header-probe (->bytes #(0 #x61 #x73 #x6E 1 0 0 0)))
+             (manifest-check-failed (c) c))))
+    (is (eq :constant (check-kind c)))
+    (is (eql 3 (check-position c)))))
+
+(def-test a-length-slot-counts-the-constants-in-its-span ()
+  "A length slot over a span counts the constants it holds."
+  (let ((buf (ub8 5)))
+    (marshal constant-span-probe buf :x 9)
+    (is (equalp '(4  0 7 8 9) (coerce buf 'list)))
+    (is (equalp '(:len 4 :x 9) (unmarshal constant-span-probe buf)))))
+
+(def-test constants-that-cannot-be-written-are-expansion-errors ()
+  "A negative constant, one wider than its width, a width that is not a positive integer, a
+pair whose value is not an integer, and a vec element that does not fit one unit are errors
+when the manifest is defined."
+  (dolist (entry '(-1 (2 . #x10000) (0 . 5) (2 . :x) (vec 256) (vec -1) (vec #\a)))
+    (signals error
+      (macroexpand-1 `(defmanifest bad-constant-probe (:unit 8 :endian :big) ,entry)))))
 
 ;;; ============================================================
 ;;; Padding: counts, :to, :align and :length

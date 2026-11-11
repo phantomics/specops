@@ -4,7 +4,7 @@
   :description "A framework for creating assemblers."
   :author "Andrew Sengul"
   :license  "BSD"
-  :version "0.1.1"
+  :version "0.1.2"
   :serial t
   :pathname "src/"
   :in-order-to ((asdf:test-op (asdf:test-op #:specops/test)))
@@ -22,7 +22,7 @@
   :description "Test suite for SpecOps (FiveAM and cl-hamcrest)."
   :author "Andrew Sengul"
   :license  "BSD"
-  :version "0.1.1"
+  :version "0.1.2"
   :serial t
   :depends-on (#:specops #:specops.map.ebcdic #:fiveam #:hamcrest/fiveam)
   :pathname "test/"

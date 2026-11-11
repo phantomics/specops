@@ -86,6 +86,21 @@ at the first unit that differs."
     (is (eq :constant (check-kind c)))
     (is (eql 1 (check-position c)))))
 
+(defmanifest wasm-preamble (:unit 8 :endian :little)
+  (vec 0 #x61 #x73 #x6D)
+  (4 . 1))
+
+(def-test ref-constants ()
+  "A vec writes its units in stream order, and a constant (width . value) is written in that
+many units in the manifest's byte order; both are checked on read and hold no field."
+  (let ((buf (make-array 8 :element-type '(unsigned-byte 8))))
+    (is (eql 8 (marshal wasm-preamble buf)))
+    (is (equalp (octets 0 #x61 #x73 #x6D 1 0 0 0) buf))
+    (is (null (unmarshal wasm-preamble buf)))
+    (is (eq :constant
+            (handler-case (unmarshal wasm-preamble (octets 0 #x61 #x73 #x6D 2 0 0 0))
+              (manifest-check-failed (c) (check-kind c)))))))
+
 ;;; ============================================================
 ;;; Vectors, terminators, LEB128, codecs and floats
 ;;; ============================================================

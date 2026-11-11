@@ -139,7 +139,35 @@ fields from when it is given (:from RECORD); NIL when RECORD holds no value for 
                            :end-by end-by :swap-by (or this-swap-by swap-by)
                            :stop-by (list 'quote stop-by) :place place
                            :default default)))))
+               (constant-entry (value width)
+                 ;; a constant number, written in the manifest's byte order in WIDTH units, or
+                 ;; in as few as it needs, and checked on read, as a masque of constant digits is
+                 (unless (and (integerp value) (>= value 0))
+                   (error "Constant ~s: a constant must be a non-negative integer." value))
+                 (let* ((unit-bits (ash 1 (+ 3 unit-spec)))
+                        (needed (max 1 (ceiling (integer-length value) unit-bits))))
+                   (when width
+                     (unless (and (integerp width) (plusp width))
+                       (error "Constant #x~x: its width ~s is not a positive integer." value width))
+                     (when (< width needed)
+                       (error "Constant #x~x needs ~a units of ~a bits, more than its width of ~a."
+                              value needed unit-bits width)))
+                   (let ((w (or width needed)))
+                     (list 'list :type :masque :length w :constant value
+                                 :actual (format nil "h:~v,'0X" (/ (* w unit-bits) 4) value)
+                                 :swap-by swap-by :bindings (list 'list)))))
                (process-entry (f accumulator)
+                 (cond
+                   ;; a bare number: a constant in as few units as it needs
+                   ((integerp f) (push (constant-entry f nil) accumulator))
+                   ;; (width . value): a constant in WIDTH units
+                   ((and (consp f) (integerp (car f)))
+                    (unless (integerp (cdr f))
+                      (error "Invalid clause ~s: a constant of a given width is (width . value)." f))
+                    (push (constant-entry (cdr f) (car f)) accumulator))
+                   (t (setf accumulator (process-form f accumulator))))
+                 accumulator)
+               (process-form (f accumulator)
                  (typecase (first f)
                    (keyword (push (process-field f) accumulator))
                    (symbol (case (intern (symbol-name (first f)) :keyword)
@@ -207,6 +235,12 @@ fields from when it is given (:from RECORD); NIL when RECORD holds no value for 
                                                                                       :unless (eq k :place)
                                                                                         :append (list k v)))))
                                                 accumulator)))
+                             ;; (vec unit ...): constant units in stream order, whatever the byte order
+                             (:vec (dolist (u (rest f))
+                                     (unless (and (integerp u) (<= 0 u (1- (ash 1 (ash 1 (+ 3 unit-spec))))))
+                                       (error "vec: element ~s is not an integer that fits one unit of ~a bits."
+                                              u (ash 1 (+ 3 unit-spec))))
+                                     (push (constant-entry u 1) accumulator)))
                              ;; (place tag :align n): where the fields placed under TAG are written
                              (:place (destructuring-bind (tag &key align) (rest f)
                                        (push (list 'list :type :place :tag tag :align align
@@ -1568,10 +1602,15 @@ keeps in B, a manifest-buffer, the units read from a stream."
                                                         "unmarshal: constant digits of masque ~s don't match (read ~a)."
                                                         actual raw))))
                                                 `((unless (= ,base (logand ,const-mask ,raw))
-                                                    ,(constant-failed
-                                                      base `(logand ,const-mask ,raw) cursor
-                                                      "unmarshal: constant bits of masque ~s don't match (read #x~x)."
-                                                      actual raw)))))
+                                                    ,(if (getf item :constant)
+                                                         (constant-failed
+                                                          base `(logand ,const-mask ,raw) cursor
+                                                          "unmarshal: the constant #x~x of manifest ~s doesn't match the units read, #x~x."
+                                                          (getf item :constant) `',manifest-name raw)
+                                                         (constant-failed
+                                                          base `(logand ,const-mask ,raw) cursor
+                                                          "unmarshal: constant bits of masque ~s don't match (read #x~x)."
+                                                          actual raw))))))
                                      ,@(reverse checks)
                                      ,@(reverse sets))
                                   reads)
