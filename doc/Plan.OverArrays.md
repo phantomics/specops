@@ -54,8 +54,8 @@ a terminal emulator, keeps the cells of its screen as 32-byte records in the
 array it uploads to the GPU, and changes a cell's blink flag, palette slot or
 an ink slot without rewriting the rest. This plan adds the two things such
 programs need: a record that begins at an index of a vector, and a write that
-amends some fields of a record already there and leaves its other bits as
-they are. It also lets a selective read or an amendment name a field inside a
+patches some fields of a record already there and leaves its other bits as
+they are. It also lets a selective read or a patch name a field inside a
 sub-manifest or a `:case` branch. Lexter's cell model, as its
 own corpus specifies it in *The Cell Model Architecture (Lexter)*, is the test case,
 as PNG and WOFF were for the [Manifest Completion Plan, SPECOPS-0003](Plan.ManifestComplete.md). The design assumes the decisions of the
@@ -88,7 +88,7 @@ layer, cannot be read or written alone.
 - `marshal` can write only the fields it is given, into a record already
   there, with the values, encodings and checks of a full write.
 - A field inside a sub-manifest or a `:case` branch can be named, for a
-  selective read and for an amendment.
+  selective read and for a patch.
 - Lexter's cell model is described by manifests, tested in the suites, and
   its cells are written and read in place.
 - Each step is released with the Reference updated and tagged.
@@ -108,7 +108,7 @@ the same.
 `(:at index)`, a form evaluated when the code runs: the record begins at
 INDEX of the vector, a destination or source. Both positions begin there.
 `(:at index)` combines with every other option, among them `(:from record)`,
-`(:as :record)`, `(:check nil)` and `(:amend t)`
+`(:as :record)`, `(:check nil)` and `(:patch t)`
 (SPECOPS-DRAFT-over-arrays-D3). It applies to vectors only: with a stream, a
 function or an integer source it is an error when the code runs, and an
 expansion error where the source or destination is a constant. Without it, a
@@ -153,18 +153,18 @@ elsewhere would be corrupt); every position from the record's start (not
 taken: a reported position must locate the fault in the vector, and a result
 relative to the record cannot chain).
 
-### SPECOPS-DRAFT-over-arrays-D3 — `marshal` given `(:amend t)` writes only the fields it is given, into the record already there
+### SPECOPS-DRAFT-over-arrays-D3 — `marshal` given `(:patch t)` writes only the fields it is given, into the record already there
 
 **Status:** Proposed
 **Context:** A writer that changes one field of a record should neither
 supply the others nor decode them. `unmarshal` reads part of a record when it
 is given keys, without a macro of its own (SPECOPS-D61, SPECOPS-D80); writing
 part of a record is the same idea in the other direction.
-**Decision:** `marshal`'s options take `(:amend t)`. An amending write writes
+**Decision:** `marshal`'s options take `(:patch t)`. A patching write writes
 the fields given in the pairs, and with `(:from record)` those the record
 gives a value for, the pairs overriding it; every other unit and bit of the
 record is left as it is. The record must already be in the vector:
-`(marshal plain-cell grid (:at (* 32 i) :amend t) :blink 1)`.
+`(marshal plain-cell grid (:at (* 32 i) :patch t) :blink 1)`.
 
 - **Values** are encoded as a full write encodes them: through enumerations
   and codecs, with range errors, floats and masque overflow as there.
@@ -173,33 +173,38 @@ record is left as it is. The record must already be in the vector:
   one masque given in one call are combined into one such write. A masque's
   static groups and constant digits are not rewritten.
 - **What is never written:** fields not given, unnamed fields, pads, constant
-  strings and slot fields. An amendment changes no field's width
+  strings and slot fields. A patch changes no field's width
   (SPECOPS-DRAFT-over-arrays-D4), so length, count and offset slots stay true.
 - **Finding a field.** A field at a position fixed at expansion, as every
   field of a Lexter cell is, is written at that position with no reads. A
   field after a variable-length one is found by reading the fields that
   locate it, as a selective read does (SPECOPS-D80).
-- **Destinations.** Vectors only, since an amendment reads before it writes;
+- **Destinations.** Vectors only, since a patch reads before it writes;
   a stream or a function is an error when the code runs.
 
+Backpatching a slot (SPECOPS-D34, SPECOPS-D73) is the same operation, a
+change to part of a structure already written, so the option shares its
+name; the steward judged the shared word a help rather than a conflict, since
+backpatching is named mainly inside the layer.
 **Alternatives:** A separate macro, such as `patch` (not taken: the
 steward chose an option of `marshal`, which writes part of a record as
-`unmarshal` reads part of one when given keys); the name
-`:patch` (not taken: the steward chose `:amend`); `:update` (not taken by the
-steward, as too generic); `:deposit`, after Common Lisp's `dpb` and
-`deposit-field` (not taken: the steward chose `:amend`); writes of single
+`unmarshal` reads part of one when given keys); `:amend` (not taken by the
+steward: an amendment is usually understood to add to what it amends, as to a
+document, where a patch changes part of it in place); `:update` (not taken by
+the steward, as too generic); `:deposit`, after Common Lisp's `dpb` and
+`deposit-field` (not taken: the steward chose `:patch`); writes of single
 fields through `setf` of a keyed `unmarshal` form only (not taken as the
 mechanism: it can be added later as a form of this option, for one field).
 
-### SPECOPS-DRAFT-over-arrays-D4 — An amendment refuses what would change the record's layout or leave a checksum stale
+### SPECOPS-DRAFT-over-arrays-D4 — A patch refuses what would change the record's layout or leave a checksum stale
 
 **Status:** Proposed
-**Context:** An amendment writes some fields and trusts the rest. A field
+**Context:** A patch writes some fields and trusts the rest. A field
 whose width can change would move the fields after it, which are not
 rewritten; a field that selects a later field's form would change how that
 field is read; and a field covered by a checksum would leave the checksum
 wrong.
-**Decision:** These are expansion errors under `(:amend t)`, each naming the
+**Decision:** These are expansion errors under `(:patch t)`, each naming the
 field and the option:
 
 - a field whose width is not fixed: a vector without a constant count, a
@@ -207,11 +212,11 @@ field and the option:
 - a field that selects a `:case` branch, or gives a count or a length, unless
   every branch it can select is of one fixed width and no count or length
   depends on it, so that no other field moves; a glyph word's type bit, whose
-  branches are all one word, may be amended;
+  branches are all one word, may be patched;
 - a field inside a region a `:checksum-of` slot covers (the slot's
   recomputation is SPECOPS-DRAFT-over-arrays-O2).
 
-A full write accepts all of these, so the messages say that the amendment is
+A full write accepts all of these, so the messages say that the patch is
 the reason.
 **Alternatives:** Rewriting the fields after a field whose width changes
 (rejected: they would have to be read and written again, which is a full
@@ -225,7 +230,7 @@ and here it can be caught at expansion).
 **Context:** A selective read names a top-level field, or a sub-manifest
 whole. Lexter's glyph words are sub-manifests chosen by type bits, and a
 writer changes a layer's ink slot, a mask's reach, or one glyph, alone.
-**Decision:** A key, in a selective read or in an amendment's pairs, may be a
+**Decision:** A key, in a selective read or in a patch's pairs, may be a
 list of field names from the top level down: `(:g3 :reach)` names the
 `:reach` field of the sub-manifest or branch held by `:g3`. Through a `:case`
 field, the path names a field of whichever branch is in the record; when the
@@ -288,13 +293,13 @@ The other formats follow the same pattern. Tiles add a flag at bit 23, fields
 in byte 3 and in the header word's last byte, two 16-bit tile fields and four
 swatch indices; inline colours hold twelve bytes of colour after three glyph
 words; the void's payload is reserved until Lexter settles it. A manifest
-`cell-common`, of the first eight bytes only, is a view through which an
-amendment changes the fields every format shares, the drawing flags and the
+`cell-common`, of the first eight bytes only, is a view through which a
+patch changes the fields every format shares, the drawing flags and the
 header word's colours, without asking which format a cell has:
 
 ```lisp
-(marshal cell-common grid (:at (* 32 i) :amend t) :blink 1)        ; one byte rewritten
-(marshal plain-cell grid (:at (* 32 i) :amend t) (:g1 :ink) 0)     ; one glyph word's byte
+(marshal cell-common grid (:at (* 32 i) :patch t) :blink 1)        ; one byte rewritten
+(marshal plain-cell grid (:at (* 32 i) :patch t) (:g1 :ink) 0)     ; one glyph word's byte
 (unmarshal plain-cell grid (:at (* 32 i)) (:g1 :reach))            ; a path through a branch
 ```
 
@@ -314,13 +319,13 @@ is built on these manifests.
 
 ## Scope and Non-Goals
 
-- **Streams and functions.** An index and an amendment are for vectors. A
+- **Streams and functions.** An index and a patch are for vectors. A
   stream positioned by `file-position` already serves sequential records, and
-  amending a stream in place is not attempted.
+  patching a stream in place is not attempted.
 - **Fields that read their parent's fields.** A sub-manifest whose fields
   depend on an enclosing manifest's would let Lexter's cell share one
   manifest across formats; per-format manifests serve, so it is left out.
-- **Recomputing slots on amendment**, beyond refusing the case, is
+- **Recomputing slots in a patch**, beyond refusing the case, is
   SPECOPS-DRAFT-over-arrays-O2.
 - **Generating shader code.** The layer will not write GLSL. What a
   generator would need from it is SPECOPS-DRAFT-over-arrays-O3.
@@ -339,23 +344,23 @@ the prototype or a user shows the need:
   check and direct stores. The prototype's measurement decides it.
 - **The layout as data** (SPECOPS-O18, SPECOPS-DRAFT-over-arrays-O3). A
   function giving each fixed field's unit offset, bit offset and width, which
-  an amendment computes anyway, would let a generator, such as Lexter's
+  a patch computes anyway, would let a generator, such as Lexter's
   descriptor, write a shader's decoder from the same manifest.
 
 ## Open Questions
 
-### SPECOPS-DRAFT-over-arrays-O1 — What does an amending write return?
+### SPECOPS-DRAFT-over-arrays-O1 — What does a patching write return?
 
-A full write returns the position after the record. An amendment writes some
+A full write returns the position after the record. A patch writes some
 fields, so the record's end is known only when its size is fixed at
 expansion, as every Lexter cell's is. The current thinking is the position
 after the record when its size is fixed, and otherwise the position after the
 last unit written, which does not chain. Computing a record's size without
 writing it, SPECOPS-O17, would give the record's end in every case.
 
-### SPECOPS-DRAFT-over-arrays-O2 — Should an amendment recompute the checksum slots over the fields it writes?
+### SPECOPS-DRAFT-over-arrays-O2 — Should a patch recompute the checksum slots over the fields it writes?
 
-An amendment refuses a field under a `:checksum-of` slot
+A patch refuses a field under a `:checksum-of` slot
 (SPECOPS-DRAFT-over-arrays-D4). In a vector, the region is there to read, so
 the slot could be recomputed after the fields are written, at the cost of
 locating the region and reading all of it. Whether a format that needs this
@@ -385,9 +390,9 @@ Table: Prior systems and what this plan draws from each.
 | System | What to draw from |
 |---|---|
 | Python `struct` (`pack_into`, `unpack_from`) | A format written into, and read from, a buffer at an offset, the shape of `(:at index)` |
-| Python `ctypes` (`from_buffer`) | A structure laid over a buffer at an offset, whose field assignments write the buffer in place: an amendment of one field |
+| Python `ctypes` (`from_buffer`) | A structure laid over a buffer at an offset, whose field assignments write the buffer in place: a patch of one field |
 | NumPy structured arrays | Arrays of records with named fields, read and assigned one field at a time, across one record or all |
-| Common Lisp `ldb`, `dpb`, `deposit-field` | Writing a field into an integer while keeping its other bits, which an amendment does to a masque's units |
+| Common Lisp `ldb`, `dpb`, `deposit-field` | Writing a field into an integer while keeping its other bits, which a patch does to a masque's units |
 | Common Lisp `replace`, `read-sequence`, `write-sequence` | An index into a sequence given as a keyword, here a record's start rather than a range's |
 | binary-structures ([SPECOPS-0004](Eval.LispBinaryTools.md)) | Offsets tracked at expansion and bounds checked once for a run of fixed fields, for the fast path; a printed layout, for the layout as data |
 | The Cell Model Architecture (Lexter) | The test case: 32-byte records in an upload array, changed a field at a time, with generated accessors that mask the rest of a word |
@@ -406,11 +411,17 @@ Table: Prior systems and what this plan draws from each.
 3. **Paths** (SPECOPS-DRAFT-over-arrays-D5). Keys that name fields inside
    sub-manifests and `:case` branches, for selective reads, with the run-time
    check of the branch.
-4. **Amendments** (SPECOPS-DRAFT-over-arrays-D3,
-   SPECOPS-DRAFT-over-arrays-D4). `(:amend t)`, with paths, masque groups
+4. **Patches** (SPECOPS-DRAFT-over-arrays-D3,
+   SPECOPS-DRAFT-over-arrays-D4). `(:patch t)`, with paths, masque groups
    combined into one write of their units, fixed positions found at
-   expansion and others by reading, the refusals of SPECOPS-DRAFT-over-arrays-D4, and an answer to
-   SPECOPS-DRAFT-over-arrays-O1. The Reference updated, released as 0.3.0.
+   expansion and others by reading, the refusals of
+   SPECOPS-DRAFT-over-arrays-D4, and an answer to
+   SPECOPS-DRAFT-over-arrays-O1. `marshal`'s internal variable `patching`,
+   which marks a manifest with slots written through a buffer
+   (`src/manifest/manifest.lisp:marshal@v0.1.0`), is renamed `backpatching`,
+   so that the code does not use one word for two things. The Reference
+   updated, its sentence on what cannot be patched in place saying
+   "backpatched", and released as 0.3.0.
 5. **Later additions**, as the prototype and users show the need: the fast
    path of SPECOPS-O15 and the layout as data of
    SPECOPS-DRAFT-over-arrays-O3.
