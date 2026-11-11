@@ -66,7 +66,11 @@ fields from when it is given (:from RECORD); NIL when RECORD holds no value for 
                                     (:f32 (setf width 4 subtype-list '(:float)))
                                     (:f64 (setf width 8 subtype-list '(:float)))
                                     (:f128 (setf width 16 subtype-list '(:float)))
-                                    (:str (setf width 1)))
+                                    (:str (setf width 1))
+                                    ((:u :s) (error "Type ~s gives no width: a field's type is (~s width), ~
+                                                     and ~s alone is a masque group's, whose width the ~
+                                                     mask gives." predicate predicate predicate))
+                                    (t (error "Unknown type ~s." predicate)))
                                   (error "Type symbols are only valid for 8-bit output.")))
                      (list (destructuring-bind (is-signed count &rest subtypes) predicate
                              (if (eq :case is-signed)
@@ -106,6 +110,11 @@ fields from when it is given (:from RECORD); NIL when RECORD holds no value for 
                              ;; (:f width): an IEEE binary float, held as its bit pattern
                              (when (eq :f is-signed) (push :float subtype-list)))))
                    (values width signed subtype-list type-indicator type-conditions)))
+               (group-field (spec)
+                 ;; a masque group's width and position come from the mask, so its type gives
+                 ;; only its signedness: :u or :s alone stand for a group of any width
+                 (destructuring-bind (name type &rest options) spec
+                   (list* name (case type (:u '(:u 1)) (:s '(:s 1)) (t type)) options)))
                (process-field (field-spec)
                  (destructuring-bind (symbol predicate &key endian enumerate-by end-by
                                                          count default slot codec stop-by place
@@ -164,7 +173,7 @@ fields from when it is given (:from RECORD); NIL when RECORD holds no value for 
                                         (let ((bindings-out))
                                           (dolist (b bindings)
                                             (push (if (keywordp (second b))
-                                                      (let ((field-out (process-field (rest b))))
+                                                      (let ((field-out (process-field (group-field (rest b)))))
                                                         (setf (getf (rest field-out) :bind-to)
                                                               (list 'quote (first b)))
                                                         field-out)

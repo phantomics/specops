@@ -63,7 +63,7 @@ back as a plist, the enumerated :kind as its keyword."
 
 (defmanifest frame-header (:unit 8 :endian :big :length 12)
   (str "FR")
-  (masque "h:vvff" (v #x01) (f :flags :u8 :default 0))
+  (masque "h:vvff" (v #x01) (f :flags :u :default 0))
   (:count :u8 :default 0)
   (pad 0 :align 4)
   (:id :u8 :default 0))

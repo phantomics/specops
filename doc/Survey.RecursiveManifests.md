@@ -177,8 +177,8 @@ chain, ended by an upper-layer protocol (*RFC 8200*, §4).
                      :icmpv6 58 :none 59 :destination-options 60)
 
 (defmanifest ipv6-packet (:unit 8 :endian :big)
-  (masque "h:vttfffff" (v #x6) (t :traffic-class :u8 :default 0)
-          (f :flow-label :u32 :default 0))
+  (masque "h:6ttfffff" (t :traffic-class :u :default 0)
+          (f :flow-label :u :default 0))
   (:payload-length :u16 :slot (:length-of :rest))
   (:next :u8 :default :none :enumerate-by ip-next)
   (:hop-limit :u8 :default 64)
@@ -233,8 +233,8 @@ written this way.
 
 ```lisp
 (defmanifest ber-element (:unit 8 :endian :big)
-  (masque "b:ccpttttt" (c :class :u8 :default 0)
-          (p :constructed :u8 :default 0) (t :tag :u8 :default 0))
+  (masque "b:ccpttttt" (c :class :u :default 0)
+          (p :constructed :u :default 0) (t :tag :u :default 0))
   (:body (:case :constructed
            (0 (manifest ber-primitive))
            (1 (manifest ber-constructed)))))

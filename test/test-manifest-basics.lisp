@@ -48,6 +48,14 @@
   (masque "h:pptt" (p #x00) (t :kind :u8 :default 0))
   (:tail :u8 :default 0))
 
+;; Groups typed :u and :s, whose widths the masks give: one, four and three bits, and two
+;; bytes of a 16-bit unit, where a type like :u8 is not allowed.
+(defmanifest group-type-probe (:unit 8 :endian :big)
+  (masque "b:fssssddd" (f :flag :u :default 0) (s :small :s :default 0) (d :delta :u :default 0)))
+
+(defmanifest word-group-probe (:unit 16 :endian :big)
+  (masque "h:aabb" (a :high :s :default 0) (b :low :u :default 0)))
+
 ;; An enumerated masque group whose default is a keyword.
 (defmanifest masque-default-probe (:unit 8 :endian :big)
   (masque "h:aabb" (a :mode  :u8 :default :rgb :enumerate-by png-color-type)
@@ -467,6 +475,34 @@ selectively."
               (unmarshal masque-selector-probe (->bytes #(2 0 2 1)))))
   (is (equalp 513
               (unmarshal masque-selector-probe (->bytes #(2 0 2 1)) nil :v))))
+
+;; Group types that give only signedness.
+(def-test group-types-u-and-s-take-their-widths-from-the-mask ()
+  "A group typed :u or :s takes its width from the mask: a one-bit flag, a four-bit signed
+group written in two's complement and read back sign-extended, and a three-bit group."
+  (let ((buf (ub8 1)))
+    (marshal group-type-probe buf :flag 1 :small -3 :delta 5)
+    (is (equalp '(#b11101101) (coerce buf 'list)))
+    (is (equalp '(:flag 1 :small -3 :delta 5) (unmarshal group-type-probe buf)))))
+
+(def-test group-types-u-and-s-in-a-manifest-of-16-bit-units ()
+  "Groups typed :u and :s serve in a manifest of 16-bit units, where keyword types such as :u8
+are not allowed."
+  (let ((buf (make-array 1 :element-type '(unsigned-byte 16))))
+    (marshal word-group-probe buf :high -2 :low #x34)
+    (is (equalp '(#xFE34) (coerce buf 'list)))
+    (is (equalp '(:high -2 :low #x34) (unmarshal word-group-probe buf)))))
+
+(def-test a-field-typed-u-or-s-alone-or-an-unknown-keyword-is-an-expansion-error ()
+  "A field whose type is :u or :s with no width, or a keyword that names no type, is an error
+when the manifest is defined, with a message that names the type."
+  (dolist (type '(:u :s :u12))
+    (let ((message (handler-case (progn (macroexpand-1 `(defmanifest bad-type-probe
+                                                            (:unit 8 :endian :big)
+                                                          (:a ,type :default 0)))
+                                        "")
+                     (error (e) (princ-to-string e)))))
+      (is-true (search (prin1-to-string type) message)))))
 
 ;;; ============================================================
 ;;; Constant strings: chunk tags, codecs and terminators
