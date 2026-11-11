@@ -315,6 +315,18 @@ manifest with slots to a stream or a function."
       (marshal chunk (lambda (u) (push u units)) (:buffer b) :data data))
     (is (eql 27 (length units)))))
 
+(def-test ref-records-at-an-index ()
+  "(:at index) writes or reads a record at that index of a vector; marshal returns the
+position after the record, so records can be written one after another."
+  (let ((shapes (make-array 21 :element-type '(unsigned-byte 8)))
+        (i 0))
+    (dolist (x '(1 2 3))
+      (setf i (marshal shape shapes (:at i) :kind :square :x x)))
+    (is (eql 21 i))
+    (is (equalp (octets 2 0 1 0 0 0 1  2 0 2 0 0 0 1  2 0 3 0 0 0 1) shapes))
+    (is (eql 2 (unmarshal shape shapes (:at 7) :x)))
+    (is (equalp '(:kind :square :x 3 :y 0 :size 1) (unmarshal shape shapes (:at 14))))))
+
 (def-test ref-marshal-overrun ()
   "A vector too small signals manifest-overrun, whose readers give the manifest, the
 vector's size and the unit that would not fit."

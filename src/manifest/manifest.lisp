@@ -422,7 +422,9 @@ of one unit, and return the position after the last unit. PAIRS give field value
 keywords and forms, and may begin with a list of options: (:from RECORD) takes every field
 not given in PAIRS from RECORD, a plist or a manifest's record, when the code runs, and
 (:buffer B) keeps in B, a manifest-buffer, the buffer through which a manifest with slots is
-written to a stream or a function. A vector too small signals manifest-overrun."
+written to a stream or a function, and (:at INDEX) writes the record at INDEX of a vector
+destination, returning the position after it; offset slots count from the record's start. A
+vector too small signals manifest-overrun."
   (let* ((options (and (consp (first pairs)) (first pairs)))
          (pairs (if options (rest pairs) pairs))
          (from (and (getf options :from) (gensym "REC")))
@@ -438,6 +440,9 @@ written to a stream or a function. A vector too small signals manifest-overrun."
          (patching (and (not nested) (manifest-slots-p (rest spec))))
          (unit-type `(unsigned-byte ,(ash 1 (+ 3 (or (getf params :unit-spec) 0)))))
          (holder (and (not nested) (getf options :buffer) (gensym "HOLDER")))
+         ;; (:at index): the record begins at INDEX of a vector destination
+         (at (and (not nested) (getf options :at)))
+         (origin nil)
          (dest (gensym "DEST")) (in-place (gensym "IN-PLACE")) (limit (gensym "LIMIT"))
          ;; the tags of placed fields, here or nested, when this is the top-level expansion
          (place-tags (and (not nested) (manifest-places (rest spec))))
@@ -447,8 +452,12 @@ written to a stream or a function. A vector too small signals manifest-overrun."
          places)
 
     (loop :for (key) :on options :by #'cddr
-          :unless (member key '(:from :buffer))
+          :unless (member key '(:from :buffer :at))
             :do (error "marshal: unknown option ~s for manifest ~s." key name))
+
+    (when (and at (consp destination) (member (first destination) '(function lambda)))
+      (error "marshal: (:at ~s) needs a vector destination, not the function ~s."
+             at destination))
 
     (unless nested
       (multiple-value-bind (placed declared) (manifest-places (rest spec))
@@ -460,11 +469,11 @@ written to a stream or a function. A vector too small signals manifest-overrun."
     ;; populate the symbol lexicon or import it from an enclosing marshal macro
     (if (getf pairs :-+sub-lexicon+-)
         (destructuring-bind (&key ac-sym en-sym ba-sym in-sym wr-sym pr-sym
-                               vl-sym ln-sym sr-sym mp-sym ct-sym b-sym i-sym pl-sym)
+                               vl-sym ln-sym sr-sym mp-sym ct-sym b-sym i-sym pl-sym or-sym)
             (getf pairs :-+sub-lexicon+-)
           (setf access ac-sym enter en-sym base ba-sym index in-sym write wr-sym prefix pr-sym
                 values vl-sym length ln-sym serializers sr-sym map mp-sym counts ct-sym
-                b b-sym i i-sym places pl-sym
+                b b-sym i i-sym places pl-sym origin or-sym
                 ;; propagate the same lexicon to deeper sub-manifests so nested
                 ;; inlining keeps sharing the top-level environment
                 sub-lexicon (getf pairs :-+sub-lexicon+-)))
@@ -480,11 +489,13 @@ written to a stream or a function. A vector too small signals manifest-overrun."
               b (gensym "BB")
               i (gensym "II")
               places (and place-tags (gensym "PLACES"))
+              ;; where the record begins, from which its offset slots count
+              origin (gensym "ORIGIN")
               sub-lexicon (list :ac-sym access :en-sym enter :ba-sym base :in-sym index
                                 :wr-sym write
                                 :vl-sym values :ln-sym length
                                 :sr-sym serializers :mp-sym map :ct-sym counts :b-sym b :i-sym i
-                                :pl-sym places)))
+                                :pl-sym places :or-sym origin)))
 
 
     
@@ -520,7 +531,7 @@ written to a stream or a function. A vector too small signals manifest-overrun."
                               ,(case slot-type
                                  (:length-of `(- (third (assoc ,name ,map))
                                                  (second (assoc ,name ,map))))
-                                 (:offset-of `(second (assoc ,name ,map)))
+                                 (:offset-of `(- (second (assoc ,name ,map)) ,origin))
                                  (:count-of `(rest (assoc ,name ,counts)))))
                         (second (assoc ',slot-field ,map)))) ; slot's reserved position
              (counted-form (qname form)
@@ -675,7 +686,7 @@ written to a stream or a function. A vector too small signals manifest-overrun."
                                                      (cons ,width
                                                            ,(ecase kind
                                                               (:length-of `(- ,end ,start))
-                                                              (:offset-of start)
+                                                              (:offset-of `(- ,start ,origin))
                                                               (:checksum-of
                                                                `(funcall ,(getf (cddr (getf (find slot-field slots
                                                                                                  :key (lambda (s) (qualify (getf s :name))))
@@ -920,8 +931,14 @@ written to a stream or a function. A vector too small signals manifest-overrun."
                   ;; bind selector variables in sub-manifest's expression
                   `(let* ((,access ,destination)
                           ,@(and from `((,from ,(getf options :from))))
-                          (,index ,(or offset 0))
+                          (,index ,(cond (at `(let ((,i ,at))
+                                                (unless (typep ,i '(integer 0))
+                                                  (error "marshal: (:at ~s) is not an index of ~
+                                                          a vector." ,i))
+                                                ,i))
+                                         (t (or offset 0))))
                           (,base ,index)
+                          (,origin ,index)
                           (,values) ;; (,bindings-sym)
                           ,@(if (getf params :length) `((,length ,(getf params :length))))
                           ;; ,@(loop :for c :in (case-selectors (rest spec)) :collect (list c '(gensym)))
@@ -951,6 +968,9 @@ written to a stream or a function. A vector too small signals manifest-overrun."
                                ;; otherwise in a buffer, passed on once the record is complete
                                `(((simple-array ,unit-type (*))
                                   (,in-place (array-dimension ,access 0)))
+                                 ,@(and at `(((or function stream)
+                                              (error "marshal: (:at ~s) needs a vector destination, ~
+                                                      not ~s." ,index ,access))))
                                  ((or vector function stream)
                                   (,in-place most-positive-fixnum) ; for its patching WRITE
                                   (setf ,dest ,access
@@ -962,6 +982,9 @@ written to a stream or a function. A vector too small signals manifest-overrun."
                                                  (setf (aref ,access ,index) ,b)
                                                  (incf ,index)))))
                                `((vector   (,in-place (array-dimension ,access 0)))
+                                 ,@(and at `(((or function stream)
+                                              (error "marshal: (:at ~s) needs a vector destination, ~
+                                                      not ~s." ,index ,access))))
                                  (function (setf ,enter (lambda (,b) (funcall ,access ,b) (incf ,index))))
                                  (stream   (setf ,enter (lambda (,b) (write-byte ,b ,access) (incf ,index))))))
                          (t (error "marshal: manifest ~s cannot be written to ~s, which is not a vector, ~
@@ -1176,7 +1199,8 @@ Otherwise return every named field, as a plist or,
 given (:as :record) in PARAMS, as an instance of the manifest's record class. Checksums,
 length, offset and count slots, and constants are checked as they are read, and a failure
 signals manifest-check-failed; (:check nil) in PARAMS leaves the checks out. (:buffer B)
-keeps in B, a manifest-buffer, the units read from a stream."
+keeps in B, a manifest-buffer, the units read from a stream, and (:at INDEX) reads the record
+at INDEX of a vector source; offset slots count from the record's start."
   (let* ((spec (gethash name *manifests*))
          (manifest-name name)
          (config (and (eq :config (getf (first spec) :type))
@@ -1215,8 +1239,10 @@ keeps in B, a manifest-buffer, the units read from a stream."
          (base (gensym "BA")) (dsym (gensym "DS"))
          ;; a manifest-buffer that a stream source keeps its units in, given (:buffer b)
          (holder (and (not nested) (getf params :buffer) (gensym "HOLDER")))
+         ;; (:at index): the record begins at INDEX of a vector source
+         (at (and (not nested) (getf params :at)))
          (unit-type `(unsigned-byte ,(ash 1 (+ 3 (or (getf config :unit-spec) 0)))))
-         raws sub-lexicon prefix cursor
+         raws sub-lexicon prefix cursor origin
          ;; a buffer of an integer source's units, made at most once, for checksums
          buffer
          ;; a plist of the furthest unit read by fields placed under each tag, for the place
@@ -1224,7 +1250,7 @@ keeps in B, a manifest-buffer, the units read from a stream."
          ends)
     
     (loop :for (key) :on params :by #'cddr
-          :unless (member key '(:as :check :buffer :-+sub-lexicon+- :-+select+-))
+          :unless (member key '(:as :check :buffer :at :-+sub-lexicon+- :-+select+-))
             :do (error "unmarshal: unknown option ~s for manifest ~s." key name))
     (unless (member as '(:plist :record))
       (error "unmarshal: :as must be :plist or :record, not ~s." as))
@@ -1233,15 +1259,22 @@ keeps in B, a manifest-buffer, the units read from a stream."
     (when (and (eq as :record) (not nested) (not record-class))
       (error "unmarshal: manifest ~s has no record class; give it (:record t)." name))
 
+    (when (and at (or (integerp source)
+                      (and (consp source) (eq 'quote (first source)) (consp (second source)))))
+      (error "unmarshal: (:at ~s) needs a vector source, not the integer source ~s." at source))
+
     (if (getf params :-+sub-lexicon+-)
-        (destructuring-bind (&key cr-sym pr-sym bf-sym pe-sym &allow-other-keys)
+        (destructuring-bind (&key cr-sym pr-sym bf-sym pe-sym or-sym &allow-other-keys)
             (getf params :-+sub-lexicon+-)
-          (setf cursor cr-sym prefix pr-sym buffer bf-sym ends pe-sym
+          (setf cursor cr-sym prefix pr-sym buffer bf-sym ends pe-sym origin or-sym
                 sub-lexicon (getf params :-+sub-lexicon+-)))
         (setf cursor (gensym "CR")
               buffer (and check (manifest-slots-p (rest spec) :checksum-of) (gensym "BUF"))
               ends (and (manifest-places (rest spec)) (gensym "ENDS"))
-              sub-lexicon (list :cr-sym cursor :ds-sym dsym :bf-sym buffer :pe-sym ends)))
+              ;; where the record begins, from which its offset slots count
+              origin (gensym "ORIGIN")
+              sub-lexicon (list :cr-sym cursor :ds-sym dsym :bf-sym buffer :pe-sym ends
+                                :or-sym origin)))
           
     ;; (loop :for item :in (rest spec) :do (setf (getf fields (getf item :name)) item))
 
@@ -1420,7 +1453,7 @@ keeps in B, a manifest-buffer, the units read from a stream."
                           (exp (gensym "EXPECTED")) (v (gensym "V")) (use (gensym "USE")))
                      `(let ((,exp ,(ecase kind
                                      (:length-of `(- ,end ,start))
-                                     (:offset-of start)
+                                     (:offset-of `(- ,start ,origin))
                                      (:count-of `(length ,(var-of region field)))
                                      (:checksum-of `(funcall ,by ,(buffer-form) ,start ,end)))))
                         (unless (eql ,var ,exp)
@@ -1466,7 +1499,7 @@ keeps in B, a manifest-buffer, the units read from a stream."
                        (unless off
                          (error "unmarshal: placed field ~s of manifest ~s has no :offset-of slot, ~
                                  so it cannot be found." rname manifest-name))
-                       (push `(setf ,save ,cursor ,cursor ,(var-of off rname)) reads)))
+                       (push `(setf ,save ,cursor ,cursor (+ ,origin ,(var-of off rname))) reads)))
                    (when (first rv) (push `(setf ,(first rv) ,cursor) reads))
                    (when at (push `(setf ,at ,cursor) reads))
                    (if (and (not (eq :span (getf item :type))) (eq :skip (mode-of item)))
@@ -1657,19 +1690,32 @@ keeps in B, a manifest-buffer, the units read from a stream."
 
         `(let* (,@(and holder `((,holder ,(getf params :buffer))))
                 ;; at the top level a stream is wrapped, so that its units are kept as read
-                (,src ,(if nested
-                           source
-                           (let ((s (gensym "S")))
-                             `(let ((,s ,source))
-                                (if (streamp ,s)
-                                    (make-stream-source
-                                     ,s (or ,(and holder `(reusable-buffer ,holder ',unit-type))
-                                            (make-array 256 :element-type ',unit-type)))
-                                    ,s)))))
-                (,base ,(if (getf params :-+sub-lexicon+-) cursor 0))
+                (,src ,(cond (nested source)
+                             (at (let ((s (gensym "S")))
+                                   `(let ((,s ,source))
+                                      (unless (vectorp ,s)
+                                        (error "unmarshal: (:at ~s) needs a vector source, not ~s."
+                                               ,at ,s))
+                                      ,s)))
+                             (t (let ((s (gensym "S")))
+                                  `(let ((,s ,source))
+                                     (if (streamp ,s)
+                                         (make-stream-source
+                                          ,s (or ,(and holder `(reusable-buffer ,holder ',unit-type))
+                                                 (make-array 256 :element-type ',unit-type)))
+                                         ,s))))))
+                ,@(and (not nested)
+                       `((,origin ,(if at
+                                       (let ((i (gensym "I")))
+                                         `(let ((,i ,at))
+                                            (unless (typep ,i '(integer 0))
+                                              (error "unmarshal: (:at ~s) is not an index of a vector." ,i))
+                                            ,i))
+                                       0))))
+                (,base ,(if (getf params :-+sub-lexicon+-) cursor origin))
                 (,dsym (vector ,@(coerce dvector 'list)))
                 ,@(and (not (getf params :-+sub-lexicon+-))
-                       (list (list cursor 0)))
+                       (list (list cursor origin)))
                 ,@(and buffer (not nested) `((,buffer nil)))
                 ,@(loop :for (nil start end) :in region-vars
                         :when start :collect (list start 0)

@@ -104,6 +104,17 @@
   (:palette :u8 :default 0)
   (masque "b:ccccccgg" (g :background :u :default 0) (c :colour-parameters :u :default 0)))
 
+;; Entries whose data is placed after them, with offsets from the record's start.
+(defmanifest indexed-entry (:unit 8 :endian :big)
+  (:offset :u8 :slot (:offset-of :data))
+  (:size   :u8 :slot (:length-of :data))
+  (:data   (:u 1 :vec) :place :blobs))
+
+(defmanifest indexed-archive (:unit 8 :endian :big)
+  (:n :u8 :slot (:count-of :entries))
+  (manifest :entries indexed-entry :count :n)
+  (place :blobs))
+
 (defun read-cell (record)
   "RECORD, a 32-byte cell, read through the manifest of the format its first byte names."
   (ecase (aref record 0)
@@ -301,3 +312,107 @@ reproduces its bytes."
         (0 (marshal plain-cell buf (:from plist)))
         (4 (marshal tile-cell buf (:from plist))))
       (is (equalp record buf)))))
+
+;;; ============================================================
+;;; Records at an index
+;;; ============================================================
+
+(def-test a-cell-written-at-an-index-of-a-grid ()
+  "(:at index) writes a record at that index of a vector, leaving the rest of the vector as
+it was, and returns the position after it, so records can be written one after another."
+  (let ((grid (make-array 96 :element-type '(unsigned-byte 8) :initial-element #xEE))
+        (cell (cell-octets 0 1 0 0  #x34 #x12 7 1  103 0 0 0)))
+    (is (eql 64 (marshal plain-cell grid (:at 32) :glyph-count 1 :swatch #x1234 :palette 7
+                                                  :background 1 :g0 (:glyph 103 :ink 0))))
+    (is (equalp cell (subseq grid 32 64)))
+    (is-true (every (lambda (u) (= u #xEE)) (subseq grid 0 32)))
+    (is-true (every (lambda (u) (= u #xEE)) (subseq grid 64 96)))
+    (let ((i 0))
+      (dotimes (k 3)
+        (setf i (marshal plain-cell grid (:at i) :glyph-count 1 :g0 (:glyph (+ 100 k) :ink 1))))
+      (is (eql 96 i))
+      (is (equalp '(100 101 102)
+                  (loop :for k :below 3
+                        :collect (getf (unmarshal plain-cell grid (:at (* 32 k)) :g0) :glyph)))))))
+
+(def-test a-cell-read-at-an-index-in-full-and-selectively ()
+  "(:at index) reads a record from that index of a vector, in full or one field."
+  (let ((grid (ub8 96)))
+    (replace grid (cell-octets 0 2 4 0  #x34 #x12 7 0  9 0 0 #x04  103 0 0 #x02) :start1 64)
+    (is (eql 2 (getf (unmarshal plain-cell grid (:at 64)) :glyph-count)))
+    (is (eql 1 (unmarshal plain-cell grid (:at 64) :blink)))
+    (is (equalp '(:plain 7) (multiple-value-list
+                             (unmarshal cell-common grid (:at 64) :format :palette))))
+    (is (eql 0 (unmarshal cell-common grid (:at 0) :blink)))))
+
+(def-test a-png-at-an-index-has-its-crcs-over-the-units-where-they-lie ()
+  "A record with checksum slots written at an index is checksummed over its units where they
+lie, reads back with no failed check, and a failure is reported at its position in the
+vector."
+  (let* ((png (make-1x1-png))
+         (v (ub8 (+ 5 (length png)))))
+    (is (eql (+ 5 (length png)) (marshal png-file v (:at 5 :from (unmarshal png-file png)))))
+    (is (equalp png (subseq v 5)))
+    (is (null (failed-checks (lambda () (unmarshal png-file v (:at 5))))))
+    (setf (aref v (+ 5 57)) (logxor (aref v (+ 5 57)) 1))     ; IDAT's CRC, at units 56 to 59
+    (is (eql (+ 5 56)
+             (handler-case (progn (unmarshal png-file v (:at 5)) nil)
+               (manifest-check-failed (c) (check-position c)))))))
+
+(def-test offsets-in-a-record-at-an-index-count-from-its-start ()
+  "An :offset-of slot holds an offset from the record's start, written and read, so a record
+written at an index holds the same units as at 0, and its placed fields are read there."
+  (let ((at-zero (ub8 8))
+        (at-three (ub8 11)))
+    (marshal indexed-archive at-zero :entries (list (list :data #(1 2)) (list :data #(3))))
+    (marshal indexed-archive at-three (:at 3) :entries (list (list :data #(1 2)) (list :data #(3))))
+    (is (equalp '(2  5 2  7 1  1 2 3) (coerce at-zero 'list)))
+    (is (equalp at-zero (subseq at-three 3)))
+    (is (equalp '(:n 2 :entries ((:offset 5 :size 2 :data #(1 2)) (:offset 7 :size 1 :data #(3))))
+                (unmarshal indexed-archive at-three (:at 3)))))
+  (let ((v (ub8 7)))
+    (marshal checked-offset-probe v (:at 3) :x 9 :body #x0102)
+    (is (equalp '(0 0 0  2 9 1 2) (coerce v 'list)))
+    (is (null (failed-checks (lambda () (unmarshal checked-offset-probe v (:at 3))))))))
+
+(def-test a-to-pad-counts-from-the-record-and-an-align-pad-from-the-vector ()
+  "A :to pad counts from the record's start and an :align pad from the vector's, so a record
+at index 1 is aligned to the vector's boundaries and padded to its own length."
+  (let ((v (make-array 14 :element-type '(unsigned-byte 8) :initial-element #xEE)))
+    (is (eql 14 (marshal pad-probe v (:at 1) :len 1 :data #(7) :x #x11 :y #x22)))
+    (is (equalp '(#xEE  1 7 #xAA  #x11  0 0 0 0 0 0 0 0  #x22) (coerce v 'list)))
+    (is (equalp '(:len 1 :data #(7) :x #x11 :y #x22) (unmarshal pad-probe v (:at 1))))))
+
+(def-test a-record-at-an-index-past-the-end-of-its-vector-overruns ()
+  "A record that would not fit after its index signals manifest-overrun, whose position is
+the unit in the vector that would not fit."
+  (let ((c (handler-case (marshal plain-cell (ub8 96) (:at 80))
+             (manifest-overrun (c) c))))
+    (is (eql 96 (overrun-size c)))
+    (is (eql 96 (overrun-position c)))))
+
+(def-test a-record-with-slots-at-an-index-of-a-vector-with-a-fill-pointer ()
+  "A record with slots written at an index of a vector that is not simple goes through a
+buffer, and lands at that index."
+  (let* ((png (make-1x1-png))
+         (v (make-array (+ 4 (length png)) :element-type '(unsigned-byte 8) :fill-pointer 0
+                                           :initial-element 0)))
+    (marshal png-file v (:at 4 :from (unmarshal png-file png)))
+    (is (equalp (coerce png 'list)
+                (loop :for u :from 4 :below (array-dimension v 0) :collect (aref v u))))
+    (is (eql 0 (fill-pointer v)))))
+
+(def-test at-an-index-needs-a-vector-and-an-index ()
+  "(:at index) with a destination or a source that is not a vector, or an index that is not
+a non-negative integer, is an error: at expansion where the form shows it, and when the code
+runs otherwise."
+  (signals error (macroexpand-1 '(marshal plain-cell (lambda (u) u) (:at 0))))
+  (signals error (macroexpand-1 '(unmarshal plain-cell 0 (:at 0))))
+  (signals error (macroexpand-1 '(unmarshal plain-cell '(32 . 0) (:at 0))))
+  (let ((f (lambda (u) u)))
+    (signals error (marshal plain-cell f (:at 0))))
+  (let ((n 0))
+    (signals error (unmarshal plain-cell n (:at 0))))
+  (let ((i -1))
+    (signals error (marshal plain-cell (ub8 32) (:at i)))
+    (signals error (unmarshal plain-cell (ub8 32) (:at i)))))
