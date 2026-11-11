@@ -21,6 +21,8 @@ decisions:
   - SPECOPS-DRAFT-over-arrays-D3
   - SPECOPS-DRAFT-over-arrays-D4
   - SPECOPS-DRAFT-over-arrays-D5
+  - SPECOPS-DRAFT-over-arrays-D6
+  - SPECOPS-DRAFT-over-arrays-D7
 open-questions:
   - SPECOPS-DRAFT-over-arrays-O1
   - SPECOPS-DRAFT-over-arrays-O2
@@ -177,8 +179,9 @@ record is left as it is. The record must already be in the vector:
   (SPECOPS-DRAFT-over-arrays-D4), so length, count and offset slots stay true.
 - **Finding a field.** A field at a position fixed at expansion, as every
   field of a Lexter cell is, is written at that position with no reads. A
-  field after a variable-length one is found by reading the fields that
-  locate it, as a selective read does (SPECOPS-D80).
+  field after a variable-length one would be found by reading the fields that
+  locate it, as a selective read does (SPECOPS-D80); that case is deferred by
+  SPECOPS-DRAFT-over-arrays-D7.
 - **Destinations.** Vectors only, since a patch reads before it writes;
   a stream or a function is an error when the code runs.
 
@@ -243,6 +246,39 @@ taken: it would clash with field names and could not be told apart from
 them); a path that names the branch as well, such as `(:g3 :mask :reach)`
 (not taken: the branch is in the record, and naming it would only add a way
 to be wrong, which the run-time check catches anyway).
+
+### SPECOPS-DRAFT-over-arrays-D6 — A patch returns the position after the record
+
+**Status:** Proposed
+**Context:** A full write returns the position after the record, so that
+records can be written one after another (SPECOPS-DRAFT-over-arrays-D2). A
+patch writes some fields, so the position after its last unit is not, in
+general, the record's end (SPECOPS-DRAFT-over-arrays-O1).
+**Decision:** A patching write returns the position after the record, as a
+full write does, so that patches chain like full writes. For a record whose
+size is fixed at expansion, as every Lexter cell's is, the position is the
+record's start plus that size, with no reads. For one whose size is not, the
+patch passes over the fields after those it writes, as a selective read
+passes over fields (SPECOPS-D81), to find the record's end.
+**Alternatives:** The position after the last unit written (not taken by the
+steward: a result that is not the record's end cannot chain); nothing (not
+taken: a writer of records in sequence would have to compute each record's
+end itself).
+
+### SPECOPS-DRAFT-over-arrays-D7 — Patching a field whose position depends on an earlier field of varying width is reserved for later
+
+**Status:** Proposed
+**Context:** SPECOPS-DRAFT-over-arrays-D3 finds a field after a
+variable-length one by reading the fields that locate it. Lexter's cells, the
+case in view, place every field at a fixed position, and locating a field by
+reading is the hardest part of a patch.
+**Decision:** A patch of a field whose position is not fixed at expansion is
+an expansion error, naming the field and the earlier field of varying width
+it follows, until a later step builds the reading that locates it. Fields at
+fixed positions are patched as SPECOPS-DRAFT-over-arrays-D3 describes.
+**Alternatives:** Locating such fields by reading in the same step (not taken:
+the steward chose to reserve it, since no format in view needs it, and
+building it would delay the patches that Lexter does need).
 
 ## Lexter's cell model as a test case
 
@@ -357,6 +393,7 @@ expansion, as every Lexter cell's is. The current thinking is the position
 after the record when its size is fixed, and otherwise the position after the
 last unit written, which does not chain. Computing a record's size without
 writing it, SPECOPS-O17, would give the record's end in every case.
+SPECOPS-DRAFT-over-arrays-D6 answers it: the position after the record.
 
 ### SPECOPS-DRAFT-over-arrays-O2 — Should a patch recompute the checksum slots over the fields it writes?
 
@@ -407,21 +444,21 @@ Table: Prior systems and what this plan draws from each.
    SPECOPS-DRAFT-over-arrays-D2). `(:at index)` for `marshal` and `unmarshal`
    over vectors, with the positions of SPECOPS-DRAFT-over-arrays-D2, tested on Lexter's cells, on PNG
    and WOFF records placed at an index, and on records chained by `marshal`'s
-   result. The Reference updated, released as 0.2.0.
+   result. The Reference updated, released as 0.1.3.
 3. **Paths** (SPECOPS-DRAFT-over-arrays-D5). Keys that name fields inside
    sub-manifests and `:case` branches, for selective reads, with the run-time
    check of the branch.
 4. **Patches** (SPECOPS-DRAFT-over-arrays-D3,
    SPECOPS-DRAFT-over-arrays-D4). `(:patch t)`, with paths, masque groups
    combined into one write of their units, fixed positions found at
-   expansion and others by reading, the refusals of
-   SPECOPS-DRAFT-over-arrays-D4, and an answer to
-   SPECOPS-DRAFT-over-arrays-O1. `marshal`'s internal variable `patching`,
+   expansion and others refused (SPECOPS-DRAFT-over-arrays-D7), the
+   refusals of SPECOPS-DRAFT-over-arrays-D4, and the record's end returned
+   (SPECOPS-DRAFT-over-arrays-D6). `marshal`'s internal variable `patching`,
    which marks a manifest with slots written through a buffer
    (`src/manifest/manifest.lisp:marshal@v0.1.0`), is renamed `backpatching`,
    so that the code does not use one word for two things. The Reference
    updated, its sentence on what cannot be patched in place saying
-   "backpatched", and released as 0.3.0.
+   "backpatched", and released as 0.1.4, with the paths of step 3.
 5. **Later additions**, as the prototype and users show the need: the fast
    path of SPECOPS-O15 and the layout as data of
    SPECOPS-DRAFT-over-arrays-O3.
@@ -429,3 +466,53 @@ Table: Prior systems and what this plan draws from each.
 Each step is recorded in an update to the
 [Manifest Development Log, SPECOPS-0006](Log.Manifest.md) and a progress
 update to this plan.
+
+## Update 2026-11-11 — Progress: the prototype
+
+This installment charts the plan's progress at commit `f85a370`, which
+completes its first step: Lexter's cell model as a test format, in the suite
+`manifest-arrays`, with a measurement of what a cell costs. The
+[Manifest Development Log's](Log.Manifest.md) update of the same date records
+the work. The steward has since settled two of the plan's questions, recorded
+above as SPECOPS-DRAFT-over-arrays-D6 and SPECOPS-DRAFT-over-arrays-D7, and
+renumbered the releases: records at an index are 0.1.3, and paths with
+patches 0.1.4, the steps being too small for 0.2.0, which is to follow further
+work.
+
+### Progress
+
+Table: State of each Roadmap step at commit `f85a370`.
+
+| Step | State | Done | Remaining |
+|---|---|---|---|
+| 1. The prototype | Done | Lexter's plain, inline-colour and tile cells, and the view `cell-common`, in 14 tests against the worked records of Lexter's architecture; the format's three open points settled; the cost measured | — |
+| 2. Records at an index | Not started | — | `(:at index)`, released as 0.1.3 |
+| 3. Paths | Not started | — | Keys through sub-manifests and `:case` branches |
+| 4. Patches | Not started | — | `(:patch t)`, released as 0.1.4 with paths |
+| 5. Later additions | Not started | — | The fast path; the layout as data |
+
+The prototype found that Lexter's format needs no feature beyond release
+0.1.2: a 16-bit masque in a little-endian manifest, glyph words chosen by
+type bits, and a record of zeros as a blank cell all work as the plan
+expected. It also found that a full write of one cell costs some 2,500 ns
+and allocates some 1,340 bytes, about three hundred times the cost of packing
+the cell by hand, and that reading one flag costs some 210 ns and allocates
+144 bytes (`scripts/bench-cell.lisp`). A screen written in full each frame
+would spend tens of milliseconds and megabytes of allocation on it.
+
+### Priorities
+
+1. **The cost of a call,** if the steward brings it forward: finding where
+   the time and the allocation go, then the fast path for records of fixed
+   size (SPECOPS-O15), before `:at` and patches are built on the code as it
+   stands. A patch of a fixed record would otherwise carry the same costs. The
+   order is the steward's to decide.
+2. **Records at an index,** released as 0.1.3.
+3. **Paths and patches,** released as 0.1.4.
+
+### Dependencies
+
+Records at an index depend on nothing open. Patches depend on paths, for the
+fields of Lexter's glyph words. The fast path depends on nothing, and the
+work after it would be simpler for having it; the layout as data waits for
+patches, which compute the positions it would describe.

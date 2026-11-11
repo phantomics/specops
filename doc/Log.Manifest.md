@@ -122,8 +122,9 @@ log carry the record forward: that of 2026-10-30 to commit `653345f`, three
 of 2026-10-31, to commits `738105a`, `d030f5c` and `2e1af03`, ten of
 2026-11-01, to commits `4f9c6d4`, `d7ba27f`, `1cc7600`, `b63b7d2`, `239b2f7`,
 `cb931c8`, `52b81e5`, `e340210`, `5862d3a` and `e4a1f9a`, that of 2026-11-02
-to commit `de25ae7`, tagged `v0.1.0`, and two of 2026-11-11, to commits
-`adc24c0` and `17bac3c`, tagged `v0.1.1` and `v0.1.2`. The repository restructure that followed
+to commit `de25ae7`, tagged `v0.1.0`, and three of 2026-11-11, to commits
+`adc24c0`, `17bac3c` and `f85a370`, the first two tagged `v0.1.1` and
+`v0.1.2`. The repository restructure that followed
 moved the files this log names (see
 [SPECOPS-0005](Log.Restructure.md)); code references stay pinned
 to the commits that held the work.
@@ -3658,3 +3659,96 @@ Table: Files changed in commit `17bac3c`, and the documents updated after it.
 
 Bare numbers as constants, outstanding since the previous update, are done.
 The other items of the previous updates remain.
+
+## Update 2026-11-11 — Lexter's cell model as a test format
+
+This installment covers commit `f85a370`, the first step of the
+[plan for manifests over arrays of records](Plan.OverArrays.md): a prototype
+of Lexter's cell model as a test format, as PNG and WOFF are, with a
+measurement of what writing and reading a cell costs. The record is that of
+Lexter's Cell Model Architecture at its commit `76741bc`: eight little-endian
+32-bit words in an array of bytes, its format in the first byte. No feature
+of the manifest layer was needed beyond release 0.1.2, so this installment
+records no decision.
+
+### Implementation
+
+- **`test/test-manifest-arrays.lisp`.** A suite, `manifest-arrays`, with one
+  flat manifest for each of the plain, inline-colour and tile formats, since
+  a glyph word's form is chosen by a type bit in byte 1 and a sub-manifest
+  cannot read its parent's fields; glyph words as `glyph-layer` and
+  `glyph-mask`, chosen by `:case` on the type bits; `tile-ref`, a 16-bit
+  masque of a tile's index and flips; and `cell-common`, a view of the first
+  eight bytes. The format byte is a bare constant, `0`, `2` or `4`, so that a
+  cell read through another format's manifest fails at unit 0.
+  `test/test-manifest-arrays.lisp:read-cell@f85a370` dispatches on that byte.
+  Fourteen tests, from
+  `test/test-manifest-arrays.lisp:a-record-of-zeros-is-a-blank-plain-cell@f85a370`
+  to `test/test-manifest-arrays.lisp:a-cell-written-as-read-is-reproduced@f85a370`,
+  check the worked records of Lexter's architecture: the record of zeros; g
+  underlined, reversed, beneath a red underline with a strikethrough, and
+  blinking; a scroll bar's thumb; a mask reaching two layers; inline colours;
+  a chess piece on its square; and shore water mirrored beneath a boat.
+- **`scripts/bench-cell.lisp`.** The measurement, run by hand.
+- **`test/helpers.lisp`, `specops.asd`.** The suite and its file.
+- **`doc/Plan.OverArrays.md`.** The steward's edit to the plan's sketch, its
+  constant bytes written as bare `0`.
+
+### Verification
+
+Run with `sbcl --non-interactive --eval '(asdf:test-system :specops)'`. At
+`f85a370`, `manifest-arrays` has 14 tests with 28 assertions, and the root
+suite 451 tests with 710 assertions; all pass. The prototype settled the
+plan's questions about the format:
+
+- **A 16-bit masque in a little-endian manifest** is written least
+  significant byte first: a tile index of 20 with its horizontal flip,
+  `#x4014`, is `14 40`.
+- **Type bits choose a glyph word's form**, at expansion when they are given
+  as constants and when the code runs otherwise, with literal nested values
+  for either branch.
+- **A record of zeros** reads as a plain cell with no glyphs, and a plain cell
+  written with every field defaulted is all zeros.
+
+Table: The cost of one plain cell, by `scripts/bench-cell.lisp` at `f85a370`,
+a million calls each, with SBCL 2.3.4.
+
+| Operation | Time per cell | Bytes allocated per cell |
+|---|---|---|
+| `marshal`, the full cell, values known when the code runs | about 2,500 ns | about 1,340 |
+| The same bytes packed by hand | about 8 ns | 0 |
+| `unmarshal`, `:blink` alone | about 210 ns | 144 |
+| The blink bit read by hand | about 4 ns | 0 |
+
+A full write costs about three hundred times what packing by hand does, and
+allocates on every call; a screen of 200 by 60 cells, written in full, would
+take some 30 ms and allocate some 16 MB.
+
+### Files
+
+Table: Files changed in commit `f85a370`, and the documents updated after it.
+
+| File | Action | Description |
+|------|--------|-------------|
+| `test/test-manifest-arrays.lisp` | Added | Lexter's cell model as a test format |
+| `scripts/bench-cell.lisp` | Added | The cost of a cell, against packing by hand |
+| `test/helpers.lisp` | Modified | The suite `manifest-arrays` |
+| `specops.asd` | Modified | The file in `specops/test` |
+| `doc/Plan.OverArrays.md` | Modified | The steward's edit in the commit; a progress update after it |
+| `doc/Log.Manifest.md` | Modified | This update |
+
+### Metrics
+
+- Tests: 451, with 710 assertions, up from 437 and 682.
+- Regressions at `f85a370`: 0.
+
+### Outstanding Work
+
+New:
+
+- **The cost of a call.** `marshal` and `unmarshal` allocate on every call and
+  write through closures, unit by unit, which the measurement above puts at
+  hundreds of times the cost of packing by hand. Where the time and the
+  allocation go is to be found first; the fast path of SPECOPS-O15 is the
+  likely remedy for records of fixed size, such as Lexter's cells.
+- The other items of the previous updates remain.
