@@ -266,17 +266,17 @@ type bit in byte 1, and a sub-manifest cannot read its parent's fields.
           (r :reach :u :default 0)))
 
 (defmanifest plain-cell (:unit 8 :endian :little :record t)
-  (masque "h:00")                                           ; byte 0: the plain format
+  0                                                        ; byte 0: the plain format
   (masque "b:edcbannn" (n :glyph-count :u :default 0)      ; byte 1
           (a :type-1 :u :default 0) (b :type-2 :u :default 0) (c :type-3 :u :default 0)
           (d :type-4 :u :default 0) (e :type-5 :u :default 0))
   (masque "b:00000kqw" (w :wide :u :default 0)             ; byte 2: drawing flags
           (q :right-half :u :default 0) (k :blink :u :default 0))
-  (masque "h:00")                                           ; byte 3: no parameters
-  (:swatch :u16 :default 0)                                 ; bytes 4–5
-  (:palette :u8 :default 0)                                 ; byte 6
-  (masque "b:000000gg" (g :background :u :default 0))     ; byte 7
-  (manifest :g0 glyph-layer)                                ; glyph 0 is a layer
+  0                                                        ; byte 3: no parameters
+  (:swatch :u16 :default 0)                                ; bytes 4–5
+  (:palette :u8 :default 0)                                ; byte 6
+  (masque "b:000000gg" (g :background :u :default 0))      ; byte 7
+  (manifest :g0 glyph-layer)                               ; glyph 0 is a layer
   (:g1 (:case :type-1 (0 (manifest glyph-layer)) (1 (manifest glyph-mask))))
   ;; :g2 to :g5 alike, chosen by :type-2 to :type-5
   )

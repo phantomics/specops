@@ -36,6 +36,7 @@
                (:file "test-manifest-reads")
                (:file "test-manifest-destinations")
                (:file "test-manifest-formats")
+               (:file "test-manifest-arrays")
                (:file "test-manifest-ref"))
   :perform (asdf:test-op (o s)
              (uiop:symbol-call '#:specops-tests '#:run-all-tests)))
