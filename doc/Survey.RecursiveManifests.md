@@ -10,6 +10,7 @@ status:        Accepted
 authors:
   - Andrew Sengul
 approved-by:   Andrew Sengul
+reviewed:      2026-11-12
 provenance:
   assistant:   claude-opus (OpenCode)
   session:     Recursive manifests

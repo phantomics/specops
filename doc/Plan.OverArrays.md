@@ -628,8 +628,10 @@ Table: Prior systems and what this plan draws from each.
    direct stores for records of fixed size written to simple vectors of their
    unit type, measured again with `scripts/bench-manifests.lisp` against the
    evaluation's estimates and the initial target, a full write of a Lexter cell
-   in 80 ns or less. The Reference updated, as a release of its own after
-   0.1.4.
+   in 80 ns or less. The gain of code made for each field for destinations
+   other than simple vectors, streams and functions among them, which the
+   evaluation did not measure, measured as well. The Reference updated, as a
+   release of its own after 0.1.4.
 6. **Later additions**, as users show the need: the layout as data of
    SPECOPS-O22, reads measured and remedied as writes are
    (SPECOPS-DRAFT-manifest-benchmarks-O1), and the others listed under

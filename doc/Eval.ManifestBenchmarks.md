@@ -8,6 +8,10 @@ project:       SpecOps
 component:     Manifest
 language:      en
 status:        Accepted
+authors:
+  - Andrew Sengul
+approved-by:   Andrew Sengul
+reviewed:      2026-11-12
 provenance:
   assistant:   claude-opus (OpenCode)
   session:     Manifests over arrays
@@ -46,6 +50,11 @@ fast path of SPECOPS-O15 should be, before paths and patches are built. The
 steward has set the first target at 80 ns per cell, with no allocation as the
 ideal, and has asked for writes to be measured first.
 
+The plan has since adopted this evaluation's recommendation as SPECOPS-D102,
+as the fast path of its step 5, which the steward has put after paths and
+patches; those were released in 0.1.4. The analysis below is as it was made,
+before that decision.
+
 ## Method
 
 - **The target.** `src/manifest/manifest.lisp:marshal@cba66c2`, release 0.1.3,
@@ -57,7 +66,11 @@ ideal, and has asked for writes to be measured first.
   wall-clock time per record, and the bytes allocated per record, from
   `sb-ext:get-bytes-consed`. Every case is checked to write the same 32 bytes.
   Garbage collection took some 1.5% of the time of the slowest case, so the
-  times are the work itself.
+  times are the work itself. A rerun at commit `7eb7ddf`, after release 0.1.4,
+  gave times within some 10% of those below for every case above 100 ns, the
+  case of constant values the furthest apart, at 2,828 ns against 2,588, and
+  within 4 ns for the faster cases, T4 at 12 ns against 16; no conclusion
+  depends on a difference of that size.
 - **The profile.** SBCL's statistical profiler, in `:alloc` and `:cpu` modes,
   over the same loop, for where the allocation and the time go. Its CPU mode
   sampled fewer ticks than the run took, so only its proportions are used.
@@ -68,7 +81,10 @@ ideal, and has asked for writes to be measured first.
   the code is what the layer generates, less what the remedy removes. The
   transformations hold only for this cell, a record of fixed size with no
   slots, written to a simple vector of octets; they are measurements, not code
-  the layer generates.
+  the layer generates. They match the shape of `marshal`'s expansion as it
+  stands, so once the layer's code changes, as the fast path changes it, only
+  the script's direct cases, `marshal`, packing by hand and binary-structures,
+  can be measured again with it.
 - **What was not examined:** reads; records with slots, whose backpatching the
   cell lacks; variable-length fields; destinations other than a simple vector
   of octets; Lisp implementations other than SBCL; and binary-structures beyond
@@ -182,7 +198,9 @@ generic serializer from a fresh pair.
   above the target. **R2:** 304 bytes less; the 64 that remain are the
   closures and the position's cell.
 - **R3:** every record and every destination: the units still go through the
-  entering closure, so a stream or a function is written as before.
+  entering closure, so a stream or a function is written as before. Its gain
+  for those destinations was not measured, and is to be measured in the plan's
+  step 5.
 - **R4:** the range check of each field kept, in the transformation as a type
   and bounds test on the value.
 
@@ -192,8 +210,8 @@ The record's extent, fixed at expansion, checked against the vector once,
 and each unit stored into the vector directly, with the vector declared a
 simple array of octets and the position a fixnum.
 
-- **R1:** 16 ns, within a few nanoseconds of packing by hand, and five times
-  under the target. Without the declarations, 132 ns: the declarations, which
+- **R1:** 16 ns, twice the time of packing by hand, and five times under the
+  target. Without the declarations, 132 ns: the declarations, which
   let SBCL store an octet without a generic call, are most of what T4 gains.
 - **R2:** nothing allocated, the ideal.
 - **R3:** only a record whose size is fixed at expansion, written to a simple
@@ -264,7 +282,10 @@ Reading one flag of a cell costs some 210 ns and allocates 144 bytes
 reads through them, as `marshal` writes through its serializers. The same
 measurements, made for reads, would show whether fields read by their own
 code and a fixed record's one bounds check give reads what they give writes;
-patches, which read a masque's units before writing them, depend on it.
+patches, which read a masque's units before writing them, depend on it. A
+patch now reads in both ways: a masque's units through `deserializer-for`,
+and a selector it is not given through a selective `unmarshal`
+(`src/manifest/manifest.lisp:marshal@v0.1.4`).
 
 ### SPECOPS-DRAFT-manifest-benchmarks-O2 — How much of T4 serves records with slots and variable-length fields?
 
@@ -280,4 +301,7 @@ T3's range check stands in for the serializer's, with a message of its own,
 and T4's bounds check reports the vector's size, where a write unit by unit
 reports the unit that would not fit. Whether the fast path must report as the
 general path does, word for word, is the steward's to decide; the suites'
-tests of errors would show any difference.
+tests of errors would show any difference. SPECOPS-D106 has since settled the
+like question for patches: a patch checks its whole record before it writes,
+and reports the record's end as the position of an overrun, a precedent for
+T4's one check.
