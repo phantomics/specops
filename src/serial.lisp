@@ -399,10 +399,10 @@ ends first, signal an error, or return NIL when EOF-ERROR-P is NIL."
                ;; length is intrinsic; compose elements MSB-first, then unswap
                (let* ((raw 0)
                       (vtype (array-element-type collected))
-                      (vunit (if (listp vtype) (second vtype)
-                                 (error "Incompatible type for collection array."))))
-                 (when (/= unit vunit)
-                   (error "Mismatched unit widths.")) ;; add handler later
+                      (vunit (and (listp vtype) (eq 'unsigned-byte (first vtype)) (second vtype))))
+                 (unless (eql unit vunit)
+                   (error "unmarshal: a source vector's element type is ~s, but a manifest of ~a-bit ~
+                           units reads a vector of (unsigned-byte ~a)." vtype unit unit))
                  (loop :for i :below length
                        :do (setf raw (logior (ash raw unit) (aref collected (+ index i)))))
                  (finish raw length signed))))

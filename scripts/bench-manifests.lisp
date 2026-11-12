@@ -1,5 +1,6 @@
 ;;;; scripts/bench-manifests.lisp — Measurements for doc/Eval.ManifestBenchmarks.md: the cost of
-;;;; writing one record with marshal, against packing it by hand and against binary-structures
+;;;; writing and reading one record with marshal and unmarshal, against packing and reading it
+;;;; by hand and against binary-structures
 ;;;;
 ;;; Run with: sbcl --noinform --non-interactive --load scripts/bench-manifests.lisp
 ;;;
@@ -79,6 +80,31 @@
     (dotimes (i n) (incf s (unmarshal plain-cell buf nil :blink)))
     s))
 
+(defun read-blink-by-hand (buf n)
+  (declare (type (simple-array (unsigned-byte 8) (*)) buf) (fixnum n) (optimize speed))
+  (let ((s 0))
+    (declare (fixnum s))
+    (dotimes (i n) (incf s (ldb (byte 1 2) (aref buf 2))))
+    s))
+
+(defun read-path (buf n)
+  (let ((s 0))
+    (dotimes (i n) (incf s (unmarshal plain-cell buf nil (:g1 :reach))))
+    s))
+
+(defvar *read* nil
+  "The last record read, kept so that the reads are not optimized away.")
+
+(defun read-full (buf n)
+  (dotimes (i n) (setf *read* (unmarshal plain-cell buf))))
+
+(defun read-record (buf n)
+  (dotimes (i n) (setf *read* (unmarshal plain-cell buf (:as :record)))))
+
+(defun read-into (buf n)
+  (let ((cell (unmarshal plain-cell buf (:as :record))))
+    (dotimes (i n) (unmarshal plain-cell buf (:into cell)))))
+
 (defun write-by-hand (buf glyph ink palette n)
   (declare (type (simple-array (unsigned-byte 8) (*)) buf) (fixnum n glyph ink palette)
            (optimize speed))
@@ -134,6 +160,16 @@
                      (lambda (b) (patch-cell b 7 n)))
                (list "unmarshal, :blink alone" (copy-seq expected)
                      (lambda (b) (read-blink b n)))
+               (list "by hand, the blink bit" (copy-seq expected)
+                     (lambda (b) (read-blink-by-hand b n)))
+               (list "unmarshal, the path (:g1 :reach)" (copy-seq expected)
+                     (lambda (b) (read-path b n)))
+               (list "unmarshal, the full cell as a plist" (copy-seq expected)
+                     (lambda (b) (read-full b n)))
+               (list "unmarshal, the full cell as a record" (copy-seq expected)
+                     (lambda (b) (read-record b n)))
+               (list "unmarshal, the full cell into a record" (copy-seq expected)
+                     (lambda (b) (read-into b n)))
                (list "by hand" (ub8 32) (lambda (b) (write-by-hand b 103 1 7 n)))
                (list "marshal, the cell as bytes and words" (ub8 32)
                      (lambda (b) (write-bytes-by-marshal b 103 1 7 n)))

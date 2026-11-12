@@ -743,3 +743,107 @@ are checked against, is evaluated once."
     (marshal plain-cell v (:at 32 :patch t) :type-1 (progn (incf evaluations) 0) (:g1 :ink) 2)
     (is (eql 1 evaluations))
     (is (eql 2 (unmarshal plain-cell v (:at 32) (:g1 :ink))))))
+
+;;; ============================================================
+;;; Reads
+;;; ============================================================
+
+(defun as-integer-source (record)
+  "RECORD, a vector of octets, as a (units . integer) source of the same units."
+  (cons (length record) (reduce (lambda (n u) (logior (ash n 8) u)) record :initial-value 0)))
+
+(def-test the-fast-and-the-general-path-read-the-same-values ()
+  "A record of fixed size reads the same from a simple vector, by the fast path, as from a
+vector that is not simple or an integer, by the general path: in full, as a record, by keys
+and by paths."
+  (dolist (record (list (cell-octets 0 #x0A 4 0  #x34 #x12 7 0  103 0 0 #x02  9 0 0 #x10)
+                        (cell-octets 0 2 0 0  #x34 #x12 7 1  103 0 0 #x02  #x67 0 0 #x05)))
+    (let ((other (not-simple record))
+          (integer (as-integer-source record)))
+      (is (equalp (unmarshal plain-cell record) (unmarshal plain-cell other)))
+      (is (equalp (unmarshal plain-cell record) (unmarshal plain-cell integer)))
+      (is (equalp (prin1-to-string (unmarshal plain-cell record (:as :record)))
+                  (prin1-to-string (unmarshal plain-cell other (:as :record)))))
+      (dolist (keys '((:blink :palette :swatch) ((:g0 :ink) :type-1 (:g0 :glyph))))
+        (is (equal (multiple-value-list (eval `(unmarshal plain-cell ,record nil ,@keys)))
+                   (multiple-value-list (eval `(unmarshal plain-cell ,other nil ,@keys)))))))))
+
+#+sbcl
+(def-test a-read-on-the-fast-path-allocates-nothing ()
+  "A selective read, a path and a full read into a record whose nested records and vectors
+fit, from a simple vector, allocate nothing."
+  (let* ((grid (patched-grid))
+         (cell (unmarshal plain-cell grid (:at 32 :as :record)))
+         (inline (cell-octets 2 #x02 0 0  #x34 #x12 7 0  103 0 0 #x02  0 0 0 0  0 0 0 0
+                              1 2 3 4 5 6 7 8 9 10 11 12))
+         (colours (unmarshal inline-cell inline (:as :record))))
+    (flet ((consed (thunk)
+             (funcall thunk)
+             (let ((before (sb-ext:get-bytes-consed)))
+               (dotimes (n 1000) (funcall thunk))
+               (- (sb-ext:get-bytes-consed) before))))
+      (is (eql 0 (consed (lambda () (unmarshal plain-cell grid (:at 32) :blink)))))
+      (is (eql 0 (consed (lambda () (unmarshal plain-cell grid (:at 32) (:g1 :operation))))))
+      (is (eql 0 (consed (lambda () (unmarshal plain-cell grid (:at 32 :into cell))))))
+      (is (eql 0 (consed (lambda () (unmarshal inline-cell inline (:into colours)))))))))
+
+(def-test a-fixed-record-with-slots-is-checked-on-the-fast-path ()
+  "A record of fixed size with slots, read from a simple vector, has its slots checked as
+when it is read generally: none fails when they agree, and each that differs fails."
+  (let ((good (octets 4 0 4 7))
+        (bad (octets 9 0 4 7)))
+    (dolist (source (list good (not-simple good)))
+      (is (null (failed-checks (lambda () (unmarshal patch-sum-probe source))))))
+    (dolist (source (list bad (not-simple bad)))
+      (is (equal '(:checksum)
+                 (mapcar #'first (failed-checks (lambda () (unmarshal patch-sum-probe source)))))))))
+
+(def-test a-read-into-a-record-fills-its-nested-records-and-vectors-in-place ()
+  "(:into record) fills the record, a nested record of the class its branch reads in place
+and a new one otherwise, and a vector of the field's length and type in place."
+  (let* ((masked (cell-octets 0 #x0A 0 0  #x34 #x12 7 0  103 0 0 #x02  9 0 0 #x10))
+         (layered (cell-octets 0 #x02 0 0  #x34 #x12 8 0  104 0 0 #x02  9 0 0 #x02))
+         (cell (unmarshal plain-cell masked (:as :record)))
+         (g0 (plain-cell-g0 cell))
+         (g1 (plain-cell-g1 cell)))
+    (is (eq cell (unmarshal plain-cell layered (:into cell))))
+    (is (eq g0 (plain-cell-g0 cell)))
+    (is (eql 104 (glyph-layer-glyph g0)))
+    (is-false (eq g1 (plain-cell-g1 cell)))
+    (assert-that (plain-cell-g1 cell) (has-type 'glyph-layer))
+    (is (eql 8 (plain-cell-palette cell))))
+  (let* ((inline (cell-octets 2 #x02 0 0  #x34 #x12 7 0  103 0 0 #x02  0 0 0 0  0 0 0 0
+                              1 2 3 4 5 6 7 8 9 10 11 12))
+         (cell (unmarshal inline-cell inline (:as :record)))
+         (colours (inline-cell-colours cell)))
+    (setf (aref inline 31) 99)
+    (unmarshal inline-cell inline (:into cell))
+    (is (eq colours (inline-cell-colours cell)))
+    (is (eql 99 (aref colours 11)))))
+
+(def-test reading-into-something-not-the-manifest-s-record-is-an-error ()
+  "(:into record) with a value that is not a record of the manifest's class is an error when
+the code runs, and with keys an error at expansion."
+  (signals error (unmarshal plain-cell (cell-octets) (:into (make-tile-cell))))
+  (signals error (macroexpand-1 '(unmarshal plain-cell v (:into r) :blink))))
+
+(def-test a-read-reports-where-its-record-ends ()
+  "A full read returns the position after its record, counted from the vector's start, and a
+keyed read given (:end t) does too: of a record of fixed size at once, of one of varying size
+after passing over its rest."
+  (let ((grid (patched-grid))
+        (png (make-1x1-png)))
+    (is (eql 64 (nth-value 1 (unmarshal plain-cell grid (:at 32)))))
+    (is (eql 64 (nth-value 1 (unmarshal plain-cell (not-simple grid) (:at 32)))))
+    (is (equal '(1 64) (multiple-value-list (unmarshal plain-cell grid (:at 32 :end t) :wide))))
+    (is (equal '(1) (multiple-value-list (unmarshal plain-cell grid (:at 32) :wide))))
+    (is (eql (length png) (nth-value 1 (unmarshal png-file png))))
+    (is (eql (length png) (nth-value 1 (unmarshal png-file png (:end t) :signature))))))
+
+(def-test a-source-vector-of-another-element-type-is-an-error-saying-so ()
+  "A source vector whose element type is not the manifest's unit is an error naming the
+element type and the type a manifest of that unit reads."
+  (let ((message (handler-case (progn (unmarshal plain-cell (make-array 32 :initial-element 0)) "")
+                   (error (e) (princ-to-string e)))))
+    (is-true (search "(unsigned-byte 8)" message))
+    (is-true (search "element type is T" message))))

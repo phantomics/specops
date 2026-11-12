@@ -546,29 +546,108 @@ position fixed at expansion."
       (walk items)
       nil)))
 
-(defun selector-load-form (items sel vector base-form unit-bits)
+(defun field-load-form (items name source base-form unit-bits &key decode)
+  "A form loading the field NAME of ITEMS, a manifest's stored fields, from SOURCE, in the
+record of that manifest beginning at BASE-FORM: a scalar field or a masque group, at a position
+fixed at expansion. With DECODE, a float's bits are decoded and an enumerated value given its
+keyword; otherwise the code is given. NIL when NAME is not such a field."
+  (multiple-value-bind (item offset binding) (locate-field items name)
+    (when item
+      (let ((at (if (zerop offset) base-form `(+ ,base-form ,offset))))
+        (cond (binding
+               (multiple-value-bind (w p factor) (masque-group-bits (getf item :actual) (getf binding :bind-to))
+                 (let* ((raw (load-form source (make-encoding (getf item :length) unit-bits
+                                                              :order (getf item :order))
+                                        at))
+                        (group (if factor
+                                   `(floor (mod ,raw ,(expt factor (+ p w))) ,(expt factor p))
+                                   `(ldb (byte ,w ,p) ,raw)))
+                        (value (if (getf binding :signed)
+                                   (let ((v (gensym "V")))
+                                     `(let ((,v ,group)) (if (logbitp ,(1- w) ,v) (- ,v ,(ash 1 w)) ,v)))
+                                   group)))
+                   (if decode (enum-decode-form value (getf binding :enumerate-by)) value))))
+              ((or (getf item :place) (member (getf item :type) '(:masque :manifest :span :string :pad))
+                   (intersection '(:vec :leb :case) (getf item :subtypes)))
+               nil)
+              (t (let* ((float (member :float (getf item :subtypes)))
+                        (raw (load-form source (make-encoding (getf item :length) unit-bits
+                                                              :order (getf item :order)
+                                                              :signed (and (not float) (getf item :signed)))
+                                        at)))
+                   (cond ((not decode) raw)
+                         (float `(decode-float-bits ,raw ,(* unit-bits (getf item :length))))
+                         (t (enum-decode-form raw (getf item :enumerate-by)))))))))))
+
+(defun selector-load-form (items sel source base-form unit-bits)
   "A form loading the code of the :case selector SEL, a field of ITEMS, a manifest's stored
-fields, from VECTOR, in the record of that manifest beginning at BASE-FORM."
-  (multiple-value-bind (item offset binding) (locate-field items sel)
-    (unless item
-      (error "marshal: the :case selector ~s is not at a position fixed at expansion." sel))
-    (let ((source (make-instance 'vector-source :vector vector))
-          (at (if (zerop offset) base-form `(+ ,base-form ,offset))))
-      (if binding
-          (multiple-value-bind (w p factor) (masque-group-bits (getf item :actual) (getf binding :bind-to))
-            (let* ((raw (load-form source (make-encoding (getf item :length) unit-bits
-                                                         :order (getf item :order))
-                                   at))
-                   (group (if factor
-                              `(floor (mod ,raw ,(expt factor (+ p w))) ,(expt factor p))
-                              `(ldb (byte ,w ,p) ,raw))))
-              (if (getf binding :signed)
-                  (let ((v (gensym "V")))
-                    `(let ((,v ,group)) (if (logbitp ,(1- w) ,v) (- ,v ,(ash 1 w)) ,v)))
-                  group)))
-          (load-form source (make-encoding (getf item :length) unit-bits :order (getf item :order)
-                                           :signed (getf item :signed))
-                     at)))))
+fields, from SOURCE, in the record of that manifest beginning at BASE-FORM."
+  (or (field-load-form items sel source base-form unit-bits)
+      (error "marshal: the :case selector ~s is not at a position fixed at expansion." sel)))
+
+(defun direct-path-form (items path manifest source base-form unit-bits &optional (whole path))
+  "A form loading the field PATH names among ITEMS, the stored fields of a record beginning
+at BASE-FORM, from SOURCE alone, when every field along it lies at a position fixed at
+expansion and the last is a scalar or a masque group; through a :case field, from the branch
+its selector chooses, a branch that lacks the next field being an error when the code runs.
+MANIFEST and WHOLE name the manifest and the path read, for that error. NIL otherwise."
+  (multiple-value-bind (item offset binding) (locate-field items (first path))
+    (when item
+      (let ((at (if (zerop offset) base-form `(+ ,base-form ,offset))))
+        (cond ((null (rest path))
+               (field-load-form items (first path) source base-form unit-bits :decode t))
+              (binding nil)
+              ((eq :manifest (getf item :type))
+               (let ((child (first (getf item :actual))))
+                 (and (null (rest (getf item :actual)))   ; a repeat holds instances
+                      (direct-path-form (rest (gethash child *manifests*)) (rest path) manifest
+                                        source at unit-bits whole))))
+              ((member :case (getf item :subtypes))
+               (let* ((sel (getf item :type-indicator))
+                      (enum-name (getf (find-field items sel) :enumerate-by))
+                      (enum (and enum-name (gethash enum-name *enums*)))
+                      (code (field-load-form items sel source base-form unit-bits))
+                      (c (gensym "C"))
+                      (name (second path))
+                      (branches (getf item :type-conditions))
+                      (clauses
+                        (and code
+                             (loop :for b :in branches
+                                   :for keys := (translate-keys (getf b :keys) enum (first path))
+                                   :collect
+                                   (let ((failure
+                                           (lambda (described)
+                                             `(error "unmarshal: the path ~s of manifest ~s names ~s, ~
+                                                      which the branch found, ~a, lacks; that branch was ~
+                                                      chosen by ~s = ~s."
+                                                     ',whole ',manifest ',name ,described ',sel
+                                                     ,(enum-decode-form c enum-name)))))
+                                     (if (eq :manifest (getf b :type))
+                                         (let* ((child (first (getf b :actual)))
+                                                (child-items (rest (gethash child *manifests*))))
+                                           (if (find-field child-items name)
+                                               (let ((form (direct-path-form child-items (rest path)
+                                                                             manifest source at
+                                                                             unit-bits whole)))
+                                                 (if form
+                                                     (list keys form)
+                                                     (return-from direct-path-form nil)))
+                                               (list keys (funcall failure
+                                                                   (format nil "manifest ~s" child)))))
+                                         (list keys (funcall failure
+                                                             "a branch that is not a sub-manifest"))))))))
+                 (and code
+                      `(let ((,c ,code))
+                         (case ,c
+                           ,@clauses
+                           ,@(unless (find 'otherwise branches :key (lambda (b) (getf b :keys)))
+                               `((otherwise (error "Field ~s: no branch for selector value ~s."
+                                                   ',(first path) ,c)))))))))
+              (t nil))))))
+
+(defun path-fixed-p (items path)
+  "True when PATH, a path among ITEMS, a manifest's stored fields, can be loaded alone."
+  (and (direct-path-form items path nil (make-instance 'vector-source :vector 'v) 0 8) t))
 
 (defun selector-code-form (enum-name value)
   "VALUE, a selector's value as a patch gives it, as its code through the enum ENUM-NAME."
@@ -625,7 +704,8 @@ depth of nested pairs (SPECOPS-DRAFT-over-arrays-D17)."
                             (enum (and enum-name (gethash enum-name *enums*)))
                             (code (if (loop :for (kk) :on pairs :by #'cddr :thereis (eq kk sel))
                                       (selector-code-form enum-name (getf pairs sel))
-                                      (selector-load-form items sel vector base-form unit-bits)))
+                                      (selector-load-form items sel (make-instance 'vector-source :vector vector)
+                                                          base-form unit-bits)))
                             (c (gensym "C"))
                             (branches (getf item :type-conditions)))
                        `((let ((,c ,code))
@@ -923,7 +1003,8 @@ and returns the record's end."
                       (v (value-source sel (getf item :default))))
                  (cond ((and patch (not (given-p sel)))
                         ;; the selector as it stands in the record, its code loaded directly
-                        (selector-load-form (rest spec) sel access base unit-bits))
+                        (selector-load-form (rest spec) sel (make-instance 'vector-source :vector access)
+                                            base unit-bits))
                        ((not (member sel written))
                         (error "marshal: field ~s needs its :case selector ~s, which must come before it."
                                field sel))
@@ -1722,7 +1803,10 @@ KEYS, return their values in order, decoding only those fields and the ones that
 them, and passing over the rest; a key that names a sub-manifest gives its whole record, and
 a key that is a path, a list of field names such as (:g1 :ink), gives the field it names
 inside a sub-manifest or a :case branch. Otherwise return every named field, as a plist or,
-given (:as :record) in PARAMS, as an instance of the manifest's record class. Checksums,
+given (:as :record) in PARAMS, as an instance of the manifest's record class, or given
+(:into RECORD), filled into RECORD, an instance of that class, whose nested records and
+vectors are filled in place when they fit; a full read returns where the record ends as a
+second value, and a keyed read given (:end t) returns it after the keys' values. Checksums,
 length, offset and count slots, and constants are checked as they are read, and a failure
 signals manifest-check-failed; (:check nil) in PARAMS leaves the checks out. (:buffer B)
 keeps in B, a manifest-buffer, the units read from a stream, and (:at INDEX) reads the record
@@ -1733,7 +1817,11 @@ at INDEX of a vector source; offset slots count from the record's start."
                       (first spec)))
          (nested (getf params :-+sub-lexicon+-))
          (check (getf params :check t))
-         (as (getf params :as :plist))
+         ;; (:into record): the fields read fill RECORD, and its nested records and vectors
+         (into (getf params :into))
+         (as (if into :record (getf params :as :plist)))
+         ;; (:end t): a keyed read also returns where the record ends
+         (end-wanted (and (not nested) (getf params :end)))
          ;; a nested manifest without a record class is read as a plist inside a record
          (record-class (and (eq as :record) (getf config :record)))
          ;; (all-keys (loop :for item :in (rest spec) :when (getf item :name) :collect (getf item :name)))
@@ -1758,9 +1846,12 @@ at INDEX of a vector source; offset slots count from the record's start."
          ;; the fields a selective read decodes: the keys at the top level, or what a parent
          ;; asks of a nested manifest (NIL to pass over it); :ALL for a full read
          (select (cond (nested (getf params :-+select+- :all))
-                       ;; a path is selected by its first name, whose field is read whole
+                       ;; a path is selected by its first name, whose field is read whole,
+                       ;; unless it can be loaded alone
                        (in-keys (remove-duplicates
-                                 (mapcar (lambda (k) (if (consp k) (first k) k)) in-keys)
+                                 (loop :for k :in in-keys
+                                       :unless (and (consp k) (path-fixed-p (rest spec) k))
+                                         :collect (if (consp k) (first k) k))
                                  :from-end t))
                        (t :all)))
          (keys (or keys all-keys))
@@ -1770,7 +1861,9 @@ at INDEX of a vector source; offset slots count from the record's start."
          ;; (:at index): the record begins at INDEX of a vector source
          (at (and (not nested) (getf params :at)))
          (unit-type `(unsigned-byte ,(ash 1 (+ 3 (or (getf config :unit-spec) 0)))))
-         raws sub-lexicon prefix cursor origin
+         sub-lexicon prefix cursor origin
+         ;; how the expansion this one is nested in loads its units
+         inherited-source
          ;; a buffer of an integer source's units, made at most once, for checksums
          buffer
          ;; a plist of the furthest unit read by fields placed under each tag, for the place
@@ -1778,12 +1871,13 @@ at INDEX of a vector source; offset slots count from the record's start."
          ends)
     
     (loop :for (key) :on params :by #'cddr
-          :unless (member key '(:as :check :buffer :at :-+sub-lexicon+- :-+select+-))
+          :unless (member key '(:as :check :buffer :at :into :end :-+sub-lexicon+- :-+select+-))
             :do (error "unmarshal: unknown option ~s for manifest ~s." key name))
     (unless (member as '(:plist :record))
       (error "unmarshal: :as must be :plist or :record, not ~s." as))
     (when (and (eq as :record) in-keys)
-      (error "unmarshal: (:as :record) returns the whole record; it takes no keys."))
+      (error "unmarshal: ~:[(:as :record)~;(:into record)~] reads the whole record; it takes no keys."
+             into))
     (dolist (k in-keys)
       (when (consp k) (check-path (rest spec) k name)))
     (when (and (eq as :record) (not nested) (not record-class))
@@ -1794,9 +1888,10 @@ at INDEX of a vector source; offset slots count from the record's start."
       (error "unmarshal: (:at ~s) needs a vector source, not the integer source ~s." at source))
 
     (if (getf params :-+sub-lexicon+-)
-        (destructuring-bind (&key cr-sym pr-sym bf-sym pe-sym or-sym &allow-other-keys)
+        (destructuring-bind (&key cr-sym pr-sym bf-sym pe-sym or-sym us-obj &allow-other-keys)
             (getf params :-+sub-lexicon+-)
           (setf cursor cr-sym prefix pr-sym buffer bf-sym ends pe-sym origin or-sym
+                inherited-source us-obj
                 sub-lexicon (getf params :-+sub-lexicon+-)))
         (setf cursor (gensym "CR")
               buffer (and check (manifest-slots-p (rest spec) :checksum-of) (gensym "BUF"))
@@ -1811,10 +1906,20 @@ at INDEX of a vector source; offset slots count from the record's start."
     ;; (print (list :ff fields keys))
 
 
-    (let* ((vars) (reads) (src (gensym "SRC"))
-           ;; every unit is loaded through the code builder, from whatever SRC holds
-           (units-source (make-instance 'general-source :source src
-                                                        :unit-power (or (getf config :unit-spec) 0)))
+    (flet ((render (kind src-form origin-form)
+    ;; the code of the read, for KIND of source: :fast, a simple vector of the unit type that
+    ;; holds the record; :general, any source; :nested, as the expansion this one is in
+    (let* ((vars) (reads) (raws) (src (gensym "SRC"))
+           (into-var (and into (gensym "INTO")))
+           ;; every unit is loaded through the code builder, directly from a simple vector on the
+           ;; fast path, otherwise from whatever SRC holds, or as the parent's expansion loads
+           (units-source (ecase kind
+                           (:fast (make-instance 'vector-source :vector src))
+                           (:general (make-instance 'general-source :source src
+                                                                    :unit-power (or (getf config :unit-spec) 0)))
+                           (:nested (or inherited-source
+                                        (make-instance 'general-source :source src
+                                                                       :unit-power (or (getf config :unit-spec) 0))))))
            (unit-bits (ash 1 (+ 3 (or (getf config :unit-spec) 0))))
           ;; for checked reads: (region start end), the variables recording where a region a
           ;; slot covers begins and ends, each made only when a check uses it; (field . at),
@@ -1860,9 +1965,15 @@ at INDEX of a vector source; offset slots count from the record's start."
                     (setf (third rv) (gensym (format nil "~a-END" (symbol-name region)))))))))
           (setf pending (nreverse pending))))
       (labels ((interpret (form enumerate-by)
-                 (cond
-                   (enumerate-by `(enumerated ,form (gethash ',enumerate-by *enums*)))
-                   (t form)))
+                 (enum-decode-form form enumerate-by))
+               (into-slot-form (field)
+                 ;; what RECORD, read into, holds for FIELD, when it is of this manifest's class
+                 (and into-var record-class field
+                      (let ((r (gensym "R")))
+                        `(let ((,r ,into-var))
+                           (and (typep ,r ',record-class)
+                                (slot-value ,r ',(intern (symbol-name field)
+                                                         (symbol-package record-class))))))))
                (qualify (name)
                  (if (not (and prefix name))
                      name (intern (format nil "~a/~a" prefix name) :keyword)))
@@ -1890,8 +2001,10 @@ at INDEX of a vector source; offset slots count from the record's start."
                      (macroexpand
                       `(unmarshal ,child ,src
                                   (:-+sub-lexicon+- ,(list* :cr-sym cursor :pr-sym (qualify name)
-                                                            sub-lexicon)
+                                                            :us-obj units-source sub-lexicon)
                                    ,@(and (eq as :record) (eq select :all) '(:as :record))
+                                   ,@(and (eq as :record) (eq select :all) (getf ctx :into)
+                                          `(:into ,(getf ctx :into)))
                                    ,@(and (listp select) `(:-+select+- ,select))
                                    ,@(and (not check) '(:check nil))))))))
                (skip-manifest (child ctx)
@@ -1923,6 +2036,7 @@ at INDEX of a vector source; offset slots count from the record's start."
                (item-ctx (item)
                  (let ((order (or (getf item :order) :big)))
                    (list :name (getf item :name) :cursor cursor :src src
+                         :into (into-slot-form (getf item :name))
                          :read-manifest #'read-manifest :skip-manifest #'skip-manifest
                          :select-manifest #'select-manifest
                          :read-at (lambda (at w sg)
@@ -2209,6 +2323,8 @@ at INDEX of a vector source; offset slots count from the record's start."
         
         ;; a selective read at the top level stops after the item holding its last key; the
         ;; items after it are passed over only when the source is a stream, to take its record
+        ;; a keyed read asked for the record's end passes over them too, unless the record's
+        ;; size is fixed
         (let ((tail nil))
           (loop :for item :in (rest spec) :for top :from 0
                 :do (if (and (listp select) (not nested) (> top boundary))
@@ -2218,7 +2334,9 @@ at INDEX of a vector source; offset slots count from the record's start."
             (let ((main reads))
               (setf reads nil)
               (dolist (item (reverse tail)) (process-item item))
-              (setf reads (cons `(when (stream-source-p ,src) ,@(reverse reads)) main)))))
+              (setf reads (if (and end-wanted (not (manifest-extent name)))
+                              (append reads main)
+                              (cons `(when (stream-source-p ,src) ,@(reverse reads)) main))))))
         (when pending
           (error "unmarshal: the slots of fields ~s in manifest ~s cover regions that are not read."
                  (mapcar (lambda (s) (getf s :field)) pending) name))
@@ -2228,28 +2346,19 @@ at INDEX of a vector source; offset slots count from the record's start."
 
         `(let* (,@(and holder `((,holder ,(getf params :buffer))))
                 ;; at the top level a stream is wrapped, so that its units are kept as read
-                (,src ,(cond (nested source)
-                             (at (let ((s (gensym "S")))
-                                   `(let ((,s ,source))
-                                      (unless (vectorp ,s)
-                                        (error "unmarshal: (:at ~s) needs a vector source, not ~s."
-                                               ,at ,s))
-                                      ,s)))
-                             (t (let ((s (gensym "S")))
-                                  `(let ((,s ,source))
-                                     (if (streamp ,s)
-                                         (make-stream-source
-                                          ,s (or ,(and holder `(reusable-buffer ,holder ',unit-type))
-                                                 (make-array 256 :element-type ',unit-type)))
-                                         ,s))))))
-                ,@(and (not nested)
-                       `((,origin ,(if at
-                                       (let ((i (gensym "I")))
-                                         `(let ((,i ,at))
-                                            (unless (typep ,i '(integer 0))
-                                              (error "unmarshal: (:at ~s) is not an index of a vector." ,i))
-                                            ,i))
-                                       0))))
+                (,src ,(cond ((member kind '(:nested :fast)) src-form)
+                             (at `(progn
+                                    (unless (vectorp ,src-form)
+                                      (error "unmarshal: (:at ~s) needs a vector source, not ~s."
+                                             ,origin-form ,src-form))
+                                    ,src-form))
+                             (t `(if (streamp ,src-form)
+                                     (make-stream-source
+                                      ,src-form (or ,(and holder `(reusable-buffer ,holder ',unit-type))
+                                                    (make-array 256 :element-type ',unit-type)))
+                                     ,src-form))))
+                ,@(and (not nested) `((,origin ,origin-form)))
+                ,@(and into-var `((,into-var ,into)))
                 (,base ,(if (getf params :-+sub-lexicon+-) cursor origin))
                 ,@(and (not (getf params :-+sub-lexicon+-))
                        (list (list cursor origin)))
@@ -2262,6 +2371,22 @@ at INDEX of a vector source; offset slots count from the record's start."
                ,@(mapcar (lambda (s) (list s 0)) saves)
                 ,@(mapcar #'rest vars)
                 ,@(mapcar #'rest raws))
+           ;; a variable bound for one source may go unused on the other path
+           (declare (ignorable ,src ,base
+                               ,@(and (not nested) (list origin cursor))
+                               ,@(loop :for (nil start end) :in region-vars
+                                       :when start :collect start :when end :collect end)
+                               ,@(mapcar #'rest slot-starts) ,@saves
+                               ,@(mapcar #'rest vars) ,@(mapcar #'rest raws)))
+           ,@(and (eq kind :fast)
+                  `((declare (type (simple-array ,unit-type (*)) ,src)
+                             (type (integer 0 (,array-dimension-limit)) ,origin)
+                             (type (integer 0 (,(+ array-dimension-limit (or (manifest-extent name) 0))))
+                                   ,cursor))))
+           ,@(and into-var (not nested) record-class
+                  `((unless (typep ,into-var ',record-class)
+                      (error "unmarshal: (:into ~s) is not a record of class ~s, which manifest ~s ~
+                              reads." ,into-var ',record-class ',manifest-name))))
            ,@(reverse reads)
            ;; a stream is read to the end of the record, past trailing pads, so that the next
            ;; record can be read from it
@@ -2271,22 +2396,66 @@ at INDEX of a vector source; offset slots count from the record's start."
                       ,@(and holder `((when ,holder
                                         (setf (manifest-buffer-array ,holder)
                                               (stream-source-array ,src))))))))
-           ,(cond (in-keys
-                   (cons 'values
-                         (mapcar (lambda (k)
-                                   (if (consp k)
-                                       (path-value-form k (rest (assoc (first k) vars)) name (rest spec)
-                                                        (lambda (sel) (rest (assoc sel vars))))
-                                       (rest (assoc k vars))))
-                                 keys)))
-                  ;; a nested manifest read in part gives a plist of what was asked of it
-                  ((listp select)
-                   (cons 'list (loop :for key :in select :append (list key (rest (assoc key vars))))))
-                  (record-class
-                   `(make-instance ',record-class
-                                   ,@(loop :for key :in all-keys :append (list key (rest (assoc key vars))))))
-                  (t (cons 'list
-                           (loop :for key :in all-keys :append (list key (rest (assoc key vars))))))))))))
+           ,(let ((result
+                    (cond (in-keys
+                           (append
+                            (list 'values)
+                            (mapcar (lambda (k)
+                                      (if (consp k)
+                                          (or (direct-path-form (rest spec) k name units-source origin unit-bits)
+                                              (path-value-form k (rest (assoc (first k) vars)) name (rest spec)
+                                                               (lambda (sel) (rest (assoc sel vars)))))
+                                          (rest (assoc k vars))))
+                                    keys)
+                            ;; the record's end, when asked: fixed, or where the read stopped
+                            (and end-wanted
+                                 (list (let ((size (manifest-extent name)))
+                                         (if size `(+ ,origin ,size) cursor))))))
+                          ;; a nested manifest read in part gives a plist of what was asked of it
+                          ((listp select)
+                           (cons 'list (loop :for key :in select :append (list key (rest (assoc key vars))))))
+                          ((and record-class into-var)
+                           ;; the record read into is filled when it is of the class, else made
+                           (let ((r (gensym "R")))
+                             `(let ((,r ,into-var))
+                                (if (typep ,r ',record-class)
+                                    (progn
+                                      (setf ,@(loop :for key :in (remove-duplicates all-keys)
+                                                    :append (list `(slot-value ,r ',(intern (symbol-name key)
+                                                                                            (symbol-package record-class)))
+                                                                  (rest (assoc key vars)))))
+                                      ,r)
+                                    (make-instance ',record-class
+                                                   ,@(loop :for key :in all-keys
+                                                           :append (list key (rest (assoc key vars)))))))))
+                          (record-class
+                           `(make-instance ',record-class
+                                           ,@(loop :for key :in all-keys :append (list key (rest (assoc key vars))))))
+                          (t (cons 'list
+                                   (loop :for key :in all-keys :append (list key (rest (assoc key vars)))))))))
+               ;; a full read at the top level also returns where the record ends
+               (if (or nested in-keys (listp select)) result `(values ,result ,cursor))))))))
+      (if nested
+          (render :nested source nil)
+          (let* ((s (gensym "S")) (o (gensym "O"))
+                 (size (manifest-extent name)))
+            `(let* ((,s ,source)
+                    (,o ,(if at
+                             (let ((i (gensym "I")))
+                               `(let ((,i ,at))
+                                  (unless (typep ,i '(integer 0))
+                                    (error "unmarshal: (:at ~s) is not an index of a vector." ,i))
+                                  ,i))
+                             0)))
+               ,(if size
+                    ;; a record of fixed size that lies within a simple vector of its unit type is
+                    ;; read by direct loads; any other source, or a vector too short, generally
+                    `(if (and (typep ,s '(simple-array ,unit-type (*)))
+                              (typep ,o '(integer 0 (,array-dimension-limit)))
+                              (<= (+ ,o ,size) (length ,s)))
+                         ,(render :fast s o)
+                         ,(render :general s o))
+                    (render :general s o))))))))
 
 #|
 

@@ -57,6 +57,24 @@ back as a plist, the enumerated :kind as its keyword."
     (marshal word-sample buf :a #x1234 :b #x56789ABC)
     (is (equalp '(#x1234 #x5678 #x9ABC) (coerce buf 'list)))))
 
+(defmanifest word-pair (:unit 16 :endian :little)
+  (:n (:u 2) :default 0))
+
+(defmanifest pdp-long (:unit 8 :endian :pdp)
+  (:n (:u 4) :default 0))
+
+(def-test ref-byte-orders ()
+  "A byte order orders a field's units: in 16-bit units, :little stores the least significant
+unit first, and :pdp stores a 32-bit field in 8-bit units as the PDP-11 does; each reads back."
+  (let ((w (make-array 2 :element-type '(unsigned-byte 16)))
+        (b (make-array 4 :element-type '(unsigned-byte 8))))
+    (marshal word-pair w :n #x01020304)
+    (marshal pdp-long b :n #x01020304)
+    (is (equalp #(#x0304 #x0102) w))
+    (is (equalp (octets 2 1 4 3) b))
+    (is (eql #x01020304 (unmarshal word-pair w nil :n)))
+    (is (eql #x01020304 (unmarshal pdp-long b nil :n)))))
+
 ;;; ============================================================
 ;;; Constant strings, masques and pads
 ;;; ============================================================
@@ -371,6 +389,32 @@ most significant, or a (units . integer) pair, which gives the integer's length.
   (is (equal '(10 :square)
              (multiple-value-list
               (unmarshal shape (octets 2 #xFF #xFE #x2C #x01 0 10) nil :size :kind)))))
+
+(def-test ref-unmarshal-end ()
+  "A full read returns where its record ends as a second value, and a keyed read given
+(:end t) returns it after the keys' values, so records lying one after another are read in
+turn."
+  (let ((shapes (octets 2 0 1 0 0 0 1  3 0 2 0 0 0 1)))
+    (is (equal '((:kind :square :x 1 :y 0 :size 1) 7)
+               (multiple-value-list (unmarshal shape shapes))))
+    (is (equal '(2 14) (multiple-value-list (unmarshal shape shapes (:at 7 :end t) :x)))))
+  (is (equal '(2 5) (multiple-value-list (unmarshal polygon (octets 2  1 2  3 4) (:end t) :n)))))
+
+(defmanifest box (:unit 8 :endian :big :record t)
+  (manifest :corner point)
+  (:side :u8 :default 0))
+
+(def-test ref-unmarshal-into ()
+  "(:into record) fills an existing record with the fields read, and returns it; a nested
+record already in it is filled in place."
+  (let* ((b (make-box))
+         (first-read (unmarshal box (octets 1 2 3) (:into b)))
+         (corner (box-corner b)))
+    (is (eq b first-read))
+    (is (equal '(1 2 3) (list (point-x corner) (point-y corner) (box-side b))))
+    (unmarshal box (octets 4 5 6) (:into b))
+    (is (eq corner (box-corner b)))
+    (is (equal '(4 5 6) (list (point-x corner) (point-y corner) (box-side b))))))
 
 (def-test ref-records ()
   "A manifest with (:record t) defines a class of its name, with a constructor, an accessor

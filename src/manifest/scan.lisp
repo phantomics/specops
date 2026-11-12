@@ -253,12 +253,27 @@ a vector or a string, each encoded by the rule of terminator-code-form."
     (t (error "Field ~s: :end-by must be a character, an integer, a vector or a string, not ~s."
               name end-by))))
 
+(declaim (special *enums*))
+
 (defun enum-decode-form (form enum)
-  (if enum `(enumerated ,form (gethash ',enum *enums*)) form))
+  "FORM's value as the keyword the enum ENUM gives its code, or as it is when ENUM names none
+or there is no ENUM: by a CASE made at expansion when ENUM is defined then and its codes are
+integers, otherwise by looking the code up when the code runs."
+  (let ((table (and enum (gethash enum *enums*))))
+    (cond ((null enum) form)
+          ((and table (loop :for (nil c) :on (rest table) :by #'cddr :always (integerp c)))
+           (let ((v (gensym "V")) (seen nil))
+             `(let ((,v ,form))
+                (case ,v
+                  ,@(loop :for (k c) :on (rest table) :by #'cddr
+                          :unless (member c seen)
+                            :collect (progn (push c seen) `((,c) ,k)))
+                  (t ,v)))))
+          (t `(enumerated ,form (gethash ',enum *enums*))))))
 
 (defmethod assemble-effector ((a vector-assembler) ctx)
   (with-slots (bits signed enum codec float) a
-    (destructuring-bind (&key name element count trailer &allow-other-keys) ctx
+    (destructuring-bind (&key name element count trailer into &allow-other-keys) ctx
       (let* ((v (gensym "V")) (j (gensym "J"))
              ;; a float element may read as a keyword or, at 128 bits, a rational
              (etype (cond ((or enum float) t) ((null bits) 'integer)
@@ -267,11 +282,21 @@ a vector or a string, each encoded by the rule of terminator-code-form."
                       (t (let ((s (if signed
                                       `(if (logbitp ,(1- bits) ,element) (- ,element ,(ash 1 bits)) ,element)
                                       element)))
-                           (if enum `(enumerated ,s (gethash ',enum *enums*)) s))))))
+                           (enum-decode-form s enum))))))
         (when (and count trailer)
           (error "Field ~s: a counted field cannot drop trailing elements." name))
         (list :bindings (if count
-                            `((,v (make-array ,count :element-type ',etype)) (,j 0))
+                            ;; a vector given to read into is filled in place when it fits
+                            `((,v ,(let ((make `(make-array ,count :element-type ',etype)))
+                                     (if (and into (not codec))
+                                         (let ((old (gensym "OLD")))
+                                           `(let ((,old ,into))
+                                              (if (and (typep ,old '(simple-array ,etype (*)))
+                                                       (= (length ,old) ,count))
+                                                  ,old
+                                                  ,make)))
+                                         make)))
+                              (,j 0))
                             `((,v (make-array 8 :adjustable t :fill-pointer 0))))
               :collect (if count `((setf (aref ,v ,j) ,x) (incf ,j)) `((vector-push-extend ,x ,v)))
               :result (let ((out (cond (count v)
@@ -298,7 +323,7 @@ a vector or a string, each encoded by the rule of terminator-code-form."
                                           v)
                                       enum)))))
 
-(defun emit-scan (name rule assembler read-element cursor src &key width)
+(defun emit-scan (name rule assembler read-element cursor src &key width into)
   "Return one fused loop that reads, stop-tests and assembles a field, then advances CURSOR.
 READ-ELEMENT maps a position variable to a form that reads one raw element there and
 advances the variable. WIDTH is the element width in units when it is fixed, else NIL."
@@ -308,7 +333,7 @@ advances the variable. WIDTH is the element width in units when it is fixed, els
          (extent (known-extent rule))
          (extent-var (cond ((null extent) nil) ((eq extent count) n) (t x)))
          (ctx (list :name name :element e :index k :position pos :src src
-                    :count (and count n) :extent extent-var))
+                    :count (and count n) :extent extent-var :into into))
          (overrun `(error "unmarshal: field ~s runs past the end of the source." ',name)))
     (destructuring-bind (&key bindings declare before after keep trailer) (stop-effector rule ctx)
       (destructuring-bind (&key ((:bindings ab)) ((:declare ad)) collect result)
@@ -539,7 +564,7 @@ RULE, and writes them with WRITE, an expansion-time function of an element form.
                      ;; each element is read by its own plan, using the position as its cursor
                      (lambda (pos) (read-effector element (list* :cursor pos ctx)))
                      (lambda (pos) `(prog1 ,(funcall read-at pos width nil) (incf ,pos ,width))))
-                 cursor src :width (and (not element) width)))))
+                 cursor src :width (and (not element) width) :into (getf ctx :into)))))
 
 (defmethod write-effector ((p scalar-plan) ctx)
   (destructuring-bind (&key name value write &allow-other-keys) ctx
