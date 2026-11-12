@@ -7,6 +7,9 @@ project:       SpecOps
 component:     Manifest
 language:      en
 status:        Accepted
+authors:
+  - Andrew Sengul
+approved-by:   Andrew Sengul
 provenance:
   assistant:   claude-opus (OpenCode)
   session:     Recursive manifests
@@ -23,6 +26,7 @@ open-questions:
   - SPECOPS-DRAFT-recursive-manifests-O5
   - SPECOPS-DRAFT-recursive-manifests-O6
   - SPECOPS-DRAFT-recursive-manifests-O7
+  - SPECOPS-DRAFT-recursive-manifests-O8
 cites:
   - title:    Vox Survey (Vox)
     locator:  Vox repository, doc/Survey.Vox.md — The encoding; SpecOps's role; VOX-DRAFT-vox-O5
@@ -47,6 +51,18 @@ cites:
     external: true
   - title:    Scapy
     locator:  scapy.readthedocs.io — bind_layers, layers chosen by a field of the layer below
+    external: true
+  - title:    lisp-binary
+    locator:  Quicklisp release lisp-binary-20221106-git — types.lisp, the type of a defbinary struct read through read-binary
+    external: true
+  - title:    binary-structures
+    locator:  codeberg.org/shinmera/binary-structures, main branch as read on 2026-11-12 — protocol.lisp, *io-structure-inline*
+    external: true
+  - title:    Protocol Buffers
+    locator:  protobuf.dev — CodedInputStream, SetRecursionLimit, in the C++ and C# references
+    external: true
+  - title:    Cap'n Proto
+    locator:  capnproto.org; c++/src/capnp/message.h — ReaderOptions, nestingLimit and traversalLimitInWords
     external: true
 ---
 
@@ -115,6 +131,34 @@ Finding the cycle is cheap: `src/manifest/manifest.lisp:walk-manifest@v0.1.0`
 already visits each manifest nested in another once, so that the layer's
 walks over nested manifests end. A manifest that is never re-entered is
 inlined as before, at no new cost.
+
+**Every walk at expansion must stop at a cycle.** `walk-manifest` is not the
+only walk over nested manifests. Release 0.1.4 added the walks that find a
+manifest's layout for a patch, `src/manifest/manifest.lisp:item-extent@v0.1.4`
+and `src/manifest/manifest.lisp:manifest-layout@v0.1.4`, which follow
+sub-manifests and `:case` branches with no record of where they have been: a
+patch of a manifest that recurs would expand without end, where it should be
+refused. Each such walk must detect a cycle as `walk-manifest` does, and
+count a manifest on one as having no fixed size. Paths are checked one name
+at a time, so their checks end with the path. A manifest in a cycle is
+therefore of varying size, so patches, which take records of fixed size only
+(SPECOPS-D103), and the fast path for records of fixed size (SPECOPS-D102), do
+not apply to it; the code made for each field, which SPECOPS-D102 also
+adopts, serves every record, inside a call or not.
+
+**Other mechanisms.** Inlining until a cycle is one of several ways to make a
+recursive reference expand.
+
+Table: Mechanisms for recursive references, and what each keeps and costs.
+
+| Mechanism | Where a call is made | Keeps | Costs |
+|---|---|---|---|
+| Inline until a cycle, then call | Where a cycle closes, found at expansion | Inlining wherever there is no cycle; manifests that never recur unchanged | Every walk at expansion made to detect cycles; a cycle's functions to define (SPECOPS-DRAFT-recursive-manifests-O1) |
+| A function for every manifest | At every sub-manifest, recursive or not | Nothing to detect; each manifest's functions defined with it | The inlining of SPECOPS-D37 and SPECOPS-D63 everywhere, with its shared variables, and a call for every sub-manifest of every record |
+| The writer marks the reference, as Construct's `LazyBound` does | Where the writer marks one, as `(manifest :body wasm-instr :call t)` might | Nothing to infer; the writer chooses where the call goes | A cycle left unmarked still expands without end, so cycles must be detected anyway, to report one |
+| Inlining to a fixed depth, then an error | Nowhere | No calls and one code path; the depth is a `:max-depth` | Code that grows with the depth, and in a tree, whose levels may each hold several references, multiplies at every level |
+
+Which mechanism serves is SPECOPS-DRAFT-recursive-manifests-O8.
 
 **The functions.** Each manifest at which a cycle closes needs a writer, a
 reader and, for selective reads, a function that passes over an instance.
@@ -385,7 +429,7 @@ its scope (SPECOPS-0008).
 ## Relationship to Other Work
 
 - **[Manifest Reference, SPECOPS-0007](Ref.Manifest.md)** — the interface this
-  Survey would extend, and the limits of 0.1.0 it lists.
+  Survey would extend, now at release 0.1.4, and the limits it lists.
 - **[Manifest Development Log, SPECOPS-0006](Log.Manifest.md)** — the
   decisions recursion touches: inlining through a shared lexicon
   (SPECOPS-D37, SPECOPS-D63), repeats as scans of instances (SPECOPS-D65),
@@ -395,7 +439,12 @@ its scope (SPECOPS-0008).
 - **[Manifests over Arrays of Records, SPECOPS-0008](Plan.OverArrays.md)**
   — independent of this Survey; its layout as data
   (SPECOPS-O22) would need to say how a recursive reference
-  appears in a layout, and it shares the gap of parent fields.
+  appears in a layout, and it shares the gap of parent fields. Its paths
+  (SPECOPS-D99) name fields through sub-manifests and `:case` branches, and
+  its question of element indices in paths (SPECOPS-O24) would let them reach
+  into repeats. A path to one element of a recursive structure, such as a
+  node of a BER tree, needs both, with an index wherever the path passes
+  through a repeat, and its depth is the path's own.
 - **[Lisp Binary-Format Libraries, SPECOPS-0004](Eval.LispBinaryTools.md)** —
   its question of computing a record's size before writing it (SPECOPS-O17)
   bears on lengths whose width depends on their value.
@@ -410,6 +459,30 @@ its scope (SPECOPS-0008).
 - **Scapy** — layers bound to the field of the layer below, with
   `bind_layers`, which is the IPv6 chain's dispatch by Next Header, and which
   Scapy resolves at run time where SpecOps would resolve it at expansion.
+- **lisp-binary**, evaluated in
+  [Lisp Binary-Format Libraries, SPECOPS-0004](Eval.LispBinaryTools.md) — a
+  field whose type is a `defbinary` struct is read and written through the
+  generic functions `read-binary` and `write-binary`, called when the code
+  runs (`types.lisp`, release `lisp-binary-20221106-git`). A type may
+  therefore contain itself, directly or through others, with nothing to
+  detect and nothing inlined: the second mechanism above. No limit on depth
+  was found in its source.
+- **binary-structures**, evaluated in SPECOPS-0004 — a structure's reader and
+  writer inline its own fields, and call the functions of the structures
+  nested in it unless `*io-structure-inline*` is `:always` (`protocol.lisp`,
+  read on its Codeberg main branch on 2026-11-12, not at the commit SPECOPS-0004
+  read). A nested structure is thus a call below the first level, by default.
+  Its bounds-checked backend checks the space a structure's fixed part needs;
+  no limit on depth was found.
+- **Protocol Buffers** — the parser bounds nesting by a recursion limit, 100
+  by default in the C++ library and 64 in the C# one, which a caller may set
+  for one input stream (`CodedInputStream::SetRecursionLimit`): a limit stated
+  per read, not per field.
+- **Cap'n Proto** — a reader's options bound the depth of nesting, 64 by
+  default, and the data traversed in all, 8 Mi words, or 64 MiB, by default,
+  against a message whose pointers make it larger when read than on the wire
+  (`ReaderOptions`, in `capnp/message.h`). These are two limits, of depth and
+  of total size, stated per reader.
 
 ## Open Questions
 
@@ -432,6 +505,8 @@ whether a call to `unmarshal` may tighten a manifest's limits for one source;
 whether a field read from a source without a stated limit is allowed, or has a
 default; and whether a limit exceeded on read is a `manifest-check-failed` of
 a new kind, with a `continue` restart, or a condition of its own without one.
+Protocol Buffers and Cap'n Proto state their limits per reader, with
+defaults, and Cap'n Proto bounds the total data read as well as the depth.
 
 ### SPECOPS-DRAFT-recursive-manifests-O3 — Should a branch convert its record to a Lisp value on read?
 
@@ -474,3 +549,14 @@ width must be fixed before its value is known. Writing the region first to a
 buffer, or computing its size before writing it (SPECOPS-O17), would let a
 slot choose its width; which serves, and how a reader checks that a DER
 length is minimal, are open.
+
+### SPECOPS-DRAFT-recursive-manifests-O8 — Which mechanism makes a recursive reference expand?
+
+A recursive reference can be made a call where a cycle closes, found at
+expansion; at every sub-manifest; where the writer marks it; or nowhere, by
+inlining to a fixed depth. Each keeps and costs something different, as the
+table under "The mechanism" sets out. lisp-binary calls at every nested type,
+and binary-structures below the first level. Which serves SpecOps, whose
+manifests inline so that a record's checks and code are its own, is open, and
+how a cycle's functions are defined (SPECOPS-DRAFT-recursive-manifests-O1)
+follows from it.
