@@ -127,6 +127,14 @@
   (:data :u16 :default 0)
   (:tag  :u8 :default 0))
 
+;; A :case field whose selector has an enumeration, with a branch that is a sub-manifest and
+;; one that is not, for the errors of paths through it.
+(defenum path-branch-kind nil :item 0 :word 1)
+
+(defmanifest path-branch-probe (:unit 8 :endian :big)
+  (:kind :u8 :default :item :enumerate-by path-branch-kind)
+  (:body (:case :kind (:item (manifest item-probe)) (:word :u16))))
+
 ;; Two plain cells side by side, as the halves of a double-width glyph lie, for paths of
 ;; three names.
 (defmanifest cell-pair (:unit 8 :endian :little)
@@ -145,6 +153,11 @@
   (let ((v (ub8 32)))
     (replace v bytes)
     v))
+
+(defun error-message (thunk)
+  "The report of the error THUNK signals, or the empty string if it signals none."
+  (handler-case (progn (funcall thunk) "")
+    (error (e) (princ-to-string e))))
 
 (defun patched-grid ()
   "A 64-byte vector holding at 32 a plain cell of two glyphs, the second a mask: glyph 103 in
@@ -462,13 +475,30 @@ runs otherwise."
     (is (eql 0 (unmarshal plain-cell record nil (:g2 :ink))))))
 
 (def-test a-path-through-a-branch-that-lacks-its-field-signals-an-error ()
-  "A path whose field the branch chosen when the code runs lacks signals an error naming the
-path and the selector's value."
+  "A path whose field the branch found when the code runs lacks signals an error naming the
+path, the branch found, and the selector that chose it, with its value."
   (let* ((record (cell-octets 0 #x0A 0 0  #x34 #x12 7 0  103 0 0 #x02  9 0 0 0))
-         (message (handler-case (progn (unmarshal plain-cell record nil (:g1 :ink)) "")
-                    (error (e) (princ-to-string e)))))
+         (message (error-message (lambda () (unmarshal plain-cell record nil (:g1 :ink))))))
     (is-true (search "(:G1 :INK)" message))
+    (is-true (search "manifest GLYPH-MASK" message))
     (is-true (search ":TYPE-1 = 1" message))))
+
+(def-test a-branch-error-names-the-branch-at-any-depth-and-through-an-enumeration ()
+  "The error of a path through a branch that lacks its field names the branch where it was
+found two manifests deep, and names a branch that is not a sub-manifest as such, with the
+selector's value as its enumeration gives it."
+  (let* ((v (ub8 72))
+         (deep (progn (replace v (cell-octets 0 #x0A 0 0  #x34 #x12 7 0  104 0 0 2  9 0 0 #x08)
+                               :start1 40)
+                      (error-message (lambda () (unmarshal cell-pair v (:at 8) (:right :g1 :ink))))))
+         (scalar (error-message (lambda () (unmarshal path-branch-probe (cell-octets 1 5 6) nil
+                                                      (:body :tag))))))
+    (is-true (search "(:RIGHT :G1 :INK)" deep))
+    (is-true (search "manifest GLYPH-MASK" deep))
+    (is-true (search ":TYPE-1 = 1" deep))
+    (is-true (search "a branch that is not a sub-manifest" scalar))
+    (is-true (search ":KIND = :WORD" scalar))
+    (is (eql 6 (unmarshal path-branch-probe (cell-octets 0 5 0 6) nil (:body :value))))))
 
 (def-test a-path-of-three-names-at-an-index ()
   "A path may name a field two manifests deep, through a sub-manifest and a :case branch, in
@@ -534,10 +564,9 @@ stands in the vector."
   "A patch giving a field the branch chosen when the code runs lacks signals an error naming
 the field, the branch and the selector's value; one no branch has is an expansion error."
   (let* ((v (patched-grid))
-         (message (handler-case (progn (marshal plain-cell v (:at 32 :patch t) (:g1 :ink) 2) "")
-                    (error (e) (princ-to-string e)))))
+         (message (error-message (lambda () (marshal plain-cell v (:at 32 :patch t) (:g1 :ink) 2)))))
     (is-true (search ":INK" message))
-    (is-true (search "GLYPH-MASK" message))
+    (is-true (search "manifest GLYPH-MASK" message))
     (is-true (search ":TYPE-1 = 1" message))
     (is (equalp (patched-grid) v)))
   (signals error (macroexpand-1 '(marshal plain-cell v (:patch t) (:g1 :nothing) 2))))

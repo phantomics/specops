@@ -710,7 +710,8 @@ and returns the record's end."
                      (when absent
                        (return-from write-manifest
                          `(error "marshal: a patch of manifest ~s gives ~s within ~s, which the ~
-                                  branch chosen, manifest ~s, lacks~@[: it was chosen by ~s = ~s~]."
+                                  branch chosen, manifest ~s, lacks~@[; that branch was chosen by ~
+                                  ~s = ~s~]."
                                  ',manifest-name ',absent ',name ',child
                                  ,@(let ((sel (getf (find-field (rest spec) name) :type-indicator)))
                                      (if (and sel selector-value)
@@ -1449,20 +1450,67 @@ before it may hold."
       (error "unmarshal: the path ~s names no field of manifest ~s, or of a manifest held by ~
               one; a path names fields, not the elements of a repeat." path manifest))))
 
-(defun path-value-form (path head-form manifest &optional selector selector-form)
+(defun branch-name-form (item items value-form)
+  "A form giving the name of the manifest of the branch of ITEM, a :case field among ITEMS,
+that the selector's value VALUE-FORM chooses, or NIL for a branch that is not a sub-manifest.
+A branch's keys match the value as codes or through the selector's enumeration."
+  (let* ((sel (find-field items (getf item :type-indicator)))
+         (table (and (getf sel :enumerate-by) (rest (gethash (getf sel :enumerate-by) *enums*))))
+         (v (gensym "V")))
+    (flet ((matches (keys)
+             (loop :for k :in (if (listp keys) keys (list keys))
+                   :collect k
+                   :when (and table (keywordp k)) :collect (getf table k)
+                   :when (and table (integerp k))
+                     :append (loop :for (name code) :on table :by #'cddr
+                                   :when (eql code k) :collect name))))
+      `(let ((,v ,value-form))
+         (declare (ignorable ,v))
+         (cond ,@(loop :for b :in (getf item :type-conditions)
+                       :for keys := (getf b :keys)
+                       :for name := (and (eq :manifest (getf b :type)) `',(first (getf b :actual)))
+                       :collect (if (member keys '(t otherwise))
+                                    `(t ,name)
+                                    `((member ,v ',(remove nil (matches keys))) ,name))))))))
+
+(defun path-value-form (path head-form manifest items selector-form)
   "A form giving the value at PATH, a list of field names, within HEAD-FORM, the plist of the
-field PATH's first name names; an error when the code runs if a branch chosen there lacks a
-field the path names. SELECTOR names the :case selector of that first field, if it has one."
-  (let ((x (gensym "X")))
-    `(let ((,x ,head-form))
-       ,@(loop :for name :in (rest path)
-               :collect `(setf ,x (let ((tail (and (listp ,x) (nth-value 2 (get-properties ,x '(,name))))))
-                                    (if tail
-                                        (second tail)
-                                        (error "unmarshal: the path ~s of manifest ~s names ~s, which ~
-                                                the field read does not hold~@[: its branch was chosen ~
-                                                by ~s = ~s~]." ',path ',manifest ',name
-                                                ,@(if selector `(',selector ,selector-form) '(nil nil)))))))
+field PATH's first name names, among ITEMS, the manifest's stored fields; an error when the
+code runs if the branch found there lacks a field the path names, naming the branch and the
+selector that chose it. SELECTOR-FORM, a function of a selector's name, gives a form of the
+value of a selector of the manifest's own fields."
+  (let ((x (gensym "X")) (parent (gensym "P")) (next (gensym "N"))
+        (candidates (list items)) (forms nil))
+    (loop :for (holder name) :on path
+          :for depth :from 0
+          :while name
+          :do (let* ((item (some (lambda (is) (find-field is holder)) candidates))
+                     (holder-items (find-if (lambda (is) (find-field is holder)) candidates))
+                     (selector (and item (member :case (getf item :subtypes))
+                                    (getf item :type-indicator)))
+                     (selector-value (and selector
+                                          (if (zerop depth)
+                                              (funcall selector-form selector)
+                                              `(getf ,parent ',selector)))))
+                (push `(let ((,next (let ((tail (and (listp ,x) (nth-value 2 (get-properties ,x '(,name))))))
+                                      (if tail
+                                          (second tail)
+                                          ,(if selector
+                                               `(error "unmarshal: the path ~s of manifest ~s names ~s, which ~
+                                                        the branch found, ~a, lacks; that branch was chosen by ~
+                                                        ~s = ~s." ',path ',manifest ',name
+                                                       (let ((b ,(branch-name-form item holder-items selector-value)))
+                                                         (if b (format nil "manifest ~s" b)
+                                                             "a branch that is not a sub-manifest"))
+                                                       ',selector ,selector-value)
+                                               `(error "unmarshal: the path ~s of manifest ~s names ~s, which ~
+                                                        the field read does not hold." ',path ',manifest ',name))))))
+                         (setf ,parent ,x ,x ,next))
+                      forms)
+                (setf candidates (and item (field-children item)))))
+    `(let ((,x ,head-form) (,parent nil))
+       (declare (ignorable ,parent))
+       ,@(reverse forms)
        ,x)))
 
 (defun manifest-selection (items keys length-sources check-slots &optional offset-sources)
@@ -2063,12 +2111,8 @@ at INDEX of a vector source; offset slots count from the record's start."
                    (cons 'values
                          (mapcar (lambda (k)
                                    (if (consp k)
-                                       (let* ((item (find-field (rest spec) (first k)))
-                                              (selector (and (member :case (getf item :subtypes))
-                                                             (getf item :type-indicator))))
-                                         (path-value-form k (rest (assoc (first k) vars)) name
-                                                          selector
-                                                          (and selector (rest (assoc selector vars)))))
+                                       (path-value-form k (rest (assoc (first k) vars)) name (rest spec)
+                                                        (lambda (sel) (rest (assoc sel vars))))
                                        (rest (assoc k vars))))
                                  keys)))
                   ;; a nested manifest read in part gives a plist of what was asked of it
