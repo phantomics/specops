@@ -170,6 +170,17 @@ PALETTE known only when the code runs, as a terminal writes a character."
   "Patch the cell at INDEX of BUFFER: its blink bit, its palette slot, and a mask's reach."
   (marshal plain-cell buffer (:at index :patch t) :blink 1 :palette palette (:g1 :reach) 2))
 
+#+sbcl
+(defun least-bytes-consed (thunk)
+  "The fewest bytes allocated in any of five runs of a thousand calls of THUNK, after one call
+to warm it. SBCL counts what every thread allocates, so another thread can add to one run's
+count; code that allocates nothing still shows none in the runs it has to itself."
+  (funcall thunk)
+  (loop :repeat 5
+        :minimize (let ((before (sb-ext:get-bytes-consed)))
+                    (dotimes (n 1000) (funcall thunk))
+                    (- (sb-ext:get-bytes-consed) before))))
+
 (defun not-simple (vector)
   "A vector holding VECTOR's units that is not a simple array, so a write to it takes the
 general path."
@@ -666,13 +677,9 @@ fast path, allocate nothing."
     (write-sample-cell grid 0 103 7)
     (write-sample-cell grid 32 104 8)
     (patch-sample-cell grid 32 9)
-    (flet ((consed (thunk)
-             (let ((before (sb-ext:get-bytes-consed)))
-               (dotimes (n 1000) (funcall thunk))
-               (- (sb-ext:get-bytes-consed) before))))
-      (is (eql 0 (consed (lambda () (write-sample-cell grid 0 103 7)))))
-      (is (eql 0 (consed (lambda () (write-sample-cell grid 32 104 8)))))
-      (is (eql 0 (consed (lambda () (patch-sample-cell grid 32 9))))))))
+    (is (eql 0 (least-bytes-consed (lambda () (write-sample-cell grid 0 103 7)))))
+    (is (eql 0 (least-bytes-consed (lambda () (write-sample-cell grid 32 104 8)))))
+    (is (eql 0 (least-bytes-consed (lambda () (patch-sample-cell grid 32 9)))))))
 
 (def-test the-fast-and-the-general-path-write-the-same-units ()
   "A record of fixed size writes the same units to a simple vector, by the fast path, as to a
@@ -777,15 +784,10 @@ fit, from a simple vector, allocate nothing."
          (inline (cell-octets 2 #x02 0 0  #x34 #x12 7 0  103 0 0 #x02  0 0 0 0  0 0 0 0
                               1 2 3 4 5 6 7 8 9 10 11 12))
          (colours (unmarshal inline-cell inline (:as :record))))
-    (flet ((consed (thunk)
-             (funcall thunk)
-             (let ((before (sb-ext:get-bytes-consed)))
-               (dotimes (n 1000) (funcall thunk))
-               (- (sb-ext:get-bytes-consed) before))))
-      (is (eql 0 (consed (lambda () (unmarshal plain-cell grid (:at 32) :blink)))))
-      (is (eql 0 (consed (lambda () (unmarshal plain-cell grid (:at 32) (:g1 :operation))))))
-      (is (eql 0 (consed (lambda () (unmarshal plain-cell grid (:at 32 :into cell))))))
-      (is (eql 0 (consed (lambda () (unmarshal inline-cell inline (:into colours)))))))))
+    (is (eql 0 (least-bytes-consed (lambda () (unmarshal plain-cell grid (:at 32) :blink)))))
+    (is (eql 0 (least-bytes-consed (lambda () (unmarshal plain-cell grid (:at 32) (:g1 :operation))))))
+    (is (eql 0 (least-bytes-consed (lambda () (unmarshal plain-cell grid (:at 32 :into cell))))))
+    (is (eql 0 (least-bytes-consed (lambda () (unmarshal inline-cell inline (:into colours))))))))
 
 (def-test a-fixed-record-with-slots-is-checked-on-the-fast-path ()
   "A record of fixed size with slots, read from a simple vector, has its slots checked as

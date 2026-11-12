@@ -94,6 +94,9 @@ decisions:
   - SPECOPS-DRAFT-manifest-D77
   - SPECOPS-DRAFT-manifest-D78
   - SPECOPS-DRAFT-manifest-D79
+  - SPECOPS-DRAFT-manifest-D80
+  - SPECOPS-DRAFT-manifest-D81
+  - SPECOPS-DRAFT-manifest-D82
 relates-to:
   - SPECOPS-0003
   - SPECOPS-0007
@@ -4326,3 +4329,208 @@ New:
   use the generic serializer and its numeric granularities.
 - The items of the previous updates remain: a masque group's range check in a
   patch, decimal masques in a patch, and the others.
+
+## Update 2026-11-12 — Release 0.2.2: reads
+
+This installment covers commit `d104308`, tagged `v0.2.2`, the sixth step of
+the [plan for manifests over arrays of records](Plan.OverArrays.md), and the
+update of the [Manifest Reference](Ref.Manifest.md) after it. `unmarshal`
+reads a record of fixed size from a simple vector by direct loads, slots
+included, and loads a path at fixed positions alone
+(SPECOPS-DRAFT-over-arrays-D18); a read reports where its record ends
+(SPECOPS-DRAFT-over-arrays-D19); and `(:into record)` fills an existing
+record (SPECOPS-DRAFT-over-arrays-D20). This installment records how the
+layer carries them out, and a fix to two tests made after the tag.
+
+### SPECOPS-DRAFT-manifest-D80 — A read is rendered once for each source, the fast rendering taken only when the record lies within a simple vector
+
+**Status:** Proposed
+**Context:** SPECOPS-DRAFT-over-arrays-D18 has a record of fixed size read
+from a simple vector of its unit type by direct loads after one check of its
+extent. `unmarshal` builds its code in one pass that accumulates the
+variables, the reads, the regions its checks need and the fields a selective
+read decodes (`src/manifest/manifest.lisp:unmarshal@v0.2.0`). A write that
+overruns its vector is an error whichever path it takes
+(SPECOPS-DRAFT-over-arrays-D16), but a selective read from a vector cut short
+after the fields it asks for succeeds, as the suites test.
+**Decision:** In `src/manifest/manifest.lisp:unmarshal@d104308`, that pass is
+a local function, `render`, of the kind of source: `:fast`, loading from the
+vector directly; `:general`, through the general source; and `:nested`, as
+the expansion it is nested in loads, which passes its source in the lexicon.
+At the top level, the source and the record's start are evaluated once, and a
+record of fixed size is rendered twice, the fast rendering chosen when the
+source is a simple vector of the unit type, the start an array index, and the
+record within the vector. A vector too short takes the general rendering, so
+a selective read from one still succeeds as before; the check of the extent
+chooses the path rather than signalling. The fast rendering declares the
+vector, the start and the cursor; slots and their checks are rendered as on
+the general path, a checksum's function reading the vector itself. Every
+variable a rendering binds is declared ignorable, since one bound for both
+paths may be used on one only.
+**Alternatives:** An overrun signalled when a fixed record does not fit, as a
+write does (rejected: a selective read of a vector cut short after its keys
+would fail, where it succeeds now); one rendering choosing its loads for each
+field when the code runs (rejected: a test for every load).
+
+### SPECOPS-DRAFT-manifest-D81 — A path at fixed positions is loaded alone, and checks only the units it loads
+
+**Status:** Proposed
+**Context:** A path is read by reading the field its first name names whole
+and taking its value from that field's plist (SPECOPS-DRAFT-manifest-D74),
+which for `(:g1 :reach)` builds a plist of a glyph word. SPECOPS-DRAFT-over-arrays-D18
+has such a path loaded alone where its fields' positions are fixed.
+**Decision:** `src/manifest/manifest.lisp:direct-path-form@d104308` builds,
+for a path whose every field lies at a position fixed at expansion and whose
+last is a scalar or a masque group, a load of that field alone
+(`src/manifest/manifest.lisp:field-load-form@d104308`), through plain
+sub-manifests by their offsets and through a `:case` field by a `case` on its
+selector's code, loaded the same way, each branch loading from its own
+position. A branch that lacks the next field signals the error of
+`7eb7ddf`, naming the branch found and the selector's value; a branch that
+is not a sub-manifest signals it too. A path so loaded is not among the
+fields a selective read decodes, so only its units are read, and the
+constant bits elsewhere in the sub-manifest, such as a glyph word's reserved
+bits, are not checked by that read. Any other path is read as
+SPECOPS-DRAFT-manifest-D74 has it. `selector-load-form` takes a source, so
+that patches and reads share it.
+**Alternatives:** The sub-manifest read selectively, its constants checked
+(not taken: it reads a whole glyph word for one of its groups, against the
+target of a selective read within a few nanoseconds of reading by hand).
+
+### SPECOPS-DRAFT-manifest-D82 — `(:into record)` sets the record's slots, and passes each slot's value to the nested read that may fill it
+
+**Status:** Proposed
+**Context:** SPECOPS-DRAFT-over-arrays-D20 has `(:into record)` fill a record,
+its nested records of the class a branch reads and its vectors that fit in
+place. A nested record is read by a nested expansion of `unmarshal`, a
+counted vector by the vector assembler of the field's scan
+(`src/manifest/scan.lisp:assemble-effector@v0.2.0`).
+**Decision:** The top-level expansion binds the record given and checks its
+class, and its result sets each slot by `slot-value`, the slots named as
+`define-manifest-record` names them. Each field's context carries the form
+of the record's current value for that slot, when the record is of the
+manifest's class; a nested expansion receives it as `(:into form)`, fills it
+when it is of the child's class, and makes a new record otherwise; the vector
+assembler, given it, fills a vector of the field's length and element type
+in place (`src/manifest/scan.lisp:emit-scan@d104308`). A read into a Lexter
+cell then allocates nothing, though it takes some 300 ns against some 170 ns
+for making a record, since `slot-value` is not inlined.
+**Alternatives:** The slots set through their accessors (not taken: generic
+functions, no faster); slot locations fixed at load time (deferred: a record
+class redefined would invalidate them).
+
+### Implementation
+
+- **`src/manifest/manifest.lisp`.** `field-load-form`, `direct-path-form`
+  and `path-fixed-p`; `selector-load-form` taking a source. In `unmarshal`:
+  the params `:into` and `:end`; the paths loaded alone left out of the
+  selection; `render`, its source and declarations, and the dispatch; the
+  slot forms of `(:into record)`, passed to nested reads, and its result; the
+  record's end as a full read's second value and, given `(:end t)`, after a
+  keyed read's values, a keyed read of a record of varying size then passing
+  over the fields after its last key; enumerated values decoded by
+  `enum-decode-form`; the docstring.
+- **`src/manifest/scan.lisp`.** `enum-decode-form` decodes by a `case` made at
+  expansion when the enum is defined with integer codes, and the vector
+  assembler uses it; `emit-scan` passes a vector to read into to the
+  assembler, which fills it when it fits.
+- **`src/serial.lisp`.** A source vector of another element type is an error
+  naming it and the type the manifest reads.
+- **`specops.asd`.** Version 0.2.2.
+- **`test/test-manifest-arrays.lisp`.** The helper `as-integer-source` and
+  seven tests, from
+  `test/test-manifest-arrays.lisp:the-fast-and-the-general-path-read-the-same-values@d104308`
+  to `test/test-manifest-arrays.lisp:a-source-vector-of-another-element-type-is-an-error-saying-so@d104308`:
+  the paths agree; reads on the fast path allocate nothing; a fixed record's
+  slots checked on the fast path; records filled in place, and replaced
+  where a branch's class differs; a record of another class refused; the
+  record's end; and the error for a vector of another element type.
+- **`test/test-manifest-ref.lisp`.** Two manifests, `word-pair` and
+  `pdp-long`, a manifest `box`, and three examples:
+  `test/test-manifest-ref.lisp:ref-byte-orders@d104308`,
+  `test/test-manifest-ref.lisp:ref-unmarshal-end@d104308` and
+  `test/test-manifest-ref.lisp:ref-unmarshal-into@d104308`.
+- **`scripts/bench-manifests.lisp`.** Reads measured: one flag, by
+  `unmarshal` and by hand, a path, and a full cell as a plist, as a record and
+  into a record, each result kept so that no read is optimized away.
+- **After the tag.** The two allocation tests of `manifest-arrays` measured
+  allocation in one run of a thousand calls, which another thread's
+  allocation, counted by `sb-ext:get-bytes-consed`, made fail about one run
+  of the suite in three. They now take the fewest bytes of five runs, through
+  a helper, `least-bytes-consed`, in the commit after `d104308`.
+- **`doc/Ref.Manifest.md`.** Written after the commit: version 0.2.2, its code
+  references pinned to `v0.2.2`; the second value of every full read in the
+  examples; `(:into record)` and `(:end t)` among the params; a section, "The
+  record's end, and reading into a record", with two examples; paths loaded
+  alone; the example of byte orders; the error for a vector of another
+  element type, and its limit removed.
+
+### Verification
+
+Run with `sbcl --non-interactive --eval '(asdf:test-system :specops)'`. With
+the fix to the allocation tests, `manifest-arrays` has 49 tests with 182
+assertions, `manifest-ref` 36 with 102, and the root suite 507 tests with 949
+assertions; all pass, in six runs of `manifest-arrays` alone and in three
+shuffled orders of the whole. `src/manifest/manifest.lisp`,
+`src/manifest/scan.lisp` and `src/units.lisp` compile with no warnings; the
+test system's expansions draw 745 style warnings of the kind "defined but
+never used", against 1,913 at `023a7c6`, and two of "assigned but never
+read", against 42. The format systems load, and the six scripts in
+`scripts/` pass.
+
+Table: The cost of reading one of Lexter's cells at `023a7c6` and at
+`d104308`, on the machine of SPECOPS-0009; at `d104308` measured with
+`scripts/bench-manifests.lisp`, before it in a loop of the same calls.
+
+| Read | `023a7c6` | `d104308` |
+|---|---|---|
+| `:blink` alone | 100 ns, 0 bytes | 4 to 8 ns, 0 bytes |
+| The path `(:g1 :reach)` | 240 ns, 128 bytes | 4 ns, 0 bytes |
+| The full cell, as a plist | 1,340 ns, 1,184 bytes | 192 ns, 1,184 bytes |
+| The full cell, as a record | 1,340 ns, 560 bytes | 172 ns, 560 bytes |
+| The full cell, into a record | — | 300 ns, 0 bytes |
+| A tile cell, as a plist | 1,360 ns, 1,280 bytes | 176 ns, 1,280 bytes |
+| The 1×1 PNG, of varying size | 3,000 ns, 719 bytes | 3,200 ns, 719 bytes |
+
+The reading by hand is moved out of the loop by the compiler, so its time is
+a floor rather than a measurement; within a loop of calls, one flag read by
+`unmarshal` and by hand both took 4 ns, which meets the steward's target. A
+full read's allocation is its plist or its record; a read into a record
+allocates nothing. A record of varying size takes the general path, as the
+PNG does.
+
+### Files
+
+Table: Files changed in commit `d104308`, and the documents updated after it.
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/manifest/manifest.lisp` | Modified | The reads' renderings; paths loaded alone; `(:into record)`; the record's end |
+| `src/manifest/scan.lisp` | Modified | Enums decoded at expansion; vectors read into |
+| `src/serial.lisp` | Modified | The error for a vector of another element type |
+| `specops.asd` | Modified | Version 0.2.2 |
+| `test/test-manifest-arrays.lisp` | Modified | Reads; after the tag, the allocation tests' measurement |
+| `test/test-manifest-ref.lisp` | Modified | Three examples |
+| `scripts/bench-manifests.lisp` | Modified | Reads measured |
+| `doc/Plan.OverArrays.md` | Modified | SPECOPS-DRAFT-over-arrays-D18 to SPECOPS-DRAFT-over-arrays-D20, before the commit; the progress update, after it |
+| `doc/Ref.Manifest.md` | Modified | Release 0.2.2, after the commit |
+| `doc/Log.Manifest.md` | Modified | This update |
+
+### Metrics
+
+- Tests: 507, with 949 assertions, up from 497 and 902.
+- Regressions at `d104308`: 0; one flaky test pair, fixed after the tag.
+
+### Outstanding Work
+
+New:
+
+- **A read into a record is slower than making one,** some 300 ns against
+  170, since each slot is set by `slot-value` (SPECOPS-DRAFT-manifest-D82).
+- **A path loaded alone checks only its units** (SPECOPS-DRAFT-manifest-D81);
+  a read that should check a sub-manifest's constants reads the sub-manifest.
+- **Records of varying size** are read on the general path, through a
+  deserializer for each field; the PNG's read is unchanged.
+- The items of the previous updates remain: the fast path of writes for
+  records with slots, enumerated values given as forms on write, and the
+  others.

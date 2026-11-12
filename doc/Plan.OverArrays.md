@@ -1099,3 +1099,53 @@ Reads depend on nothing open: the builder's sources exist, and the general
 source already defines the order of units for every read. Recursive manifests
 wait for reads, so that a cycle's functions are built on the read code that
 will stay.
+
+## Update 2026-11-12 — Progress: reads
+
+This installment charts the plan's progress at commit `d104308`, tagged
+`v0.2.2`, which completes its sixth step, reads, as the steward decided it in
+SPECOPS-DRAFT-over-arrays-D18 to SPECOPS-DRAFT-over-arrays-D20: the fast path
+of reads, slots included, paths loaded alone, the record's end reported, and
+`(:into record)`. The [Manifest Development Log's](Log.Manifest.md) update of
+the same date records the work, with SPECOPS-DRAFT-manifest-D80 for the
+reads' renderings, SPECOPS-DRAFT-manifest-D81 for paths loaded alone and
+SPECOPS-DRAFT-manifest-D82 for reading into a record; the
+[Manifest Reference](Ref.Manifest.md) describes release 0.2.2. All 507 tests
+pass, with 949 assertions, with a fix to two allocation tests made after the
+tag, which another thread's allocation could make fail.
+
+### Progress
+
+Table: State of each Roadmap step at commit `d104308`. Entries new since the
+previous update are marked "new".
+
+| Step | State | Done | Remaining |
+|---|---|---|---|
+| 1. The prototype | Done | As before | — |
+| 2. Records at an index | Done | As before | As before |
+| 3. Paths | Done | As before; new: a path at fixed positions loaded alone | As before |
+| 4. Patches | Done | As before | As before |
+| 5. The fast path | Done | As before | As before |
+| 6. Reads | New: done | New: a record of fixed size, slots included, read from a simple vector by direct loads, a selective read of one flag in 4 ns, as by hand, and a full read in some 190 ns, against 1,340 ns before; paths at fixed positions loaded alone, in 4 ns against 240; enums decoded at expansion; the record's end reported (SPECOPS-O23 answered); `(:into record)`, filling nested records and vectors in place, a full read into a record allocating nothing; released as 0.2.2 | Reads of records of varying size, on the general path |
+| 7. Later additions | Not started | — | The layout as data, and the others listed |
+
+The steward's target, a selective read of one field within a few
+nanoseconds of reading it by hand, is met. A read into a record allocates
+nothing but takes some 300 ns, more than making a record, since its slots are
+set by `slot-value`; the Log lists it among its outstanding work.
+
+### Priorities
+
+1. **Recursive manifests,** in a plan of their own, from the
+   [Recursive Manifests Survey, SPECOPS-0010](Survey.RecursiveManifests.md):
+   the mechanism (SPECOPS-O35), the cycle's functions (SPECOPS-O28) and
+   limits (SPECOPS-O29) first, now that the read and write code they would be
+   built on is settled.
+2. **Later additions** of this plan, as users show the need.
+
+### Dependencies
+
+Every step of the plan's roadmap is done but its later additions. Recursive manifests
+depend on nothing in this plan that is open; they will need every walk at
+expansion to detect cycles, among them `item-extent` and `manifest-layout`,
+which patches and the fast paths use.
