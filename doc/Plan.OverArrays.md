@@ -25,11 +25,16 @@ decisions:
   - SPECOPS-DRAFT-over-arrays-D6
   - SPECOPS-DRAFT-over-arrays-D7
   - SPECOPS-DRAFT-over-arrays-D8
+  - SPECOPS-DRAFT-over-arrays-D9
+  - SPECOPS-DRAFT-over-arrays-D10
+  - SPECOPS-DRAFT-over-arrays-D11
+  - SPECOPS-DRAFT-over-arrays-D12
 open-questions:
   - SPECOPS-DRAFT-over-arrays-O1
   - SPECOPS-DRAFT-over-arrays-O2
   - SPECOPS-DRAFT-over-arrays-O3
   - SPECOPS-DRAFT-over-arrays-O4
+  - SPECOPS-DRAFT-over-arrays-O5
 cites:
   - title:    The Cell Model Architecture (Lexter)
     locator:  Lexter repository, doc/Arch.CellModel.md — the record by word (LEXTER-D81 to LEXTER-D95); The Record; Invariants of a record
@@ -320,6 +325,71 @@ record (not possible as measured: a record of varying size has no extent to
 check once, SPECOPS-DRAFT-manifest-benchmarks-O2); the fast path before paths
 and patches (not taken by the steward, who has put it after them).
 
+### SPECOPS-DRAFT-over-arrays-D9 — In this iteration, only a record of fixed size may be patched
+
+**Status:** Proposed
+**Context:** SPECOPS-DRAFT-over-arrays-D7 refuses a field whose position
+depends on an earlier field of varying width, and
+SPECOPS-DRAFT-over-arrays-D6 has a patch of a record of varying size pass over
+the fields after those it writes to find the record's end. A record of fixed
+size needs neither: every field's position and the record's end are known at
+expansion. Lexter's cells are all of fixed size.
+**Decision:** In this design iteration, `(:patch t)` applies only to a
+manifest whose size is fixed at expansion; a patch of any other is an
+expansion error naming the manifest and the first field of varying width.
+Every field is then found at its position with no reads, and the patch
+returns the record's start plus its size. This subsumes
+SPECOPS-DRAFT-over-arrays-D7, and leaves the second case of
+SPECOPS-DRAFT-over-arrays-D6 for a later iteration.
+**Alternatives:** Patching records of varying size now, reading to locate
+fields and to find the record's end (not taken by the steward for this
+iteration).
+
+### SPECOPS-DRAFT-over-arrays-D10 — `(:from record)` with `(:patch t)` is deferred
+
+**Status:** Proposed
+**Context:** SPECOPS-DRAFT-over-arrays-D3 has a patch with `(:from record)`
+write the fields the record gives a value for. Which those are is known only
+when the code runs, so every field of the manifest would need a test then.
+**Decision:** In this iteration, `(:patch t)` with `(:from record)` is an
+expansion error; a patch writes the fields its pairs give.
+**Alternatives:** Each field written when the record gives it a value (not
+taken by the steward for this iteration).
+
+### SPECOPS-DRAFT-over-arrays-D11 — Nested values in a patch write only the fields they give, and a selector given in the patch chooses its branch
+
+**Status:** Proposed
+**Context:** A full write takes a sub-manifest's value as a literal list of
+its field pairs, and writes the child whole. A patch writes only what it is
+given, and a field in a `:case` branch depends on a selector that the patch
+may give or leave as it is.
+**Decision:** In a patch, a sub-manifest's literal pairs, `:g0 (:glyph 103)`,
+write only those fields of the child, as the path `(:g0 :glyph)` does, and
+leave its other fields as they are. A field reached through a `:case` branch
+is written in the branch its selector chooses: the selector's value given in
+the same patch when there is one, as `:type-1 1` with `(:g1 :reach) 2`, and
+otherwise the selector as it stands in the vector, read when the code runs.
+A path whose field the chosen branch lacks is an error, as for a read
+(SPECOPS-DRAFT-over-arrays-D5).
+**Alternatives:** Nested pairs that rewrite the whole child with defaults
+(rejected: a patch would then write fields it was not given); the selector
+always read from the vector (rejected: a patch that changes a type bit and its
+glyph word together would write the word in the old branch's form).
+
+### SPECOPS-DRAFT-over-arrays-D12 — A patch checks the whole record against the vector before it writes
+
+**Status:** Proposed
+**Context:** A full write checks each unit against the vector as it writes it,
+so an overrun leaves the units before it written. A patch writes into a record
+that is already there, where a partial write would leave it inconsistent.
+**Decision:** A patch checks that the record, from its start to its fixed
+end, lies within the vector before it writes any unit, and signals
+`manifest-overrun` otherwise, with the vector's size and the record's end as
+the position, writing nothing.
+**Alternatives:** Checking unit by unit as a full write does (not taken: the
+steward chose the check before writing, and an overrun would otherwise leave
+a record partly patched).
+
 ## Lexter's cell model as a test case
 
 Lexter's record is eight little-endian 32-bit words in an array of
@@ -458,6 +528,15 @@ has no place for a position. A parameter naming a place to store the end, or
 an extra value under a parameter, are the candidates. Lexter's records are of
 one size, so it does not need this.
 
+### SPECOPS-DRAFT-over-arrays-O5 — How do paths name elements of repeats?
+
+A path names fields, so it cannot reach into a repeated sub-manifest
+(SPECOPS-DRAFT-over-arrays-D5). Paths that mix field names with element
+indices, as `var.foo.bar[2].baz` does in JavaScript, would let a read or a
+patch name one instance's field, such as `(:points 2 :x)`. The steward has
+planned this for a later stage, and has prior art of his own to contribute to
+its design.
+
 ## Prior Art
 
 Table: Prior systems and what this plan draws from each.
@@ -487,11 +566,13 @@ Table: Prior systems and what this plan draws from each.
    sub-manifests and `:case` branches, for selective reads, with the run-time
    check of the branch.
 4. **Patches** (SPECOPS-DRAFT-over-arrays-D3,
-   SPECOPS-DRAFT-over-arrays-D4). `(:patch t)`, with paths, masque groups
-   combined into one write of their units, fixed positions found at
-   expansion and others refused (SPECOPS-DRAFT-over-arrays-D7), the
-   refusals of SPECOPS-DRAFT-over-arrays-D4, and the record's end returned
-   (SPECOPS-DRAFT-over-arrays-D6). `marshal`'s internal variable `patching`,
+   SPECOPS-DRAFT-over-arrays-D4, SPECOPS-DRAFT-over-arrays-D6,
+   SPECOPS-DRAFT-over-arrays-D9 to SPECOPS-DRAFT-over-arrays-D12).
+   `(:patch t)` for records of fixed size, with paths and nested pairs that
+   write only what they give, masque groups combined into one write of their
+   units, selectors given or read, the record checked against the vector
+   first, the refusals of SPECOPS-DRAFT-over-arrays-D4, and the record's end
+   returned. `marshal`'s internal variable `patching`,
    which marks a manifest with slots written through a buffer
    (`src/manifest/manifest.lisp:marshal@v0.1.0`), is renamed `backpatching`,
    so that the code does not use one word for two things. The Reference
