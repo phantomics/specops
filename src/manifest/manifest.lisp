@@ -416,6 +416,120 @@ through and keeps, grown as needed, so that later calls allocate none."
   (let ((array (manifest-buffer-array holder)))
     (and array (equal (array-element-type array) (upgraded-array-element-type type)) array)))
 
+;;; Patches, (:patch t): a write of the fields given into a record already in a vector, for a
+;;; record of fixed size, whose fields are each found at a position fixed at expansion.
+
+(defun item-extent (item unit-spec pos)
+  "The units ITEM, a stored field, takes when that is fixed at expansion, POS units into its
+manifest; NIL when it varies."
+  (destructuring-bind (&key type length count subtypes end-by stop-by actual mode n
+                         type-conditions place items &allow-other-keys)
+      item
+    (cond (place nil)
+          ((member type '(:masque)) length)
+          ((eq type :string) (+ length (if end-by 1 0)))
+          ((eq type :pad) (case mode
+                            (:count n)
+                            (:to (and (>= n pos) (- n pos)))
+                            (t nil)))
+          ((eq type :place) nil)
+          ((eq type :span)
+           (let ((total 0))
+             (dolist (i items total)
+               (let ((e (item-extent i unit-spec (+ pos total))))
+                 (unless e (return nil))
+                 (incf total e)))))
+          ((eq type :manifest)
+           (let* ((options (rest actual))
+                  (child (manifest-extent (first actual))))
+             (cond ((getf options :until) nil)
+                   ((getf options :count) (and (integerp (getf options :count)) child
+                                               (* (getf options :count) child)))
+                   (t child))))
+          ((member :case subtypes)
+           (let ((ws (loop :for b :in type-conditions
+                           :collect (if (eq :manifest (getf b :type))
+                                        (manifest-extent (first (getf b :actual)))
+                                        (and (not (intersection '(:vec :leb) (getf b :subtypes)))
+                                             (getf b :length))))))
+             (and ws (every #'integerp ws) (every (lambda (w) (= w (first ws))) ws) (first ws))))
+          ((member :leb subtypes) nil)
+          ((member :vec subtypes) (and (integerp count) (not stop-by) (* count length)))
+          (t length))))
+
+(defun manifest-layout (name)
+  "The extent of each of the stored fields of the manifest NAME, as an alist of fields and
+units, and the manifest's size, when every extent is fixed at expansion. Otherwise NIL, and
+the first field of varying width."
+  (let* ((spec (gethash name *manifests*))
+         (unit-spec (getf (first spec) :unit-spec))
+         (pos 0) (layout nil))
+    (dolist (item (rest spec) (values (reverse layout) pos))
+      (let ((e (item-extent item unit-spec pos)))
+        (unless e (return (values nil item)))
+        (push (cons item e) layout)
+        (incf pos e)))))
+
+(defun manifest-extent (name)
+  "The size in units of the manifest NAME, when fixed at expansion; otherwise NIL."
+  (multiple-value-bind (layout size) (manifest-layout name)
+    (and layout size)))
+
+(defun nest-paths (pairs)
+  "PAIRS, a marshal call's field pairs, with each pair whose key is a path, a list of field
+names, made a nested pair of its first name, merged with any other value given for it."
+  (labels ((merge-path (plist path value)
+             (let* ((key (first path))
+                    (old (getf plist key))
+                    (new (if (rest path)
+                             (merge-path (and (consp old) (keywordp (first old)) old) (rest path) value)
+                             value)))
+               (when (and old (not (rest path))
+                          (not (and (consp old) (keywordp (first old))
+                                    (consp new) (keywordp (first new)))))
+                 (error "marshal: field ~s is given twice." key))
+               (when (and (consp old) (keywordp (first old)) (consp new) (keywordp (first new))
+                          (not (rest path)))
+                 (setf new (loop :with merged := (copy-list old)
+                                 :for (k v) :on new :by #'cddr
+                                 :do (setf merged (merge-path merged (list k) v))
+                                 :finally (return merged))))
+               (let ((copy (copy-list plist)))
+                 (if (member key copy)
+                     (setf (getf copy key) new)
+                     (setf copy (append copy (list key new))))
+                 copy))))
+    (loop :with out := nil
+          :for (k v) :on pairs :by #'cddr
+          :do (setf out (merge-path out (if (consp k) k (list k)) v))
+          :finally (return out))))
+
+(defun masque-group-bits (actual char)
+  "The width and the position of the group CHAR of the mask ACTUAL, in bits or, for a
+decimal mask, in digits, and the mask's factor, 10 for a decimal mask, else NIL."
+  (multiple-value-bind (base factor segments symbols) (quantify-mask-string actual nil)
+    (declare (ignore base))
+    (let ((ix (position (intern (string-upcase char) "KEYWORD") symbols)))
+      (unless ix (error "marshal: group ~a not found in masque ~s." char actual))
+      (values (- (nth (1+ ix) segments) (nth ix segments)) (nth ix segments) factor))))
+
+(defun checksummed-names (items)
+  "The names of the fields of ITEMS, a manifest's stored fields, that lie in a region a
+:checksum-of slot covers, at any depth of span."
+  (let ((covered (loop :for it :in (manifest-leaves items)
+                       :for slot := (getf (first it) :slot)
+                       :when (and slot (eq :checksum-of (first slot))) :collect (second slot))))
+    (labels ((names-in (item)
+               (if (eq :span (getf item :type))
+                   (cons (getf item :name) (mapcan #'names-in (getf item :items)))
+                   (leaf-names item)))
+             (walk (items)
+               (loop :for it :in items
+                     :append (if (member (getf it :name) covered)
+                                 (names-in it)
+                                 (and (eq :span (getf it :type)) (walk (getf it :items)))))))
+      (walk items))))
+
 (defmacro marshal (name destination &body pairs)
   "Write the fields of the manifest NAME to DESTINATION, a vector, a stream or a function
 of one unit, and return the position after the last unit. PAIRS give field values as
@@ -424,9 +538,26 @@ not given in PAIRS from RECORD, a plist or a manifest's record, when the code ru
 (:buffer B) keeps in B, a manifest-buffer, the buffer through which a manifest with slots is
 written to a stream or a function, and (:at INDEX) writes the record at INDEX of a vector
 destination, returning the position after it; offset slots count from the record's start. A
-vector too small signals manifest-overrun."
+vector too small signals manifest-overrun. (:patch t) writes only the fields PAIRS give into
+a record of fixed size already in a vector, keeping the other units and the other groups of
+a masque as they were; a key may then be a path, a list of field names such as (:g1 :ink),
+and a sub-manifest's nested pairs write only the fields they give. A :case field is written
+in the branch its selector's value in PAIRS chooses, else the selector in the vector. A patch
+checks that the record fits before it writes, writes no slot and no field a checksum covers,
+and returns the record's end."
   (let* ((options (and (consp (first pairs)) (first pairs)))
          (pairs (if options (rest pairs) pairs))
+         ;; a patch's paths, (:g1 :ink) 0, are nested pairs of their first names, :g1 (:ink 0)
+         (pairs (progn (when (oddp (length pairs))
+                         (error "marshal: the pairs of manifest ~s, ~s, are of odd length~@[; ~s was ~
+                                 taken as the options, which come first, and a path is a key of a ~
+                                 patch only~]." name pairs options))
+                       (unless (getf options :patch)
+                         (loop :for (k) :on pairs :by #'cddr
+                               :when (consp k)
+                                 :do (error "marshal: the path ~s is a key of a patch only; a full ~
+                                             write gives a sub-manifest's fields as nested pairs." k)))
+                       (if (getf options :patch) (nest-paths pairs) pairs)))
          (from (and (getf options :from) (gensym "REC")))
          (manifest-name name)
          (spec (gethash name *manifests*))
@@ -435,13 +566,15 @@ vector too small signals manifest-overrun."
          (selvars (mapcar (lambda (s) (cons s (gensym (string s))))
                           (case-selectors (rest spec))))
          (nested (getf pairs :-+sub-lexicon+-))
-         ;; a manifest with a slot anywhere in it is patched, so a function or a stream is
+         ;; a manifest with a slot anywhere in it is backpatched, so a function or a stream is
          ;; written through a buffer; the top-level expansion decides
-         (patching (and (not nested) (manifest-slots-p (rest spec))))
+         (backpatching (and (not nested) (not (getf options :patch)) (manifest-slots-p (rest spec))))
          (unit-type `(unsigned-byte ,(ash 1 (+ 3 (or (getf params :unit-spec) 0)))))
          (holder (and (not nested) (getf options :buffer) (gensym "HOLDER")))
          ;; (:at index): the record begins at INDEX of a vector destination
          (at (and (not nested) (getf options :at)))
+         ;; (:patch t): only the fields given are written, into a record of fixed size
+         (patch (and (not nested) (getf options :patch) t))
          (origin nil)
          (dest (gensym "DEST")) (in-place (gensym "IN-PLACE")) (limit (gensym "LIMIT"))
          ;; the tags of placed fields, here or nested, when this is the top-level expansion
@@ -452,12 +585,15 @@ vector too small signals manifest-overrun."
          places)
 
     (loop :for (key) :on options :by #'cddr
-          :unless (member key '(:from :buffer :at))
+          :unless (member key '(:from :buffer :at :patch))
             :do (error "marshal: unknown option ~s for manifest ~s." key name))
 
-    (when (and at (consp destination) (member (first destination) '(function lambda)))
-      (error "marshal: (:at ~s) needs a vector destination, not the function ~s."
-             at destination))
+    (when (and (or at patch) (consp destination) (member (first destination) '(function lambda)))
+      (error "marshal: ~:[(:at ~s)~;a patch~*~] needs a vector destination, not the function ~s."
+             patch at destination))
+    (when (and patch (getf options :from))
+      (error "marshal: a patch of manifest ~s writes the fields its pairs give; (:from record) ~
+              is not yet allowed with (:patch t)." name))
 
     (unless nested
       (multiple-value-bind (placed declared) (manifest-places (rest spec))
@@ -469,11 +605,11 @@ vector too small signals manifest-overrun."
     ;; populate the symbol lexicon or import it from an enclosing marshal macro
     (if (getf pairs :-+sub-lexicon+-)
         (destructuring-bind (&key ac-sym en-sym ba-sym in-sym wr-sym pr-sym
-                               vl-sym ln-sym sr-sym mp-sym ct-sym b-sym i-sym pl-sym or-sym)
+                               vl-sym ln-sym sr-sym mp-sym ct-sym b-sym i-sym pl-sym or-sym pa-sym)
             (getf pairs :-+sub-lexicon+-)
           (setf access ac-sym enter en-sym base ba-sym index in-sym write wr-sym prefix pr-sym
                 values vl-sym length ln-sym serializers sr-sym map mp-sym counts ct-sym
-                b b-sym i i-sym places pl-sym origin or-sym
+                b b-sym i i-sym places pl-sym origin or-sym patch pa-sym
                 ;; propagate the same lexicon to deeper sub-manifests so nested
                 ;; inlining keeps sharing the top-level environment
                 sub-lexicon (getf pairs :-+sub-lexicon+-)))
@@ -495,7 +631,7 @@ vector too small signals manifest-overrun."
                                 :wr-sym write
                                 :vl-sym values :ln-sym length
                                 :sr-sym serializers :mp-sym map :ct-sym counts :b-sym b :i-sym i
-                                :pl-sym places :or-sym origin)))
+                                :pl-sym places :or-sym origin :pa-sym patch)))
 
 
     
@@ -558,7 +694,28 @@ vector too small signals manifest-overrun."
              (write-manifest (child ctx)
                ;; expand the sub-manifest CHILD in the shared environment, its fields given by
                ;; literal pairs, then by a record form bound once, when the code runs
-               (destructuring-bind (&key name literal record &allow-other-keys) ctx
+               (destructuring-bind (&key name literal record branch-fields selector-value
+                                    &allow-other-keys)
+                   ctx
+                 (when (and patch branch-fields)
+                   ;; a patch's keys through a :case field: each must be a field of some branch,
+                   ;; and one the branch chosen when the code runs lacks is an error there
+                   (let* ((fields (manifest-field-names (rest (gethash child *manifests*))))
+                          (keys (loop :for (k) :on literal :by #'cddr :collect k))
+                          (unknown (find-if-not (lambda (k) (member k branch-fields)) keys))
+                          (absent (find-if-not (lambda (k) (member k fields)) keys)))
+                     (when unknown
+                       (error "marshal: a patch of manifest ~s gives ~s within ~s, which no branch ~
+                               of that field has." manifest-name unknown name))
+                     (when absent
+                       (return-from write-manifest
+                         `(error "marshal: a patch of manifest ~s gives ~s within ~s, which the ~
+                                  branch chosen, manifest ~s, lacks~@[: it was chosen by ~s = ~s~]."
+                                 ',manifest-name ',absent ',name ',child
+                                 ,@(let ((sel (getf (find-field (rest spec) name) :type-indicator)))
+                                     (if (and sel selector-value)
+                                         `(',sel ,selector-value)
+                                         '(nil nil))))))))
                  (let* ((child-record (and record (gensym "REC")))
                         (expansion (macroexpand
                                     (append (list 'marshal child destination)
@@ -576,6 +733,11 @@ vector too small signals manifest-overrun."
                    (error "marshal: field ~s was given nested values, but its selector chooses a ~
                            branch that is not a sub-manifest." name))
                  (list :literal (and nested given)
+                       :branch-fields (and patch
+                                           (remove-duplicates
+                                            (loop :for items :in (field-children
+                                                                  (find-field (rest spec) name))
+                                                  :append (manifest-field-names items))))
                        :record (cond (nested nil)
                                      (given given)
                                      (from `(field-value ,from ',name)))
@@ -615,7 +777,12 @@ vector too small signals manifest-overrun."
              (selector-form (sel field)
                (let* ((item (selector-item sel))
                       (v (value-source sel (getf item :default))))
-                 (cond ((not (member sel written))
+                 (cond ((and patch (not (given-p sel)))
+                        ;; the selector as it stands in the record, read when the code runs
+                        (let ((r (gensym "SEL")))
+                          `(let ((,r (unmarshal ,name ,access (:at ,base :check nil) ,sel)))
+                             ,(enumerate (getf item :enumerate-by) r))))
+                       ((not (member sel written))
                         (error "marshal: field ~s needs its :case selector ~s, which must come before it."
                                field sel))
                        ((null v) (error "marshal: :case selector ~s has no value and no default." sel))
@@ -624,6 +791,75 @@ vector too small signals manifest-overrun."
              (enum-of (sel)
                (let ((e (getf (find-field (rest spec) sel) :enumerate-by)))
                  (and e (gethash e *enums*))))
+             (given-p (key)
+               (loop :for (k) :on pairs :by #'cddr :thereis (eq k key)))
+             (patch-generate (item pos context)
+               ;; a patch's code for ITEM, POS units into the manifest: the item written when it
+               ;; is given, its given groups written when it is a masque, and otherwise passed
+               ;; over by its extent; returns the code and the extent
+               (let ((e (item-extent item (getf params :unit-spec) pos)))
+                 (destructuring-bind (&key type name bindings actual (swap-by 0) items slot
+                                        &allow-other-keys)
+                     item
+                   (values
+                    (case type
+                      (:masque
+                       (let ((given (remove-if-not (lambda (b) (and (not (eq :binding (first b)))
+                                                                    (getf b :name)
+                                                                    (given-p (getf b :name))))
+                                                   bindings)))
+                         (if given
+                             (let ((raw (gensym "RAW")))
+                               `((let ((,raw (funcall (load-time-value
+                                                       (deserializer-for ,(getf params :unit-spec) ,swap-by))
+                                                      ,index ,e nil ,access)))
+                                   ,@(loop :for b :in given
+                                           :collect (destructuring-bind (&key name bind-to enumerate-by
+                                                                          &allow-other-keys)
+                                                        b
+                                                      (push name written)
+                                                      (multiple-value-bind (w p factor)
+                                                          (masque-group-bits actual bind-to)
+                                                        (let ((v (gensym "V"))
+                                                              (selvar (rest (assoc name selvars))))
+                                                          `(let ((,v ,(enumerate enumerate-by (getf pairs name))))
+                                                             ,@(and selvar `((setf ,selvar ,v)))
+                                                             ,(if factor
+                                                                  `(progn
+                                                                     (unless (and (integerp ,v) (<= 0 ,v ,(1- (expt factor w))))
+                                                                       (error "marshal: ~s does not fit group ~a of masque ~s."
+                                                                              ,v ',bind-to ,actual))
+                                                                     (setf ,raw (+ (- ,raw (* (floor (mod ,raw ,(expt factor (+ p w)))
+                                                                                                     ,(expt factor p))
+                                                                                              ,(expt factor p)))
+                                                                                   (* ,v ,(expt factor p)))))
+                                                                  `(progn
+                                                                     (unless (and (integerp ,v)
+                                                                                  (<= ,(- (ash 1 (1- w))) ,v ,(1- (ash 1 w))))
+                                                                       (error "marshal: ~s does not fit group ~a of masque ~s."
+                                                                              ,v ',bind-to ,actual))
+                                                                     (setf ,raw (dpb ,v (byte ,w ,p) ,raw)))))))))
+                                   (funcall (aref ,serializers ,swap-by) (cons ,e ,raw) ,enter))))
+                             `((incf ,index ,e)))))
+                      (:span
+                       (let ((forms nil) (p pos))
+                         (dolist (i items)
+                           (multiple-value-bind (f ie) (patch-generate i p (cons (qualify name) context))
+                             (setf forms (append forms f))
+                             (incf p ie)))
+                         forms))
+                      (t
+                       (cond ((not (and name (given-p name))) `((incf ,index ,e)))
+                             (slot (error "marshal: a patch of manifest ~s cannot write the slot field ~s, ~
+                                           which is computed." manifest-name name))
+                             ((and (eq type :manifest)
+                                   (let ((options (rest actual)))
+                                     (or (getf options :count) (getf options :until))))
+                              (error "marshal: a patch of manifest ~s cannot write the repeat ~s; paths ~
+                                      into the elements of a repeat are not yet supported."
+                                     manifest-name name))
+                             (t (generate item context)))))
+                    e))))
              (vec-source-form (name default count end-by)
                (let ((fallback (cond ((vectorp default) default)
                                      (end-by "")
@@ -923,6 +1159,21 @@ vector too small signals manifest-overrun."
       (loop :for (key _) :on slots-of :by #'cddr
             :unless (member key regions)
               :do (error "Slot reference found with no matching region."))
+
+      (when patch
+        ;; a patch writes no slot, so none is resolved; and it writes only fields of the
+        ;; manifest, outside regions a checksum covers
+        (setf slots-of nil)
+        (let ((names (manifest-field-names (rest spec)))
+              (checksummed (checksummed-names (rest spec))))
+          (loop :for (k) :on pairs :by #'cddr
+                :unless (eq k :-+sub-lexicon+-)
+                  :do (unless (member k names)
+                        (error "marshal: a patch of manifest ~s gives ~s, which is not one of its ~
+                                fields." manifest-name k))
+                      (when (member k checksummed)
+                        (error "marshal: a patch of manifest ~s cannot write field ~s, which a ~
+                                :checksum-of slot covers." manifest-name k)))))
       
       (append (if (getf pairs :-+sub-lexicon+-)
                   `(let ((,base ,index)
@@ -945,10 +1196,10 @@ vector too small signals manifest-overrun."
                           ,@(mapcar (lambda (p) (list (rest p) nil)) selvars)
                           (,enter) (,write) (,map) (,counts)
                            (,serializers (make-array ,(1+ (reduce #'max swap-specs :initial-value 0)) :initial-element nil))
-                           ,@(and patching `((,dest nil)))
+                           ,@(and backpatching `((,dest nil)))
                            ,@(and places `((,places nil)))
                            ,@(and holder `((,holder ,(getf options :buffer)))))
-                     ,@(and holder (not patching) `((declare (ignore ,holder))))
+                     ,@(and holder (not backpatching) `((declare (ignore ,holder))))
                      ;; a vector is written in place, with every unit checked against its size
                      (flet ((,in-place (,limit)
                               (setf ,enter (lambda (,b)
@@ -962,17 +1213,20 @@ vector too small signals manifest-overrun."
                                                (funcall serializer datum ,enter)
                                                (setf ,index opos))))))
                        (typecase ,access
-                         ,@(if patching
+                         ,@(if backpatching
                                ;; slots are resolved and checksums computed in place only in a
                                ;; simple array of units, which checksum functions can read;
                                ;; otherwise in a buffer, passed on once the record is complete
                                `(((simple-array ,unit-type (*))
                                   (,in-place (array-dimension ,access 0)))
-                                 ,@(and at `(((or function stream)
-                                              (error "marshal: (:at ~s) needs a vector destination, ~
-                                                      not ~s." ,index ,access))))
+                                 ,@(and (or at patch)
+                                        `(((or function stream)
+                                           (error ,(if patch
+                                                       "marshal: a patch needs a vector destination, not ~*~s."
+                                                       "marshal: (:at ~s) needs a vector destination, not ~s.")
+                                                  ,index ,access))))
                                  ((or vector function stream)
-                                  (,in-place most-positive-fixnum) ; for its patching WRITE
+                                  (,in-place most-positive-fixnum) ; for its backpatching WRITE
                                   (setf ,dest ,access
                                         ,access (or ,(and holder `(reusable-buffer ,holder ',unit-type))
                                                     (make-array 256 :element-type ',unit-type))
@@ -982,9 +1236,12 @@ vector too small signals manifest-overrun."
                                                  (setf (aref ,access ,index) ,b)
                                                  (incf ,index)))))
                                `((vector   (,in-place (array-dimension ,access 0)))
-                                 ,@(and at `(((or function stream)
-                                              (error "marshal: (:at ~s) needs a vector destination, ~
-                                                      not ~s." ,index ,access))))
+                                 ,@(and (or at patch)
+                                        `(((or function stream)
+                                           (error ,(if patch
+                                                       "marshal: a patch needs a vector destination, not ~*~s."
+                                                       "marshal: (:at ~s) needs a vector destination, not ~s.")
+                                                  ,index ,access))))
                                  (function (setf ,enter (lambda (,b) (funcall ,access ,b) (incf ,index))))
                                  (stream   (setf ,enter (lambda (,b) (write-byte ,b ,access) (incf ,index))))))
                          (t (error "marshal: manifest ~s cannot be written to ~s, which is not a vector, ~
@@ -993,8 +1250,24 @@ vector too small signals manifest-overrun."
               (unless (getf pairs :-+sub-lexicon+-)
                 (mapcar #'assign-serializer swap-specs))
               
-              (if spec (apply #'append (mapcar #'generate (rest spec)))
-                    (error "Manifest not found."))
+              (cond ((not spec) (error "Manifest not found."))
+                    (patch
+                     (multiple-value-bind (layout size) (manifest-layout name)
+                       (unless layout
+                         (error "marshal: a patch needs a manifest of fixed size, and manifest ~s ~
+                                 varies in size from field ~s." name (or (getf size :name) (getf size :type))))
+                       (append
+                        ;; the whole record checked against the vector before any unit is written
+                        (and (not nested)
+                             `((let ((,b (+ ,origin ,size)))
+                                 (when (> ,b (array-dimension ,access 0))
+                                   (signal-overrun ',manifest-name (array-dimension ,access 0) ,b)))))
+                        (let ((pos 0) (forms nil))
+                          (dolist (item (rest spec) forms)
+                            (multiple-value-bind (f e) (patch-generate item pos nil)
+                              (setf forms (append forms f))
+                              (incf pos e)))))))
+                    (t (apply #'append (mapcar #'generate (rest spec)))))
 
               ;; `((print (list :mmm ,map)))
 
@@ -1007,7 +1280,7 @@ vector too small signals manifest-overrun."
                                            its last place directive, so they are not written."
                                           ',manifest-name ,tag)))))
 
-              (and patching
+              (and backpatching
                    (let ((u (gensym "U")))
                      `((when ,dest
                          (etypecase ,dest
@@ -1146,6 +1419,52 @@ ITEM read before it, or NIL; a field it covers is passed over by its length."
                                      (and (member :vec subtypes) (not count) (not end-by)
                                           (not stop-by))))))))))
 
+(defun field-children (item)
+  "The stored fields of the manifests ITEM, a stored field, may hold: a sub-manifest's, or
+those of each :case branch that is a sub-manifest. A repeat holds instances, which a path
+cannot name, and gives none."
+  (flet ((child-items (actual)
+           (let ((spec (gethash (first actual) *manifests*)))
+             (and spec (rest spec)))))
+    (cond ((eq :manifest (getf item :type))
+           (let ((options (rest (getf item :actual))))
+             (and (not (getf options :count)) (not (getf options :until))
+                  (list (child-items (getf item :actual))))))
+          ((member :case (getf item :subtypes))
+           (loop :for b :in (getf item :type-conditions)
+                 :when (eq :manifest (getf b :type))
+                   :collect (child-items (getf b :actual)))))))
+
+(defun check-path (items path manifest)
+  "Signal an expansion error unless PATH, a list of field names, names a field of ITEMS, a
+manifest's stored fields, and each name after the first a field of a manifest the field
+before it may hold."
+  (labels ((walk (items path)
+             (let ((item (find-field items (first path))))
+               (cond ((null item) nil)
+                     ((null (rest path)) t)
+                     (t (some (lambda (child) (walk child (rest path)))
+                              (field-children item)))))))
+    (unless (and (every #'keywordp path) (walk items path))
+      (error "unmarshal: the path ~s names no field of manifest ~s, or of a manifest held by ~
+              one; a path names fields, not the elements of a repeat." path manifest))))
+
+(defun path-value-form (path head-form manifest &optional selector selector-form)
+  "A form giving the value at PATH, a list of field names, within HEAD-FORM, the plist of the
+field PATH's first name names; an error when the code runs if a branch chosen there lacks a
+field the path names. SELECTOR names the :case selector of that first field, if it has one."
+  (let ((x (gensym "X")))
+    `(let ((,x ,head-form))
+       ,@(loop :for name :in (rest path)
+               :collect `(setf ,x (let ((tail (and (listp ,x) (nth-value 2 (get-properties ,x '(,name))))))
+                                    (if tail
+                                        (second tail)
+                                        (error "unmarshal: the path ~s of manifest ~s names ~s, which ~
+                                                the field read does not hold~@[: its branch was chosen ~
+                                                by ~s = ~s~]." ',path ',manifest ',name
+                                                ,@(if selector `(',selector ,selector-form) '(nil nil)))))))
+       ,x)))
+
 (defun manifest-selection (items keys length-sources check-slots &optional offset-sources)
   "What a selective read of KEYS from ITEMS, a manifest's stored fields, does with each
 field, worked out at expansion. LENGTH-SOURCES maps a field to the field of the :length-of
@@ -1194,8 +1513,9 @@ in the items up to the boundary."
   "Read the fields of the manifest NAME from SOURCE: a vector, an integer, a (units .
 integer) pair, or a stream, which is read to the end of the record and no further. With
 KEYS, return their values in order, decoding only those fields and the ones that locate
-them, and passing over the rest; a key that names a sub-manifest gives its whole record.
-Otherwise return every named field, as a plist or,
+them, and passing over the rest; a key that names a sub-manifest gives its whole record, and
+a key that is a path, a list of field names such as (:g1 :ink), gives the field it names
+inside a sub-manifest or a :case branch. Otherwise return every named field, as a plist or,
 given (:as :record) in PARAMS, as an instance of the manifest's record class. Checksums,
 length, offset and count slots, and constants are checked as they are read, and a failure
 signals manifest-check-failed; (:check nil) in PARAMS leaves the checks out. (:buffer B)
@@ -1232,7 +1552,10 @@ at INDEX of a vector source; offset slots count from the record's start."
          ;; the fields a selective read decodes: the keys at the top level, or what a parent
          ;; asks of a nested manifest (NIL to pass over it); :ALL for a full read
          (select (cond (nested (getf params :-+select+- :all))
-                       (in-keys in-keys)
+                       ;; a path is selected by its first name, whose field is read whole
+                       (in-keys (remove-duplicates
+                                 (mapcar (lambda (k) (if (consp k) (first k) k)) in-keys)
+                                 :from-end t))
                        (t :all)))
          (keys (or keys all-keys))
          (dvector (make-array 4 :initial-element nil))
@@ -1256,6 +1579,8 @@ at INDEX of a vector source; offset slots count from the record's start."
       (error "unmarshal: :as must be :plist or :record, not ~s." as))
     (when (and (eq as :record) in-keys)
       (error "unmarshal: (:as :record) returns the whole record; it takes no keys."))
+    (dolist (k in-keys)
+      (when (consp k) (check-path (rest spec) k name)))
     (when (and (eq as :record) (not nested) (not record-class))
       (error "unmarshal: manifest ~s has no record class; give it (:record t)." name))
 
@@ -1735,7 +2060,17 @@ at INDEX of a vector source; offset slots count from the record's start."
                                         (setf (manifest-buffer-array ,holder)
                                               (stream-source-array ,src))))))))
            ,(cond (in-keys
-                   (cons 'values (mapcar (lambda (k) (rest (assoc k vars))) keys)))
+                   (cons 'values
+                         (mapcar (lambda (k)
+                                   (if (consp k)
+                                       (let* ((item (find-field (rest spec) (first k)))
+                                              (selector (and (member :case (getf item :subtypes))
+                                                             (getf item :type-indicator))))
+                                         (path-value-form k (rest (assoc (first k) vars)) name
+                                                          selector
+                                                          (and selector (rest (assoc selector vars)))))
+                                       (rest (assoc k vars))))
+                                 keys)))
                   ;; a nested manifest read in part gives a plist of what was asked of it
                   ((listp select)
                    (cons 'list (loop :for key :in select :append (list key (rest (assoc key vars))))))

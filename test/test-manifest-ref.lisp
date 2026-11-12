@@ -250,6 +250,24 @@ values, which is kept, or at the end of the source."
   (is (equalp '(:points ((:x 1 :y 2) (:x 3 :y 4)))
               (unmarshal scatter (octets 1 2  3 4)))))
 
+(defmanifest segment (:unit 8 :endian :big)
+  (manifest :from point)
+  (manifest :to point))
+
+(def-test ref-paths ()
+  "A key that is a list of field names reads a field inside a sub-manifest, among other keys,
+the values in the order asked."
+  (is (equal '(3 2 1)
+             (multiple-value-list
+              (unmarshal segment (octets 1 2 3 4) nil (:to :x) (:from :y) (:from :x))))))
+
+(def-test ref-patch ()
+  "(:patch t) writes only the fields given, by name, path or nested pairs, into a record
+already in a vector, and returns the position after the record."
+  (let ((v (octets 1 2 3 4)))
+    (is (eql 4 (marshal segment v (:patch t) (:to :y) 9 :from (:x -1))))
+    (is (equalp (octets 255 2 3 9) v))))
+
 ;;; ============================================================
 ;;; Placed fields
 ;;; ============================================================

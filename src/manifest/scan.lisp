@@ -562,7 +562,7 @@ RULE, and writes them with WRITE, an expansion-time function of an element form.
          (case ,s
            ,@(loop :for (keys . plan) :in branches
                    :collect `(,(if (eq keys 'otherwise) 'otherwise (if (listp keys) keys (list keys)))
-                              ,(funcall effector plan ctx)))
+                              ,(funcall effector plan (list* :selector-value s ctx))))
            ,@(unless (assoc 'otherwise branches)
                `((otherwise (error "Field ~s: no branch for selector value ~s."
                                    ',(getf ctx :name) ,s)))))))))

@@ -115,6 +115,24 @@
   (manifest :entries indexed-entry :count :n)
   (place :blobs))
 
+;; Records of fixed size with fields a patch may not write: a slot, and a region a checksum
+;; covers.
+(defmanifest patch-slot-probe (:unit 8 :endian :big)
+  (:size :u8 :slot (:length-of :data))
+  (:data (:u 1 :vec) :count 2 :default #(0 0))
+  (:tag  :u8 :default 0))
+
+(defmanifest patch-sum-probe (:unit 8 :endian :big)
+  (:sum  :u8 :slot (:checksum-of :data :by #'byte-sum))
+  (:data :u16 :default 0)
+  (:tag  :u8 :default 0))
+
+;; Two plain cells side by side, as the halves of a double-width glyph lie, for paths of
+;; three names.
+(defmanifest cell-pair (:unit 8 :endian :little)
+  (manifest :left plain-cell)
+  (manifest :right plain-cell))
+
 (defun read-cell (record)
   "RECORD, a 32-byte cell, read through the manifest of the format its first byte names."
   (ecase (aref record 0)
@@ -126,6 +144,19 @@
   "A 32-byte record holding BYTES, then zeros."
   (let ((v (ub8 32)))
     (replace v bytes)
+    v))
+
+(defun patched-grid ()
+  "A 64-byte vector holding at 32 a plain cell of two glyphs, the second a mask: glyph 103 in
+ink 1 under glyph 9 as a union, the cell wide, in swatch #x1234 and palette slot 7."
+  (let ((v (ub8 64)))
+    (replace v (cell-octets 0 #x0A 1 0  #x34 #x12 7 0  103 0 0 #x02  9 0 0 0) :start1 32)
+    v))
+
+(defun with-units (vector &rest positions-and-units)
+  "A copy of VECTOR with each unit given at its position in POSITIONS-AND-UNITS."
+  (let ((v (copy-seq vector)))
+    (loop :for (i u) :on positions-and-units :by #'cddr :do (setf (aref v i) u))
     v))
 
 ;;; ============================================================
@@ -416,3 +447,163 @@ runs otherwise."
   (let ((i -1))
     (signals error (marshal plain-cell (ub8 32) (:at i)))
     (signals error (unmarshal plain-cell (ub8 32) (:at i)))))
+
+;;; ============================================================
+;;; Paths
+;;; ============================================================
+
+(def-test paths-read-fields-inside-sub-manifests-and-case-branches ()
+  "A key that is a list of field names reads the field it names inside a sub-manifest or a
+:case branch, among keywords, the values in the order asked."
+  (let ((record (cell-octets 0 #x0A 0 0  #x34 #x12 7 0  103 0 0 #x02  9 0 0 0)))
+    (is (equal '(103 :union 0 1)
+               (multiple-value-list
+                (unmarshal plain-cell record nil (:g0 :glyph) (:g1 :operation) :blink (:g0 :ink)))))
+    (is (eql 0 (unmarshal plain-cell record nil (:g2 :ink))))))
+
+(def-test a-path-through-a-branch-that-lacks-its-field-signals-an-error ()
+  "A path whose field the branch chosen when the code runs lacks signals an error naming the
+path and the selector's value."
+  (let* ((record (cell-octets 0 #x0A 0 0  #x34 #x12 7 0  103 0 0 #x02  9 0 0 0))
+         (message (handler-case (progn (unmarshal plain-cell record nil (:g1 :ink)) "")
+                    (error (e) (princ-to-string e)))))
+    (is-true (search "(:G1 :INK)" message))
+    (is-true (search ":TYPE-1 = 1" message))))
+
+(def-test a-path-of-three-names-at-an-index ()
+  "A path may name a field two manifests deep, through a sub-manifest and a :case branch, in
+a record read at an index."
+  (let ((v (ub8 72)))
+    (replace v (cell-octets 0 2 0 0  #x34 #x12 7 0  103 0 0 2  9 0 0 #x04) :start1 8)
+    (replace v (cell-octets 0 #x0A 0 0  #x34 #x12 7 0  104 0 0 2  9 0 0 #x08) :start1 40)
+    (is (equal '(2 :union 1 104)
+               (multiple-value-list
+                (unmarshal cell-pair v (:at 8) (:left :g1 :ink) (:right :g1 :operation)
+                           (:right :g1 :reach) (:right :g0 :glyph)))))))
+
+(def-test a-path-that-names-no-field-is-an-expansion-error ()
+  "A path whose names are not fields along it, or that passes through a scalar or into a
+repeat, is an error when the code is expanded."
+  (dolist (form '((unmarshal plain-cell v nil (:g1 :nothing))
+                  (unmarshal plain-cell v nil (:blink :x))
+                  (unmarshal counted-items-probe v nil (:items :tag))
+                  (unmarshal plain-cell v nil (:g1 "ink"))))
+    (signals error (macroexpand-1 form))))
+
+;;; ============================================================
+;;; Patches
+;;; ============================================================
+
+(def-test a-patch-writes-only-the-fields-it-is-given ()
+  "(:patch t) writes the fields given into a record already in a vector, leaving every other
+unit and every other group of a masque as it was, and returns the position after the record."
+  (let ((v (patched-grid)))
+    (is (eql 64 (marshal plain-cell v (:at 32 :patch t) :blink 1 :palette 9)))
+    (is (equalp (with-units (patched-grid) 34 5 38 9) v)))
+  (let ((v (patched-grid)))
+    (is (eql 40 (marshal cell-common v (:at 32 :patch t) :swatch #x4321)))
+    (is (equalp (with-units (patched-grid) 36 #x21 37 #x43) v))))
+
+(def-test a-patch-writes-fields-inside-sub-manifests-by-paths-and-nested-pairs ()
+  "A path or a sub-manifest's nested pairs in a patch write only the fields they give within
+it, and a path and pairs may give fields of the same sub-manifest together."
+  (let ((v (patched-grid)))
+    (marshal plain-cell v (:at 32 :patch t) (:g0 :ink) 3)
+    (is (equalp (with-units (patched-grid) 43 6) v)))
+  (let ((v (patched-grid)))
+    (marshal plain-cell v (:at 32 :patch t) :g0 (:glyph 200))
+    (is (equalp (with-units (patched-grid) 40 200) v)))
+  (let ((v (patched-grid)))
+    (marshal plain-cell v (:at 32 :patch t) :g0 (:glyph 200) (:g0 :ink) 0)
+    (is (equalp (with-units (patched-grid) 40 200 43 0) v))))
+
+(def-test a-patch-writes-a-branch-chosen-by-the-selector-given-or-in-the-vector ()
+  "A field through a :case branch is written in the branch its selector chooses: the
+selector's value given in the patch when there is one, and otherwise the selector as it
+stands in the vector."
+  (let ((v (patched-grid)))
+    (marshal plain-cell v (:at 32 :patch t) (:g1 :reach) 2)
+    (is (equalp (with-units (patched-grid) 47 #x10) v))
+    (is (eql 2 (unmarshal plain-cell v (:at 32) (:g1 :reach)))))
+  (let ((v (patched-grid)))
+    (marshal plain-cell v (:at 32 :patch t) :type-1 0 (:g1 :ink) 2)
+    (is (equalp (with-units (patched-grid) 33 2 47 4) v))
+    (is (eql 2 (unmarshal plain-cell v (:at 32) (:g1 :ink))))))
+
+(def-test a-patch-through-a-branch-that-lacks-its-field-signals-an-error ()
+  "A patch giving a field the branch chosen when the code runs lacks signals an error naming
+the field, the branch and the selector's value; one no branch has is an expansion error."
+  (let* ((v (patched-grid))
+         (message (handler-case (progn (marshal plain-cell v (:at 32 :patch t) (:g1 :ink) 2) "")
+                    (error (e) (princ-to-string e)))))
+    (is-true (search ":INK" message))
+    (is-true (search "GLYPH-MASK" message))
+    (is-true (search ":TYPE-1 = 1" message))
+    (is (equalp (patched-grid) v)))
+  (signals error (macroexpand-1 '(marshal plain-cell v (:patch t) (:g1 :nothing) 2))))
+
+(def-test a-patch-of-a-wider-masque-keeps-its-other-groups ()
+  "A patch of groups in a 16-bit masque, a tile's flips and index, writes those groups and
+keeps the rest of both units."
+  (let* ((tiles (cell-octets 4 1 #x80 #x22  #x34 #x12 9 #x20  140 0 0 2  0 0 0 0  0 0 0 0
+                             20 #x40 21 0))
+         (v (copy-seq tiles)))
+    (is (eql 32 (marshal tile-cell v (:patch t) (:bottom :vertical-flip) 1 (:top :index) 300)))
+    (is (equalp (with-units tiles 21 #xC0 22 #x2C 23 #x01) v))
+    (is (equalp '(20 1 1 300 0)
+                (multiple-value-list
+                 (unmarshal tile-cell v nil (:bottom :index) (:bottom :horizontal-flip)
+                            (:bottom :vertical-flip) (:top :index) (:top :horizontal-flip)))))))
+
+(def-test patches-chain-by-the-positions-they-return ()
+  "Each patch returns its record's end, so patches of records one after another can be
+chained."
+  (let ((v (ub8 96))
+        (i 0))
+    (dotimes (k 3)
+      (setf i (marshal plain-cell v (:at i :patch t) :palette (+ 5 k))))
+    (is (eql 96 i))
+    (is (equal '(5 6 7) (loop :for k :below 3 :collect (aref v (+ 6 (* 32 k))))))))
+
+(def-test a-patch-past-the-end-of-its-vector-writes-nothing ()
+  "A patch whose record would not fit within its vector signals manifest-overrun, at the
+record's end, before it writes any unit."
+  (let* ((v (patched-grid))
+         (c (handler-case (marshal plain-cell v (:at 48 :patch t) :blink 1 :palette 9)
+              (manifest-overrun (c) c))))
+    (is (eql 64 (overrun-size c)))
+    (is (eql 80 (overrun-position c)))
+    (is (equalp (patched-grid) v))))
+
+(def-test a-patch-of-a-record-with-slots-writes-its-other-fields ()
+  "A patch of a record with slots writes the fields given and leaves the slots as they are."
+  (let ((v (octets 2 1 2 0  0 4 5 6)))
+    (marshal patch-slot-probe v (:patch t) :tag 9)
+    (is (equalp (octets 2 1 2 9  0 4 5 6) v))
+    (marshal patch-sum-probe v (:at 4 :patch t) :tag 7)
+    (is (equalp (octets 2 1 2 9  0 4 5 7) v))
+    (marshal fixed-items-probe v (:at 1 :patch t) :after 3)
+    (is (equalp (octets 2 1 2 9  0 4 5 3) v))))
+
+(def-test what-a-patch-may-not-write-is-an-expansion-error ()
+  "A patch with (:from record), of a manifest of varying size, or giving a slot, a field a
+checksum covers, a repeat, a field the manifest lacks or a field twice, is an error when the
+code is expanded; so is a path in a full write."
+  (dolist (form '((marshal plain-cell v (:patch t :from r))
+                  (marshal png-file v (:patch t) :signature #(1))
+                  (marshal patch-slot-probe v (:patch t) :size 2)
+                  (marshal patch-sum-probe v (:patch t) :data 2)
+                  (marshal fixed-items-probe v (:patch t) :items nil)
+                  (marshal plain-cell v (:patch t) :nothing 1)
+                  (marshal plain-cell v (:patch t) (:g0 :ink) 1 :g0 (:ink 2))
+                  (marshal plain-cell v (:patch t) :blink 1 :blink 0)
+                  (marshal plain-cell v (:g0 :ink) 1)
+                  (marshal plain-cell v nil (:g0 :ink) 1)))
+    (signals error (macroexpand-1 form))))
+
+(def-test a-patch-needs-a-vector ()
+  "A patch into a destination that is not a vector is an error: at expansion where the form
+shows it, and when the code runs otherwise."
+  (signals error (macroexpand-1 '(marshal plain-cell (lambda (u) u) (:patch t) :blink 1)))
+  (let ((f (lambda (u) u)))
+    (signals error (marshal plain-cell f (:patch t) :blink 1))))
