@@ -1,12 +1,16 @@
 ---
-id:            SPECOPS-DRAFT-over-arrays
+id:            SPECOPS-0008
 title:         Manifests over Arrays of Records Plan
 genre:         Plan
 scope:         component
 project:       SpecOps
 component:     Manifest
 language:      en
-status:        Draft
+status:        Accepted
+authors:
+  - Andrew Sengul
+approved-by:   Andrew Sengul
+reviewed:      2026-11-12
 provenance:
   assistant:   claude-opus (OpenCode)
   session:     Manifests over arrays
@@ -17,24 +21,25 @@ relates-to:
   - SPECOPS-0004
   - SPECOPS-DRAFT-manifest-benchmarks
 decisions:
-  - SPECOPS-DRAFT-over-arrays-D1
-  - SPECOPS-DRAFT-over-arrays-D2
-  - SPECOPS-DRAFT-over-arrays-D3
-  - SPECOPS-DRAFT-over-arrays-D4
-  - SPECOPS-DRAFT-over-arrays-D5
-  - SPECOPS-DRAFT-over-arrays-D6
-  - SPECOPS-DRAFT-over-arrays-D7
-  - SPECOPS-DRAFT-over-arrays-D8
-  - SPECOPS-DRAFT-over-arrays-D9
-  - SPECOPS-DRAFT-over-arrays-D10
-  - SPECOPS-DRAFT-over-arrays-D11
-  - SPECOPS-DRAFT-over-arrays-D12
+  - SPECOPS-D95
+  - SPECOPS-D96
+  - SPECOPS-D97
+  - SPECOPS-D98
+  - SPECOPS-D99
+  - SPECOPS-D100
+  - SPECOPS-D101
+  - SPECOPS-D102
+  - SPECOPS-D103
+  - SPECOPS-D104
+  - SPECOPS-D105
+  - SPECOPS-D106
 open-questions:
-  - SPECOPS-DRAFT-over-arrays-O1
-  - SPECOPS-DRAFT-over-arrays-O2
-  - SPECOPS-DRAFT-over-arrays-O3
-  - SPECOPS-DRAFT-over-arrays-O4
-  - SPECOPS-DRAFT-over-arrays-O5
+  - SPECOPS-O20
+  - SPECOPS-O21
+  - SPECOPS-O22
+  - SPECOPS-O23
+  - SPECOPS-O24
+  - SPECOPS-DRAFT-over-arrays-O6
 cites:
   - title:    The Cell Model Architecture (Lexter)
     locator:  Lexter repository, doc/Arch.CellModel.md — the record by word (LEXTER-D81 to LEXTER-D95); The Record; Invariants of a record
@@ -104,9 +109,9 @@ layer, cannot be read or written alone.
 
 ## Settled Decisions
 
-### SPECOPS-DRAFT-over-arrays-D1 — A record may begin at an index of a vector, given by `(:at index)`
+### SPECOPS-D95 — A record may begin at an index of a vector, given by `(:at index)`
 
-**Status:** Proposed
+**Status:** Accepted
 **Context:** Arrays of records are the common case this plan addresses, and a
 record must be reachable where it lies without a displaced array or a copy.
 `marshal` already keeps its write position in a variable that begins at 0,
@@ -118,7 +123,7 @@ the same.
 INDEX of the vector, a destination or source. Both positions begin there.
 `(:at index)` combines with every other option, among them `(:from record)`,
 `(:as :record)`, `(:check nil)` and `(:patch t)`
-(SPECOPS-DRAFT-over-arrays-D3). It applies to vectors only: with a stream, a
+(SPECOPS-D97). It applies to vectors only: with a stream, a
 function or an integer source it is an error when the code runs, and an
 expansion error where the source or destination is a constant. Without it, a
 record begins at 0, as in 0.1.0. A selective read at an index reads one field
@@ -132,9 +137,9 @@ destinations as a protocol, with an index as one backend's state (deferred to
 SPECOPS-O16: an index needs no protocol, and a protocol would not remove the
 need for it).
 
-### SPECOPS-DRAFT-over-arrays-D2 — Positions inside a record count from its start; positions reported outside it count from the vector's
+### SPECOPS-D96 — Positions inside a record count from its start; positions reported outside it count from the vector's
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** With records at an index, each position the layer computes or
 reports could count from the record's start or from the vector's. An offset a
 format stores, such as a WOFF table's, is an offset within its file or record,
@@ -162,9 +167,9 @@ elsewhere would be corrupt); every position from the record's start (not
 taken: a reported position must locate the fault in the vector, and a result
 relative to the record cannot chain).
 
-### SPECOPS-DRAFT-over-arrays-D3 — `marshal` given `(:patch t)` writes only the fields it is given, into the record already there
+### SPECOPS-D97 — `marshal` given `(:patch t)` writes only the fields it is given, into the record already there
 
-**Status:** Proposed
+**Status:** Accepted
 **Context:** A writer that changes one field of a record should neither
 supply the others nor decode them. `unmarshal` reads part of a record when it
 is given keys, without a macro of its own (SPECOPS-D61, SPECOPS-D80); writing
@@ -183,12 +188,12 @@ record is left as it is. The record must already be in the vector:
   static groups and constant digits are not rewritten.
 - **What is never written:** fields not given, unnamed fields, pads, constant
   strings and slot fields. A patch changes no field's width
-  (SPECOPS-DRAFT-over-arrays-D4), so length, count and offset slots stay true.
+  (SPECOPS-D98), so length, count and offset slots stay true.
 - **Finding a field.** A field at a position fixed at expansion, as every
   field of a Lexter cell is, is written at that position with no reads. A
   field after a variable-length one would be found by reading the fields that
   locate it, as a selective read does (SPECOPS-D80); that case is deferred by
-  SPECOPS-DRAFT-over-arrays-D7.
+  SPECOPS-D101.
 - **Destinations.** Vectors only, since a patch reads before it writes;
   a stream or a function is an error when the code runs.
 
@@ -206,9 +211,9 @@ the steward, as too generic); `:deposit`, after Common Lisp's `dpb` and
 fields through `setf` of a keyed `unmarshal` form only (not taken as the
 mechanism: it can be added later as a form of this option, for one field).
 
-### SPECOPS-DRAFT-over-arrays-D4 — A patch refuses what would change the record's layout or leave a checksum stale
+### SPECOPS-D98 — A patch refuses what would change the record's layout or leave a checksum stale
 
-**Status:** Proposed
+**Status:** Accepted
 **Context:** A patch writes some fields and trusts the rest. A field
 whose width can change would move the fields after it, which are not
 rewritten; a field that selects a later field's form would change how that
@@ -224,7 +229,7 @@ field and the option:
   depends on it, so that no other field moves; a glyph word's type bit, whose
   branches are all one word, may be patched;
 - a field inside a region a `:checksum-of` slot covers (the slot's
-  recomputation is SPECOPS-DRAFT-over-arrays-O2).
+  recomputation is SPECOPS-O21).
 
 A full write accepts all of these, so the messages say that the patch is
 the reason.
@@ -234,9 +239,9 @@ write); leaving the checks to the writer (rejected: a record silently
 inconsistent is the fault the checks of SPECOPS-D69 exist to catch on read,
 and here it can be caught at expansion).
 
-### SPECOPS-DRAFT-over-arrays-D5 — A field inside a sub-manifest or a `:case` branch is named by a path
+### SPECOPS-D99 — A field inside a sub-manifest or a `:case` branch is named by a path
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** A selective read names a top-level field, or a sub-manifest
 whole. Lexter's glyph words are sub-manifests chosen by type bits, and a
 writer changes a layer's ink slot, a mask's reach, or one glyph, alone.
@@ -254,13 +259,13 @@ them); a path that names the branch as well, such as `(:g3 :mask :reach)`
 (not taken: the branch is in the record, and naming it would only add a way
 to be wrong, which the run-time check catches anyway).
 
-### SPECOPS-DRAFT-over-arrays-D6 — A patch returns the position after the record
+### SPECOPS-D100 — A patch returns the position after the record
 
-**Status:** Proposed
+**Status:** Accepted
 **Context:** A full write returns the position after the record, so that
-records can be written one after another (SPECOPS-DRAFT-over-arrays-D2). A
+records can be written one after another (SPECOPS-D96). A
 patch writes some fields, so the position after its last unit is not, in
-general, the record's end (SPECOPS-DRAFT-over-arrays-O1).
+general, the record's end (SPECOPS-O20).
 **Decision:** A patching write returns the position after the record, as a
 full write does, so that patches chain like full writes. For a record whose
 size is fixed at expansion, as every Lexter cell's is, the position is the
@@ -272,28 +277,28 @@ steward: a result that is not the record's end cannot chain); nothing (not
 taken: a writer of records in sequence would have to compute each record's
 end itself).
 
-### SPECOPS-DRAFT-over-arrays-D7 — Patching a field whose position depends on an earlier field of varying width is reserved for later
+### SPECOPS-D101 — Patching a field whose position depends on an earlier field of varying width is reserved for later
 
-**Status:** Proposed
-**Context:** SPECOPS-DRAFT-over-arrays-D3 finds a field after a
+**Status:** Implemented
+**Context:** SPECOPS-D97 finds a field after a
 variable-length one by reading the fields that locate it. Lexter's cells, the
 case in view, place every field at a fixed position, and locating a field by
 reading is the hardest part of a patch.
 **Decision:** A patch of a field whose position is not fixed at expansion is
 an expansion error, naming the field and the earlier field of varying width
 it follows, until a later step builds the reading that locates it. Fields at
-fixed positions are patched as SPECOPS-DRAFT-over-arrays-D3 describes.
+fixed positions are patched as SPECOPS-D97 describes.
 **Alternatives:** Locating such fields by reading in the same step (not taken:
 the steward chose to reserve it, since no format in view needs it, and
 building it would delay the patches that Lexter does need).
 
-### SPECOPS-DRAFT-over-arrays-D8 — Writes use code made for each field, no span map without slots, and a fast path for records of fixed size written to simple vectors
+### SPECOPS-D102 — Writes use code made for each field, no span map without slots, and a fast path for records of fixed size written to simple vectors
 
-**Status:** Proposed
+**Status:** Accepted
 **Context:** The prototype measured a write of one of Lexter's cells at some
 2,500 ns, with some 1,300 bytes allocated, where the same bytes packed by hand
-take 8 ns; the steward set the target at 80 ns, with no allocation as the
-ideal. The [evaluation of the cost of a write](Eval.ManifestBenchmarks.md)
+take 8 ns; the steward set an initial target of 80 ns or less, with no
+allocation as the ideal. The [evaluation of the cost of a write](Eval.ManifestBenchmarks.md)
 found the cost in the generic serializer every field is written through, from
 a fresh `(width . value)` pair; in a map of each field's span, which only slots
 read; and in the closures through which each unit is entered and checked
@@ -325,12 +330,12 @@ record (not possible as measured: a record of varying size has no extent to
 check once, SPECOPS-DRAFT-manifest-benchmarks-O2); the fast path before paths
 and patches (not taken by the steward, who has put it after them).
 
-### SPECOPS-DRAFT-over-arrays-D9 — In this iteration, only a record of fixed size may be patched
+### SPECOPS-D103 — In this iteration, only a record of fixed size may be patched
 
-**Status:** Proposed
-**Context:** SPECOPS-DRAFT-over-arrays-D7 refuses a field whose position
+**Status:** Implemented
+**Context:** SPECOPS-D101 refuses a field whose position
 depends on an earlier field of varying width, and
-SPECOPS-DRAFT-over-arrays-D6 has a patch of a record of varying size pass over
+SPECOPS-D100 has a patch of a record of varying size pass over
 the fields after those it writes to find the record's end. A record of fixed
 size needs neither: every field's position and the record's end are known at
 expansion. Lexter's cells are all of fixed size.
@@ -339,26 +344,26 @@ manifest whose size is fixed at expansion; a patch of any other is an
 expansion error naming the manifest and the first field of varying width.
 Every field is then found at its position with no reads, and the patch
 returns the record's start plus its size. This subsumes
-SPECOPS-DRAFT-over-arrays-D7, and leaves the second case of
-SPECOPS-DRAFT-over-arrays-D6 for a later iteration.
+SPECOPS-D101, and leaves the second case of
+SPECOPS-D100 for a later iteration.
 **Alternatives:** Patching records of varying size now, reading to locate
 fields and to find the record's end (not taken by the steward for this
 iteration).
 
-### SPECOPS-DRAFT-over-arrays-D10 — `(:from record)` with `(:patch t)` is deferred
+### SPECOPS-D104 — `(:from record)` with `(:patch t)` is deferred
 
-**Status:** Proposed
-**Context:** SPECOPS-DRAFT-over-arrays-D3 has a patch with `(:from record)`
+**Status:** Implemented
+**Context:** SPECOPS-D97 has a patch with `(:from record)`
 write the fields the record gives a value for. Which those are is known only
 when the code runs, so every field of the manifest would need a test then.
 **Decision:** In this iteration, `(:patch t)` with `(:from record)` is an
 expansion error; a patch writes the fields its pairs give.
 **Alternatives:** Each field written when the record gives it a value (not
-taken by the steward for this iteration).
+taken: the steward chose to defer it).
 
-### SPECOPS-DRAFT-over-arrays-D11 — Nested values in a patch write only the fields they give, and a selector given in the patch chooses its branch
+### SPECOPS-D105 — Nested values in a patch write only the fields they give, and a selector given in the patch chooses its branch
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** A full write takes a sub-manifest's value as a literal list of
 its field pairs, and writes the child whole. A patch writes only what it is
 given, and a field in a `:case` branch depends on a selector that the patch
@@ -370,15 +375,15 @@ is written in the branch its selector chooses: the selector's value given in
 the same patch when there is one, as `:type-1 1` with `(:g1 :reach) 2`, and
 otherwise the selector as it stands in the vector, read when the code runs.
 A path whose field the chosen branch lacks is an error, as for a read
-(SPECOPS-DRAFT-over-arrays-D5).
+(SPECOPS-D99).
 **Alternatives:** Nested pairs that rewrite the whole child with defaults
 (rejected: a patch would then write fields it was not given); the selector
 always read from the vector (rejected: a patch that changes a type bit and its
 glyph word together would write the word in the old branch's form).
 
-### SPECOPS-DRAFT-over-arrays-D12 — A patch checks the whole record against the vector before it writes
+### SPECOPS-D106 — A patch checks the whole record against the vector before it writes
 
-**Status:** Proposed
+**Status:** Implemented
 **Context:** A full write checks each unit against the vector as it writes it,
 so an overrun leaves the units before it written. A patch writes into a record
 that is already there, where a partial write would leave it inconsistent.
@@ -460,6 +465,12 @@ What the prototype must establish before the features are built:
 - What a full write of one cell costs, against packing it by hand, which
   decides whether the fast path of SPECOPS-O15 is needed.
 
+The prototype, the roadmap's first step, has since run these manifests and
+established each point (see the update of 2026-11-11 on the prototype). Their
+current form is in the tests, from
+`test/test-manifest-arrays.lisp:plain-cell@v0.1.4`, and differs from the
+sketch in details, such as `:operation`'s default, `:union`.
+
 Lexter decides for itself whether its descriptor of the record (LEXTER-D104)
 is built on these manifests.
 
@@ -472,9 +483,9 @@ is built on these manifests.
   depend on an enclosing manifest's would let Lexter's cell share one
   manifest across formats; per-format manifests serve, so it is left out.
 - **Recomputing slots in a patch**, beyond refusing the case, is
-  SPECOPS-DRAFT-over-arrays-O2.
+  SPECOPS-O21.
 - **Generating shader code.** The layer will not write GLSL. What a
-  generator would need from it is SPECOPS-DRAFT-over-arrays-O3.
+  generator would need from it is SPECOPS-O22.
 - **Lexter's invariants across fields,** such as type bits beyond the glyph
   count being zero, stay Lexter's to assert; reserved bits written as
   constants are checked on read.
@@ -484,34 +495,48 @@ is built on these manifests.
 These are recorded for after the roadmap's main steps, each to be taken up if
 the prototype or a user shows the need. The fast path for records of fixed
 size (SPECOPS-O15), first listed here, is now decided by
-SPECOPS-DRAFT-over-arrays-D8 and is a step of the roadmap.
+SPECOPS-D102 and is a step of the roadmap.
 
-- **The layout as data** (SPECOPS-O18, SPECOPS-DRAFT-over-arrays-O3). A
+- **The layout as data** (SPECOPS-O18, SPECOPS-O22). A
   function giving each fixed field's unit offset, bit offset and width, which
   a patch computes anyway, would let a generator, such as Lexter's
   descriptor, write a shader's decoder from the same manifest.
+- **Patches of records of varying size** (SPECOPS-D103, SPECOPS-D101,
+  SPECOPS-D100). Fields located by reading the fields before them, as a
+  selective read does, and the record's end found by passing over the fields
+  after those written.
+- **`(:from record)` in a patch** (SPECOPS-D104). The fields a record gives a
+  value for written, each tested when the code runs.
+- **Element indices in paths** (SPECOPS-O24). Paths into the instances of a
+  repeat, such as `(:points 2 :x)`, to whose design the steward has prior art
+  of his own to contribute.
+- **Branches checked before a patch writes**
+  (SPECOPS-DRAFT-over-arrays-O6). A key that the chosen branch lacks found
+  before the first unit is written, as an overrun is.
 
 ## Open Questions
 
-### SPECOPS-DRAFT-over-arrays-O1 — What does a patching write return?
+### SPECOPS-O20 — What does a patching write return?
 
 A full write returns the position after the record. A patch writes some
 fields, so the record's end is known only when its size is fixed at
-expansion, as every Lexter cell's is. The current thinking is the position
-after the record when its size is fixed, and otherwise the position after the
-last unit written, which does not chain. Computing a record's size without
-writing it, SPECOPS-O17, would give the record's end in every case.
-SPECOPS-DRAFT-over-arrays-D6 answers it: the position after the record.
+expansion, as every Lexter cell's is. The thinking when the question was
+raised was the position after the record when its size is fixed, and
+otherwise the position after the last unit written, which does not chain.
+Computing a record's size without writing it, SPECOPS-O17, would give the
+record's end in every case.
 
-### SPECOPS-DRAFT-over-arrays-O2 — Should a patch recompute the checksum slots over the fields it writes?
+Answered by SPECOPS-D100: the position after the record, in every case.
+
+### SPECOPS-O21 — Should a patch recompute the checksum slots over the fields it writes?
 
 A patch refuses a field under a `:checksum-of` slot
-(SPECOPS-DRAFT-over-arrays-D4). In a vector, the region is there to read, so
+(SPECOPS-D98). In a vector, the region is there to read, so
 the slot could be recomputed after the fields are written, at the cost of
 locating the region and reading all of it. Whether a format that needs this
 appears is open.
 
-### SPECOPS-DRAFT-over-arrays-O3 — Should a manifest's layout be available as data, for generators such as shader code?
+### SPECOPS-O22 — Should a manifest's layout be available as data, for generators such as shader code?
 
 SPECOPS-O18 asks for a printed table of a manifest's layout. A generator needs
 the same table as data: each fixed field's name, unit offset, bit offset,
@@ -519,7 +544,7 @@ width, signedness and enumeration, and which fields vary. Lexter's descriptor
 is the first such generator in view. Is the table data first and printed from
 it, and which of its fields does a shader generator need?
 
-### SPECOPS-DRAFT-over-arrays-O4 — Should a read at an index report where the record ends?
+### SPECOPS-O23 — Should a read at an index report where the record ends?
 
 `marshal`'s result lets a writer place the next record after the last. A
 reader of a vector of records of varying size needs the same, but
@@ -528,14 +553,34 @@ has no place for a position. A parameter naming a place to store the end, or
 an extra value under a parameter, are the candidates. Lexter's records are of
 one size, so it does not need this.
 
-### SPECOPS-DRAFT-over-arrays-O5 — How do paths name elements of repeats?
+### SPECOPS-O24 — How do paths name elements of repeats?
 
 A path names fields, so it cannot reach into a repeated sub-manifest
-(SPECOPS-DRAFT-over-arrays-D5). Paths that mix field names with element
+(SPECOPS-D99). Paths that mix field names with element
 indices, as `var.foo.bar[2].baz` does in JavaScript, would let a read or a
 patch name one instance's field, such as `(:points 2 :x)`. The steward has
 planned this for a later stage, and has prior art of his own to contribute to
 its design.
+
+### SPECOPS-DRAFT-over-arrays-O6 — Should a patch check its branches before it writes?
+
+A patch checks the record's bounds before it writes any unit, because a
+partial write would leave the record inconsistent (SPECOPS-D106). A key given
+within a `:case` field that the chosen branch lacks is found only when the
+code reaches that field, after the fields before it are written, so the
+patch stops with the record partly changed
+(SPECOPS-DRAFT-manifest-D76, `src/manifest/manifest.lisp:marshal@345f72d`).
+The candidates:
+
+- each selector the patch does not give read, and each branch's keys
+  checked, before the first write; a Lexter cell's five type bits lie in one
+  byte, so one read would serve them all;
+- the writes of fields through `:case` fields ordered last, which narrows the
+  partial write but does not remove it;
+- the partial write accepted, and documented in the Reference.
+
+Which of these SPECOPS-D106's reasoning requires, and at what cost to a patch
+that the fast path (SPECOPS-D102) is to make cheap, is open.
 
 ## Prior Art
 
@@ -557,36 +602,38 @@ Table: Prior systems and what this plan draws from each.
    view `cell-common`, as a test format in a suite `manifest-arrays`, with the
    checks listed under Lexter's cell model, and a measurement of a cell's
    full write against packing by hand.
-2. **Records at an index** (SPECOPS-DRAFT-over-arrays-D1,
-   SPECOPS-DRAFT-over-arrays-D2). `(:at index)` for `marshal` and `unmarshal`
-   over vectors, with the positions of SPECOPS-DRAFT-over-arrays-D2, tested on Lexter's cells, on PNG
+2. **Records at an index** (SPECOPS-D95,
+   SPECOPS-D96). `(:at index)` for `marshal` and `unmarshal`
+   over vectors, with the positions of SPECOPS-D96, tested on Lexter's cells, on PNG
    and WOFF records placed at an index, and on records chained by `marshal`'s
    result. The Reference updated, released as 0.1.3.
-3. **Paths** (SPECOPS-DRAFT-over-arrays-D5). Keys that name fields inside
+3. **Paths** (SPECOPS-D99). Keys that name fields inside
    sub-manifests and `:case` branches, for selective reads, with the run-time
    check of the branch.
-4. **Patches** (SPECOPS-DRAFT-over-arrays-D3,
-   SPECOPS-DRAFT-over-arrays-D4, SPECOPS-DRAFT-over-arrays-D6,
-   SPECOPS-DRAFT-over-arrays-D9 to SPECOPS-DRAFT-over-arrays-D12).
+4. **Patches** (SPECOPS-D97,
+   SPECOPS-D98, SPECOPS-D100,
+   SPECOPS-D103 to SPECOPS-D106).
    `(:patch t)` for records of fixed size, with paths and nested pairs that
    write only what they give, masque groups combined into one write of their
    units, selectors given or read, the record checked against the vector
-   first, the refusals of SPECOPS-DRAFT-over-arrays-D4, and the record's end
+   first, the refusals of SPECOPS-D98, and the record's end
    returned. `marshal`'s internal variable `patching`,
    which marks a manifest with slots written through a buffer
    (`src/manifest/manifest.lisp:marshal@v0.1.0`), is renamed `backpatching`,
    so that the code does not use one word for two things. The Reference
    updated, its sentence on what cannot be patched in place saying
    "backpatched", and released as 0.1.4, with the paths of step 3.
-5. **The fast path** (SPECOPS-DRAFT-over-arrays-D8). Each field written by
+5. **The fast path** (SPECOPS-D102). Each field written by
    code of its own, no span map without slots, and one bounds check with
    direct stores for records of fixed size written to simple vectors of their
    unit type, measured again with `scripts/bench-manifests.lisp` against the
-   evaluation's estimates. The Reference updated, as a release of its own after
+   evaluation's estimates and the initial target, a full write of a Lexter cell
+   in 80 ns or less. The Reference updated, as a release of its own after
    0.1.4.
 6. **Later additions**, as users show the need: the layout as data of
-   SPECOPS-DRAFT-over-arrays-O3, and reads measured and remedied as writes are
-   (SPECOPS-DRAFT-manifest-benchmarks-O1).
+   SPECOPS-O22, reads measured and remedied as writes are
+   (SPECOPS-DRAFT-manifest-benchmarks-O1), and the others listed under
+   [Later Additions](#later-additions).
 
 Each step is recorded in an update to the
 [Manifest Development Log, SPECOPS-0006](Log.Manifest.md) and a progress
@@ -599,7 +646,7 @@ completes its first step: Lexter's cell model as a test format, in the suite
 `manifest-arrays`, with a measurement of what a cell costs. The
 [Manifest Development Log's](Log.Manifest.md) update of the same date records
 the work. The steward has since settled two of the plan's questions, recorded
-above as SPECOPS-DRAFT-over-arrays-D6 and SPECOPS-DRAFT-over-arrays-D7, and
+above as SPECOPS-D100 and SPECOPS-D101, and
 renumbered the releases: records at an index are 0.1.3, and paths with
 patches 0.1.4, the steps being too small for 0.2.0, which is to follow further
 work.
@@ -646,7 +693,7 @@ patches, which compute the positions it would describe.
 
 This installment charts the plan's progress at commit `cba66c2`, tagged
 `v0.1.3`, which completes its second step: `marshal` and `unmarshal` take
-`(:at index)`, with positions counted as SPECOPS-DRAFT-over-arrays-D2
+`(:at index)`, with positions counted as SPECOPS-D96
 decides. The [Manifest Development Log's](Log.Manifest.md) update of the same
 date records the work, with SPECOPS-DRAFT-manifest-D73 for the record's start,
 which every nested manifest shares, and the
@@ -685,7 +732,7 @@ at commit `cba66c2` and written up as the
 [evaluation of the cost of a write](Eval.ManifestBenchmarks.md). Its
 measurements, against packing by hand and against binary-structures, show
 three remedies reaching the steward's target of 80 ns with no allocation,
-which SPECOPS-DRAFT-over-arrays-D8 adopts. The steward has put their
+which SPECOPS-D102 adopts. The steward has put their
 implementation after paths and patches, as the roadmap's fifth step.
 
 ### Progress
@@ -699,7 +746,7 @@ previous update are marked "new".
 | 2. Records at an index | Done | As before | As before |
 | 3. Paths | Not started | — | Keys through sub-manifests and `:case` branches |
 | 4. Patches | Not started | — | `(:patch t)`, released as 0.1.4 with paths |
-| 5. The fast path | New: decided | New: the cost of a write measured, and its remedies chosen (SPECOPS-DRAFT-over-arrays-D8) | Code made for each field, no span map without slots, and the fast path for records of fixed size |
+| 5. The fast path | New: decided | New: the cost of a write measured, and its remedies chosen (SPECOPS-D102) | Code made for each field, no span map without slots, and the fast path for records of fixed size |
 | 6. Later additions | Not started | — | The layout as data; reads measured |
 
 ### Priorities
@@ -718,8 +765,8 @@ code as a full write.
 This installment charts the plan's progress at commit `345f72d`, tagged
 `v0.1.4`, which completes its third and fourth steps: `unmarshal` takes paths,
 and `marshal` takes `(:patch t)` for records of fixed size, as
-SPECOPS-DRAFT-over-arrays-D3 to SPECOPS-DRAFT-over-arrays-D6 and
-SPECOPS-DRAFT-over-arrays-D9 to SPECOPS-DRAFT-over-arrays-D12 decide. The
+SPECOPS-D97 to SPECOPS-D100 and
+SPECOPS-D103 to SPECOPS-D106 decide. The
 [Manifest Development Log's](Log.Manifest.md) update of the same date records
 the work, with SPECOPS-DRAFT-manifest-D74 for how a path is read,
 SPECOPS-DRAFT-manifest-D75 for how a patch is made from the manifest's layout,
@@ -736,27 +783,32 @@ previous update are marked "new".
 |---|---|---|---|
 | 1. The prototype | Done | As before | — |
 | 2. Records at an index | Done | As before | As before |
-| 3. Paths | New: done | New: paths through sub-manifests and `:case` branches in selective reads, checked at expansion and the branch when the code runs; released as 0.1.4 | Element indices in paths (SPECOPS-DRAFT-over-arrays-O5) |
-| 4. Patches | New: done | New: `(:patch t)` for records of fixed size, with paths and nested pairs, masque groups written into their units, selectors given or read, the record checked first, the refusals, and the record's end returned; Lexter's cells patched in ten tests; `backpatching` renamed; released as 0.1.4 | Records of varying size (SPECOPS-DRAFT-over-arrays-D9); `(:from record)` (SPECOPS-DRAFT-over-arrays-D10); a branch mismatch found before the patch writes |
+| 3. Paths | New: done | New: paths through sub-manifests and `:case` branches in selective reads, checked at expansion and the branch when the code runs; released as 0.1.4 | Element indices in paths (SPECOPS-O24) |
+| 4. Patches | New: done | New: `(:patch t)` for records of fixed size, with paths and nested pairs, masque groups written into their units, selectors given or read, the record checked first, the refusals, and the record's end returned; Lexter's cells patched in ten tests; `backpatching` renamed; released as 0.1.4 | Records of varying size (SPECOPS-D103); `(:from record)` (SPECOPS-D104); a branch mismatch found before the patch writes (SPECOPS-DRAFT-over-arrays-O6) |
 | 5. The fast path | Decided | As before | As before |
 | 6. Later additions | Not started | — | The layout as data; reads measured |
 
 A patch checks the record's bounds before it writes, as
-SPECOPS-DRAFT-over-arrays-D12 decides, but a key that the branch chosen when
+SPECOPS-D106 decides, but a key that the branch chosen when
 the code runs lacks is found only when that branch is reached, after the
-fields before it are written; the Log lists this among its outstanding work.
+fields before it are written; SPECOPS-DRAFT-over-arrays-O6 asks whether a
+patch should check its branches first.
 
 ### Priorities
 
 1. **The fast path,** as a release of its own: code of its own for each field,
    no span map without slots, and one bounds check with direct stores for
    records of fixed size, measured again with `scripts/bench-manifests.lisp`.
-   A patch's selector read and a path's whole read of its first field are
-   among the costs it is to remove.
 2. **Later additions,** as users show the need.
 
 ### Dependencies
 
-The fast path depends on nothing open. Patches gain from it with no change of
-their own, since a patch writes each field it is given through the code of a
-full write.
+The fast path depends on nothing open. Of a patch's code, only the fields it
+writes whole go through a full write's code, and gain from the fast path with
+it. A masque's groups are read and written back through `deserializer-for`
+and the generic serializer, from a fresh `(width . value)` pair
+(`src/manifest/manifest.lisp:marshal@345f72d`), which is the cost T3 removes,
+so for patches to gain, step 5 must replace that code too. A selector that a
+patch does not give is read through a selective `unmarshal`, and a path reads
+its first field whole. Both are reads, which SPECOPS-D102 does not cover; they
+fall to the cost of reads (SPECOPS-DRAFT-manifest-benchmarks-O1).

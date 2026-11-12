@@ -423,6 +423,11 @@ Should `marshal` and `unmarshal` specialise their primitives by destination
 and source type, and is a benchmark against binary-structures needed first to
 show the gain?
 
+Answered for writes by SPECOPS-D102, in the
+[Manifests over Arrays of Records plan, SPECOPS-0008](Plan.OverArrays.md),
+after the benchmark of the
+[evaluation of the cost of a write](Eval.ManifestBenchmarks.md).
+
 ### SPECOPS-O16 — Should sources and destinations be a protocol?
 
 The manifest layer chooses among vectors, streams and functions in fixed

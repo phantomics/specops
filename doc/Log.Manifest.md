@@ -3764,7 +3764,7 @@ the [plan for manifests over arrays of records](Plan.OverArrays.md), and the
 update of the [Manifest Reference](Ref.Manifest.md) after it. `marshal` and
 `unmarshal` take `(:at index)`, so that a record is written or read at an
 index of a vector, as the cells of Lexter's screen lie in one array. The
-plan's SPECOPS-DRAFT-over-arrays-D1 and SPECOPS-DRAFT-over-arrays-D2 decide
+plan's SPECOPS-D95 and SPECOPS-D96 decide
 the option and how positions count; this installment records how the layer
 carries them out.
 
@@ -3791,7 +3791,7 @@ the lexicon that the two macros share with their sub-manifests, so that an
 field less the origin, a check of one compares the stored offset with the
 same difference, and a placed field is read at the origin plus its offset.
 `:align` pads, checksum ranges, reported positions and `marshal`'s result keep
-counting from the start of the vector, as SPECOPS-DRAFT-over-arrays-D2
+counting from the start of the vector, as SPECOPS-D96
 requires. A destination that is a function or a stream, or a source that is an
 integer or a stream, is an error under `(:at index)` when the code runs, and an
 expansion error where the form is a `function` or `lambda` form, an integer, or
@@ -3800,7 +3800,7 @@ a quoted pair.
 rebind it, so offsets in a WOFF entry would count from the entry); the
 `:offset` parameter of `defmanifest` as the index (rejected: it is fixed for
 every call, where a record's index is a value of each call); offsets left as
-positions in the destination (rejected by SPECOPS-DRAFT-over-arrays-D2: a
+positions in the destination (rejected by SPECOPS-D96: a
 record copied elsewhere would be corrupt).
 
 ### Implementation
@@ -3828,7 +3828,7 @@ record copied elsewhere would be corrupt).
 - **`doc/Ref.Manifest.md`.** Written after the commit: version 0.1.3, its code
   references pinned to `v0.1.3`, `(:at index)` among the options of `marshal`
   and the params of `unmarshal`, and a section, "Records at an index", with the
-  table of SPECOPS-DRAFT-over-arrays-D2 and the example.
+  table of SPECOPS-D96 and the example.
 
 ### Verification
 
@@ -3880,8 +3880,8 @@ and the update of the [Manifest Reference](Ref.Manifest.md) after it.
 `:case` branch, and `marshal` takes `(:patch t)`, which writes only the fields
 given into a record already in a vector, as a writer changes a cell's ink or
 its blink bit without writing the cell whole. The plan's
-SPECOPS-DRAFT-over-arrays-D3 to SPECOPS-DRAFT-over-arrays-D6 and
-SPECOPS-DRAFT-over-arrays-D9 to SPECOPS-DRAFT-over-arrays-D12 decide what
+SPECOPS-D97 to SPECOPS-D100 and
+SPECOPS-D103 to SPECOPS-D106 decide what
 paths and patches do; this installment records how the layer carries them
 out.
 
@@ -3893,7 +3893,7 @@ locate them, and passes over the rest
 (`src/manifest/manifest.lisp:unmarshal@v0.1.3`). A key that names a
 sub-manifest gives its whole plist. A path, `(:g1 :ink)`, names a field
 within one, and through a `:case` field, within whichever branch the selector
-chooses when the code runs (SPECOPS-DRAFT-over-arrays-D5).
+chooses when the code runs (SPECOPS-D99).
 **Decision:** In `src/manifest/manifest.lisp:unmarshal@345f72d`, a path
 selects the field its first name names, which is read whole as a key naming
 it would be, and the path's value is taken from that field's plist by its
@@ -3909,9 +3909,9 @@ lacks its field is an error when the code runs, naming the selector and its
 value.
 **Alternatives:** A selective read nested in the sub-manifest, decoding only
 the named field (deferred: it reuses no existing code path, and a cell's
-glyph word is four units; the fast path of SPECOPS-DRAFT-over-arrays-D8 is
+glyph word is four units; the fast path of SPECOPS-D102 is
 where a read's cost is to be cut); paths through repeats by element index
-(deferred by SPECOPS-DRAFT-over-arrays-O5).
+(deferred by SPECOPS-O24).
 
 ### SPECOPS-DRAFT-manifest-D75 — A patch is generated from the manifest's layout fixed at expansion, field by field
 
@@ -3920,9 +3920,9 @@ where a read's cost is to be cut); paths through repeats by element index
 write position by what it writes (`src/manifest/manifest.lisp:marshal@v0.1.3`).
 A patch must write only the fields given, leave the units between them as
 they are, keep the other groups of a masque, and check the whole record
-against the vector first (SPECOPS-DRAFT-over-arrays-D3,
-SPECOPS-DRAFT-over-arrays-D11, SPECOPS-DRAFT-over-arrays-D12). Only a record
-of fixed size may be patched (SPECOPS-DRAFT-over-arrays-D9), so every field's
+against the vector first (SPECOPS-D97,
+SPECOPS-D105, SPECOPS-D106). Only a record
+of fixed size may be patched (SPECOPS-D103), so every field's
 extent is known at expansion.
 **Decision:** In `src/manifest/manifest.lisp:marshal@345f72d`, `(:patch t)`
 first makes each path a nested pair of its first name, merging the paths and
@@ -3983,7 +3983,7 @@ branch's manifest and the selector's value.
 variable to each branch's expansion for the message.
 **Alternatives:** The keys given selecting the branch when no selector is
 given (rejected: the selector in the vector decides,
-SPECOPS-DRAFT-over-arrays-D11); every key checked only when the code runs
+SPECOPS-D105); every key checked only when the code runs
 (rejected: a misspelt key would be found late).
 
 ### Implementation
@@ -4060,11 +4060,12 @@ New:
 - **A branch mismatch leaves a patch partly written.** The record's bounds
   are checked before any unit is written, but a key the chosen branch lacks is
   found only when that branch is reached, after the fields before it are
-  written. The selectors could be read and the branches checked first.
+  written. The selectors could be read and the branches checked first
+  (SPECOPS-DRAFT-over-arrays-O6).
 - **A path reads its first field whole,** a sub-manifest decoded to a plist
   for one of its fields, and a patch reads a selector it is not given through
   a selective `unmarshal`; both are costs for the fast path,
-  SPECOPS-DRAFT-over-arrays-D8, to remove.
+  SPECOPS-D102, to remove.
 - **A masque group's range check in a patch** accepts any value that fits the
   group's width as signed or as unsigned, whatever the group's type.
 - **Decimal masques in a patch** are implemented but not tested; no test

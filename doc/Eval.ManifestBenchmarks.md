@@ -7,12 +7,12 @@ scope:         component
 project:       SpecOps
 component:     Manifest
 language:      en
-status:        Draft
+status:        Accepted
 provenance:
   assistant:   claude-opus (OpenCode)
   session:     Manifests over arrays
 relates-to:
-  - SPECOPS-DRAFT-over-arrays
+  - SPECOPS-0008
   - SPECOPS-0004
   - SPECOPS-0006
   - SPECOPS-0007

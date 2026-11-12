@@ -6,14 +6,14 @@ scope:         component
 project:       SpecOps
 component:     Manifest
 language:      en
-status:        Draft
+status:        Accepted
 provenance:
   assistant:   claude-opus (OpenCode)
   session:     Recursive manifests
 relates-to:
   - SPECOPS-0007
   - SPECOPS-0006
-  - SPECOPS-DRAFT-over-arrays
+  - SPECOPS-0008
   - SPECOPS-0004
 open-questions:
   - SPECOPS-DRAFT-recursive-manifests-O1
@@ -85,7 +85,7 @@ open questions, and leaves the decisions to a Plan.
   instructions nest, so the layer's own users meet the case.
 - **The question shapes later work.** The arrays plan proposes a manifest's
   layout as data, for generators such as shader code
-  (SPECOPS-DRAFT-over-arrays-O3). What a layout is, once manifests may recur,
+  (SPECOPS-O22). What a layout is, once manifests may recur,
   should be settled before either is built.
 
 ## Selection by fields
@@ -359,7 +359,7 @@ Table: Gaps the surveyed formats expose, beyond recursion.
 
 The arrays plan meets the third of these too, in Lexter's cells, whose glyph
 words are chosen by type bits a sub-manifest cannot see, and leaves it out of
-its scope (SPECOPS-DRAFT-over-arrays).
+its scope (SPECOPS-0008).
 
 ## Honest Limits
 
@@ -392,9 +392,9 @@ its scope (SPECOPS-DRAFT-over-arrays).
   slots within an instance (SPECOPS-D66), the region table (SPECOPS-D70),
   selective reads (SPECOPS-D80, SPECOPS-D81), and structure apart from logic
   (SPECOPS-D29).
-- **[Manifests over Arrays of Records, SPECOPS-DRAFT-over-arrays](Plan.OverArrays.md)**
+- **[Manifests over Arrays of Records, SPECOPS-0008](Plan.OverArrays.md)**
   — independent of this Survey; its layout as data
-  (SPECOPS-DRAFT-over-arrays-O3) would need to say how a recursive reference
+  (SPECOPS-O22) would need to say how a recursive reference
   appears in a layout, and it shares the gap of parent fields.
 - **[Lisp Binary-Format Libraries, SPECOPS-0004](Eval.LispBinaryTools.md)** —
   its question of computing a record's size before writing it (SPECOPS-O17)

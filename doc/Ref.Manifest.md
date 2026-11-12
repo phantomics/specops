@@ -594,9 +594,9 @@ Examples (`test/test-manifest-ref.lisp:ref-marshal-to-a-function@v0.1.4`,
 
 `(:patch t)` writes the fields the pairs give into a record already in a
 vector, at position 0 or at `(:at index)`, and leaves every other unit as it
-was (SPECOPS-DRAFT-over-arrays-D3, SPECOPS-DRAFT-over-arrays-D11). It returns
+was (SPECOPS-D97, SPECOPS-D105). It returns
 the position after the record, so patches of records side by side chain as
-writes do (SPECOPS-DRAFT-over-arrays-D6).
+writes do (SPECOPS-D100).
 
 - **Keys.** A key is a field's name, or a path: a list of field names, such
   as `(:g1 :ink)`, that names a field inside a sub-manifest or a `:case`
@@ -614,10 +614,10 @@ writes do (SPECOPS-DRAFT-over-arrays-D6).
   branch and the selector's value.
 - **Bounds.** The whole record is checked against the vector before any unit
   is written; a record that would not fit signals `manifest-overrun` at the
-  record's end, and nothing is written (SPECOPS-DRAFT-over-arrays-D12).
+  record's end, and nothing is written (SPECOPS-D106).
 
-The following are expansion errors (SPECOPS-DRAFT-over-arrays-D4,
-SPECOPS-DRAFT-over-arrays-D9, SPECOPS-DRAFT-over-arrays-D10):
+The following are expansion errors (SPECOPS-D98,
+SPECOPS-D103, SPECOPS-D104):
 
 - a patch of a manifest whose size is not fixed at expansion, the error
   naming the first field of varying width;
@@ -699,13 +699,13 @@ Example (`test/test-manifest-ref.lisp:ref-unmarshal-sources@v0.1.4`):
 `(:at index)`, among `marshal`'s options or `unmarshal`'s params, places the
 record at INDEX of a vector, so that records lying side by side in one array,
 such as the cells of a screen, are written and read where they lie
-(SPECOPS-DRAFT-over-arrays-D1). It applies to vectors only: with a stream, a
+(SPECOPS-D95). It applies to vectors only: with a stream, a
 function or an integer source it is an error when the code runs, and an
 expansion error where the form shows it, as a `lambda` destination or a
 literal integer source does. INDEX must be a non-negative integer.
 
 Positions inside the record count from its start, and positions reported
-outside it from the vector's (SPECOPS-DRAFT-over-arrays-D2):
+outside it from the vector's (SPECOPS-D96):
 
 Table: What each position counts from, with `(:at index)`.
 
@@ -752,7 +752,7 @@ Example (`test/test-manifest-ref.lisp:ref-unmarshal-selective@v0.1.4`):
 
 A key may also be a path: a list of field names, each after the first a field
 of a manifest the field before it holds, through sub-manifests and the
-sub-manifest branches of `:case` fields (SPECOPS-DRAFT-over-arrays-D5). The
+sub-manifest branches of `:case` fields (SPECOPS-D99). The
 field the path's first name names is read, and the value taken from it. A
 path that names no field along it, or that passes through a scalar or into a
 repeat, is an expansion error; a path through a branch that lacks its field is
@@ -1046,7 +1046,7 @@ error (SPECOPS-D43). Defined in `src/serial.lisp:defcodetable@v0.1.4`.
 - **Patches** apply to records of fixed size only, take no `(:from record)`,
   and cannot write a repeat or its elements.
 - **Paths** name fields, not the elements of a repeat; a path cannot reach an
-  instance's field (SPECOPS-DRAFT-over-arrays-O5).
+  instance's field (SPECOPS-O24).
 - **Record names.** A record class named by a symbol of the `common-lisp`
   package, such as `directory`, cannot be defined, since its derived names
   would be interned there.
