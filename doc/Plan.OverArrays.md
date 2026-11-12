@@ -38,6 +38,9 @@ decisions:
   - SPECOPS-DRAFT-over-arrays-D15
   - SPECOPS-DRAFT-over-arrays-D16
   - SPECOPS-DRAFT-over-arrays-D17
+  - SPECOPS-DRAFT-over-arrays-D18
+  - SPECOPS-DRAFT-over-arrays-D19
+  - SPECOPS-DRAFT-over-arrays-D20
 open-questions:
   - SPECOPS-O20
   - SPECOPS-O21
@@ -531,6 +534,78 @@ answers SPECOPS-O36.
 it narrows a partial write but does not remove it); the partial write
 accepted and documented (not taken: the steward chose the check first).
 
+### SPECOPS-DRAFT-over-arrays-D18 — Reads of a record of fixed size from a simple vector take a fast path of their own, slots included
+
+**Status:** Proposed
+**Context:** At release 0.2.0, `unmarshal` loads every field through the code
+builder's general source, a call of a deserializer that chooses by the
+source's type, checks a vector's element type and assembles the units in a
+loop (SPECOPS-DRAFT-over-arrays-D14). A full read of a Lexter cell costs some
+1,340 ns, a read of one flag 100 ns, and a path `(:g1 :reach)` 240 ns, since
+a path reads its first field whole (SPECOPS-DRAFT-manifest-D74); enumerated
+values are decoded by searching the enum when the code runs. Reading the flag
+by hand takes about a nanosecond. A read, unlike a write, backpatches
+nothing: a slot is checked against its region's start and end, which in a
+record of fixed size are known at expansion, and a checksum's function reads
+the vector itself.
+**Decision:** `unmarshal` reads a record of fixed size from a simple vector of
+its unit type by a fast path: one check of the record's extent, then direct
+loads through the builder's vector source, with the vector and the cursor
+declared. Other sources, integers, streams and vectors that are not simple,
+take the general source. The fast path covers records with slots and their
+checks, as the steward chose; a record with placed fields varies in size and
+takes the general path. A path whose field lies at a position fixed at
+expansion is loaded alone, through a `:case` field at the position its chosen
+branch gives it, the branch checked as before. Enumerated values are decoded
+by code made at expansion. A vector source of another element type is an
+error saying so. The steward set the target: a selective read of one field
+within a few nanoseconds of reading it by hand. Released as 0.2.2.
+**Alternatives:** The fast path only for records without slots, as for writes
+(not taken: the steward chose to cover slots, which a read checks without
+backpatching); paths read whole, as in 0.1.4 (rejected: a path to one field of
+a glyph word would cost a plist of it).
+
+### SPECOPS-DRAFT-over-arrays-D19 — A read reports where its record ends
+
+**Status:** Proposed
+**Context:** SPECOPS-O23 asks how a reader of records lying one after another
+finds where the next begins, as `marshal`'s result tells a writer. A full read
+has passed over the whole record, so its end costs nothing to report; a keyed
+read of a record of fixed size knows its end at expansion; a keyed read of a
+record of varying size stops after its last key, so its end would cost a pass
+over the rest of the record.
+**Decision:** A full read returns the position after the record as its second
+value, after the plist or the record. A keyed read given `(:end t)` returns
+it as one more value, after the keys' values; for a record of varying size it
+then passes over the fields after the last key to find it. Positions count
+from the vector's start, as `marshal`'s result does (SPECOPS-D96); a stream's
+count from where the read began. This answers SPECOPS-O23.
+**Alternatives:** The end always the last value, every keyed read of a record
+of varying size passing over its rest (not taken: the steward chose the
+option, so that a read of one field of a PNG file does not read the whole
+file); a place named in the params to store the end in (not taken: the
+steward chose an extra value).
+
+### SPECOPS-DRAFT-over-arrays-D20 — `(:into record)` reads into an existing record, its nested records and vectors filled in place
+
+**Status:** Proposed
+**Context:** A full read makes a plist or a record, and every nested record
+and vector in it, on each call; a full read of a Lexter cell allocates some
+560 bytes as a record. Many callers read record after record into the same
+place, and would allocate nothing if the records were filled where they are.
+**Decision:** `unmarshal`'s params take `(:into record)`: RECORD, evaluated
+when the code runs, an instance of the manifest's record class, is filled
+with the fields read and returned, as `(:as :record)` returns a record; no
+keys are allowed with it. A sub-manifest's or a `:case` branch's record
+already in RECORD's slot is filled in place when it is of the class the
+branch reads, and a new one made otherwise; a vector already in a slot is
+filled in place when its length and element type fit the field, and replaced
+otherwise; any other value is replaced. A full read into a record whose
+nested records and vectors fit then allocates nothing.
+**Alternatives:** Only the top record filled, every nested record and vector
+made anew (not taken: the steward chose to fill them in place, so that
+Lexter's glyph words allocate nothing).
+
 ## Lexter's cell model as a test case
 
 Lexter's record is eight little-endian 32-bit words in an array of
@@ -686,6 +761,9 @@ has no place for a position. A parameter naming a place to store the end, or
 an extra value under a parameter, are the candidates. Lexter's records are of
 one size, so it does not need this.
 
+Answered by SPECOPS-DRAFT-over-arrays-D19: a full read returns the end as its
+second value, and a keyed read given `(:end t)` after the keys' values.
+
 ### SPECOPS-O24 — How do paths name elements of repeats?
 
 A path names fields, so it cannot reach into a repeated sub-manifest
@@ -773,9 +851,17 @@ Table: Prior systems and what this plan draws from each.
    streams and functions, which the evaluation did not measure, measured as
    well. The Reference updated, its byte orders and the path error of
    `7eb7ddf` among the changes, and released as 0.2.0.
-6. **Reads** (SPECOPS-O25). Reads measured as writes were, and remedied
-   through the code builder's sources: a fixed record's one bounds check and
-   direct loads. Before recursive manifests (SPECOPS-0010).
+6. **Reads** (SPECOPS-O25, SPECOPS-DRAFT-over-arrays-D18 to
+   SPECOPS-DRAFT-over-arrays-D20). Reads measured as writes were, and remedied
+   through the code builder's sources: for a record of fixed size, slots
+   included, read from a simple vector, one check of the extent and direct
+   loads; paths loaded alone; enums decoded by code made at expansion; the
+   record's end reported; `(:into record)`, filling nested records and
+   vectors in place. Against the steward's target, a selective read of one
+   field within a few nanoseconds of reading it by hand, with a test that a
+   selective read and a full read into a record allocate nothing. The
+   Reference updated, and released as 0.2.2, before recursive manifests
+   (SPECOPS-0010).
 7. **Later additions**, as users show the need: the layout as data of
    SPECOPS-O22, and the others listed under
    [Later Additions](#later-additions).
