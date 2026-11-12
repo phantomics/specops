@@ -87,6 +87,7 @@ decisions:
   - SPECOPS-DRAFT-manifest-D70
   - SPECOPS-DRAFT-manifest-D71
   - SPECOPS-DRAFT-manifest-D72
+  - SPECOPS-DRAFT-manifest-D73
 relates-to:
   - SPECOPS-0003
   - SPECOPS-0007
@@ -122,9 +123,9 @@ log carry the record forward: that of 2026-10-30 to commit `653345f`, three
 of 2026-10-31, to commits `738105a`, `d030f5c` and `2e1af03`, ten of
 2026-11-01, to commits `4f9c6d4`, `d7ba27f`, `1cc7600`, `b63b7d2`, `239b2f7`,
 `cb931c8`, `52b81e5`, `e340210`, `5862d3a` and `e4a1f9a`, that of 2026-11-02
-to commit `de25ae7`, tagged `v0.1.0`, and three of 2026-11-11, to commits
-`adc24c0`, `17bac3c` and `f85a370`, the first two tagged `v0.1.1` and
-`v0.1.2`. The repository restructure that followed
+to commit `de25ae7`, tagged `v0.1.0`, and four of 2026-11-11, to commits
+`adc24c0`, `17bac3c`, `f85a370` and `cba66c2`, of which `adc24c0`, `17bac3c`
+and `cba66c2` are tagged `v0.1.1`, `v0.1.2` and `v0.1.3`. The repository restructure that followed
 moved the files this log names (see
 [SPECOPS-0005](Log.Restructure.md)); code references stay pinned
 to the commits that held the work.
@@ -3752,3 +3753,117 @@ New:
   allocation go is to be found first; the fast path of SPECOPS-O15 is the
   likely remedy for records of fixed size, such as Lexter's cells.
 - The other items of the previous updates remain.
+
+## Update 2026-11-11 — Release 0.1.3: records at an index
+
+This installment covers commit `cba66c2`, tagged `v0.1.3`, the second step of
+the [plan for manifests over arrays of records](Plan.OverArrays.md), and the
+update of the [Manifest Reference](Ref.Manifest.md) after it. `marshal` and
+`unmarshal` take `(:at index)`, so that a record is written or read at an
+index of a vector, as the cells of Lexter's screen lie in one array. The
+plan's SPECOPS-DRAFT-over-arrays-D1 and SPECOPS-DRAFT-over-arrays-D2 decide
+the option and how positions count; this installment records how the layer
+carries them out.
+
+### SPECOPS-DRAFT-manifest-D73 — A record's start is kept in one variable that every nested manifest shares, and its offset slots count from it
+
+**Status:** Proposed
+**Context:** `marshal` kept its write position in a variable that began at 0,
+or at the undocumented `:offset` parameter of `defmanifest`, and a second
+variable, the base, marking where the manifest being expanded begins, against
+which `:to` pads count (`src/manifest/manifest.lisp:marshal@v0.1.2`). A
+sub-manifest rebinds the base to its own start, so the base cannot give the
+record's start, from which a format's offsets count: a WOFF entry's offset
+slot, in a sub-manifest, holds an offset from the start of the file.
+`:offset-of` slots held positions in the destination, which were offsets from
+the record's start only while the record began at 0; `unmarshal` checked
+them, and read placed fields, the same way.
+**Decision:** In `src/manifest/manifest.lisp:marshal@cba66c2` and
+`src/manifest/manifest.lisp:unmarshal@cba66c2`, the top-level expansion binds
+a variable, the origin, to the record's start: the index `(:at index)` gives,
+checked to be a non-negative integer, or 0. The write position or the cursor,
+and the base, begin there. The origin is passed to every nested expansion in
+the lexicon that the two macros share with their sub-manifests, so that an
+`:offset-of` slot written anywhere in the record holds the position of its
+field less the origin, a check of one compares the stored offset with the
+same difference, and a placed field is read at the origin plus its offset.
+`:align` pads, checksum ranges, reported positions and `marshal`'s result keep
+counting from the start of the vector, as SPECOPS-DRAFT-over-arrays-D2
+requires. A destination that is a function or a stream, or a source that is an
+integer or a stream, is an error under `(:at index)` when the code runs, and an
+expansion error where the form is a `function` or `lambda` form, an integer, or
+a quoted pair.
+**Alternatives:** The base as the record's start (rejected: sub-manifests
+rebind it, so offsets in a WOFF entry would count from the entry); the
+`:offset` parameter of `defmanifest` as the index (rejected: it is fixed for
+every call, where a record's index is a value of each call); offsets left as
+positions in the destination (rejected by SPECOPS-DRAFT-over-arrays-D2: a
+record copied elsewhere would be corrupt).
+
+### Implementation
+
+- **`src/manifest/manifest.lisp`.** In `marshal`: the option `:at`, the
+  origin and its place in the lexicon, offsets less the origin in
+  `resolve-region` and in placed fields, the index's check, and the errors for
+  destinations without positions, at expansion and in the run-time dispatch
+  on the destination. In `unmarshal`: the parameter `:at`, the origin, the
+  cursor and base beginning there, a vector source required, offset checks and
+  placed reads by the origin. Both docstrings describe the option.
+- **`test/test-manifest-arrays.lisp`.** A section, "Records at an index", and a
+  placed-field archive, `indexed-archive`, with seven tests, from
+  `test/test-manifest-arrays.lisp:a-cell-written-at-an-index-of-a-grid@cba66c2`
+  to `test/test-manifest-arrays.lisp:at-an-index-needs-a-vector-and-an-index@cba66c2`:
+  a cell at an index and cells written in sequence; reads at an index, full
+  and selective; a PNG at an index, its CRCs over the units where they lie and
+  a failure reported at its position in the vector; offsets from the record's
+  start, in placed fields and an offset probe; a `:to` pad from the record and
+  an `:align` pad from the vector; an overrun past the vector's end; a record
+  with slots in a vector with a fill pointer, through a buffer; and the errors.
+- **`test/test-manifest-ref.lisp`.** The Reference's example,
+  `test/test-manifest-ref.lisp:ref-records-at-an-index@cba66c2`.
+- **`specops.asd`.** Version 0.1.3.
+- **`doc/Ref.Manifest.md`.** Written after the commit: version 0.1.3, its code
+  references pinned to `v0.1.3`, `(:at index)` among the options of `marshal`
+  and the params of `unmarshal`, and a section, "Records at an index", with the
+  table of SPECOPS-DRAFT-over-arrays-D2 and the example.
+
+### Verification
+
+Run with `sbcl --non-interactive --eval '(asdf:test-system :specops)'`. At
+`cba66c2`, `manifest-arrays` has 22 tests with 61 assertions, `manifest-ref`
+31 with 88, and the root suite 460 tests with 747 assertions; all pass, and
+each test passes alone in three shuffled orders. With no `(:at index)`, every
+earlier test passes unchanged, so records at 0 are written and read as before.
+`src/manifest/manifest.lisp` compiles with no warnings; the format systems
+`specops.format.goff` and `.wasm` load, and the GOFF script passes.
+
+### Files
+
+Table: Files changed in commit `cba66c2`, and the documents updated after it.
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/manifest/manifest.lisp` | Modified | `(:at index)` in `marshal` and `unmarshal`; the origin |
+| `test/test-manifest-arrays.lisp` | Modified | Records at an index |
+| `test/test-manifest-ref.lisp` | Modified | The Reference's example of records at an index |
+| `specops.asd` | Modified | Version 0.1.3 |
+| `doc/Ref.Manifest.md` | Modified | Release 0.1.3 and records at an index, after the commit |
+| `doc/Log.Manifest.md` | Modified | This update |
+| `doc/Plan.OverArrays.md` | Modified | Progress update for the step, after the commit |
+
+### Metrics
+
+- Tests: 460, with 747 assertions, up from 451 and 710.
+- Regressions at `cba66c2`: 0.
+
+### Outstanding Work
+
+New:
+
+- **A record at an index of a vector that is not simple,** with slots, is
+  written through a buffer as large as the index plus the record, since the
+  buffer's positions are the vector's; it could begin at the index.
+- **The `:offset` parameter of `defmanifest`,** which sets where every write
+  of a manifest begins, is accepted, undocumented and untested; `(:at index)`
+  serves its purpose per call, and it could be retired.
+- The other items of the previous updates remain, the cost of a call first.

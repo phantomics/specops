@@ -516,3 +516,39 @@ Records at an index depend on nothing open. Patches depend on paths, for the
 fields of Lexter's glyph words. The fast path depends on nothing, and the
 work after it would be simpler for having it; the layout as data waits for
 patches, which compute the positions it would describe.
+
+## Update 2026-11-11 — Progress: records at an index
+
+This installment charts the plan's progress at commit `cba66c2`, tagged
+`v0.1.3`, which completes its second step: `marshal` and `unmarshal` take
+`(:at index)`, with positions counted as SPECOPS-DRAFT-over-arrays-D2
+decides. The [Manifest Development Log's](Log.Manifest.md) update of the same
+date records the work, with SPECOPS-DRAFT-manifest-D73 for the record's start,
+which every nested manifest shares, and the
+[Manifest Reference](Ref.Manifest.md) describes release 0.1.3. All 460 tests
+pass, with 747 assertions.
+
+### Progress
+
+Table: State of each Roadmap step at commit `cba66c2`. Entries new since the
+previous update are marked "new".
+
+| Step | State | Done | Remaining |
+|---|---|---|---|
+| 1. The prototype | Done | As before | — |
+| 2. Records at an index | Done | New: `(:at index)` for vectors, released as 0.1.3; Lexter's cells, a PNG and placed fields at an index, records written in sequence, and the errors tested | A record with slots in a vector that is not simple is buffered from position 0 rather than from its index |
+| 3. Paths | Not started | — | Keys through sub-manifests and `:case` branches |
+| 4. Patches | Not started | — | `(:patch t)`, released as 0.1.4 with paths |
+| 5. Later additions | Not started | — | The fast path; the layout as data |
+
+### Priorities
+
+1. **The cost of a call,** which the steward has chosen to take up next:
+   measuring where the time and the allocation of a call go, then deciding
+   what of the fast path of SPECOPS-O15 to build, before paths and patches.
+2. **Paths and patches,** released as 0.1.4.
+
+### Dependencies
+
+The assessment depends on nothing open. Patches gain from it, since a patch
+of a fixed record would otherwise carry each call's present costs.
