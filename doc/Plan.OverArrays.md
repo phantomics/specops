@@ -712,3 +712,51 @@ previous update are marked "new".
 Patches depend on paths. The fast path depends on nothing, and will carry
 patches with it: a patch of a fixed record stores its fields through the same
 code as a full write.
+
+## Update 2026-11-12 — Progress: paths and patches
+
+This installment charts the plan's progress at commit `345f72d`, tagged
+`v0.1.4`, which completes its third and fourth steps: `unmarshal` takes paths,
+and `marshal` takes `(:patch t)` for records of fixed size, as
+SPECOPS-DRAFT-over-arrays-D3 to SPECOPS-DRAFT-over-arrays-D6 and
+SPECOPS-DRAFT-over-arrays-D9 to SPECOPS-DRAFT-over-arrays-D12 decide. The
+[Manifest Development Log's](Log.Manifest.md) update of the same date records
+the work, with SPECOPS-DRAFT-manifest-D74 for how a path is read,
+SPECOPS-DRAFT-manifest-D75 for how a patch is made from the manifest's layout,
+and SPECOPS-DRAFT-manifest-D76 for how keys through a `:case` field are
+checked; the [Manifest Reference](Ref.Manifest.md) describes release 0.1.4.
+All 476 tests pass, with 798 assertions.
+
+### Progress
+
+Table: State of each Roadmap step at commit `345f72d`. Entries new since the
+previous update are marked "new".
+
+| Step | State | Done | Remaining |
+|---|---|---|---|
+| 1. The prototype | Done | As before | — |
+| 2. Records at an index | Done | As before | As before |
+| 3. Paths | New: done | New: paths through sub-manifests and `:case` branches in selective reads, checked at expansion and the branch when the code runs; released as 0.1.4 | Element indices in paths (SPECOPS-DRAFT-over-arrays-O5) |
+| 4. Patches | New: done | New: `(:patch t)` for records of fixed size, with paths and nested pairs, masque groups written into their units, selectors given or read, the record checked first, the refusals, and the record's end returned; Lexter's cells patched in ten tests; `backpatching` renamed; released as 0.1.4 | Records of varying size (SPECOPS-DRAFT-over-arrays-D9); `(:from record)` (SPECOPS-DRAFT-over-arrays-D10); a branch mismatch found before the patch writes |
+| 5. The fast path | Decided | As before | As before |
+| 6. Later additions | Not started | — | The layout as data; reads measured |
+
+A patch checks the record's bounds before it writes, as
+SPECOPS-DRAFT-over-arrays-D12 decides, but a key that the branch chosen when
+the code runs lacks is found only when that branch is reached, after the
+fields before it are written; the Log lists this among its outstanding work.
+
+### Priorities
+
+1. **The fast path,** as a release of its own: code of its own for each field,
+   no span map without slots, and one bounds check with direct stores for
+   records of fixed size, measured again with `scripts/bench-manifests.lisp`.
+   A patch's selector read and a path's whole read of its first field are
+   among the costs it is to remove.
+2. **Later additions,** as users show the need.
+
+### Dependencies
+
+The fast path depends on nothing open. Patches gain from it with no change of
+their own, since a patch writes each field it is given through the code of a
+full write.

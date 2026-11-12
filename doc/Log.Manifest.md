@@ -88,6 +88,9 @@ decisions:
   - SPECOPS-DRAFT-manifest-D71
   - SPECOPS-DRAFT-manifest-D72
   - SPECOPS-DRAFT-manifest-D73
+  - SPECOPS-DRAFT-manifest-D74
+  - SPECOPS-DRAFT-manifest-D75
+  - SPECOPS-DRAFT-manifest-D76
 relates-to:
   - SPECOPS-0003
   - SPECOPS-0007
@@ -3867,3 +3870,203 @@ New:
   of a manifest begins, is accepted, undocumented and untested; `(:at index)`
   serves its purpose per call, and it could be retired.
 - The other items of the previous updates remain, the cost of a call first.
+
+## Update 2026-11-12 — Release 0.1.4: paths and patches
+
+This installment covers commit `345f72d`, tagged `v0.1.4`, the third and
+fourth steps of the [plan for manifests over arrays of records](Plan.OverArrays.md),
+and the update of the [Manifest Reference](Ref.Manifest.md) after it.
+`unmarshal` takes paths, keys that name a field inside a sub-manifest or a
+`:case` branch, and `marshal` takes `(:patch t)`, which writes only the fields
+given into a record already in a vector, as a writer changes a cell's ink or
+its blink bit without writing the cell whole. The plan's
+SPECOPS-DRAFT-over-arrays-D3 to SPECOPS-DRAFT-over-arrays-D6 and
+SPECOPS-DRAFT-over-arrays-D9 to SPECOPS-DRAFT-over-arrays-D12 decide what
+paths and patches do; this installment records how the layer carries them
+out.
+
+### SPECOPS-DRAFT-manifest-D74 — A path is read by reading the field its first name names, and taking its value from that field's plist
+
+**Status:** Proposed
+**Context:** A selective read decodes the fields its keys name and those that
+locate them, and passes over the rest
+(`src/manifest/manifest.lisp:unmarshal@v0.1.3`). A key that names a
+sub-manifest gives its whole plist. A path, `(:g1 :ink)`, names a field
+within one, and through a `:case` field, within whichever branch the selector
+chooses when the code runs (SPECOPS-DRAFT-over-arrays-D5).
+**Decision:** In `src/manifest/manifest.lisp:unmarshal@345f72d`, a path
+selects the field its first name names, which is read whole as a key naming
+it would be, and the path's value is taken from that field's plist by its
+other names (`src/manifest/manifest.lisp:path-value-form@345f72d`). Paths and
+keywords may be mixed, several paths may share a first name, which is read
+once, and the values are returned in the order asked. At expansion,
+`src/manifest/manifest.lisp:check-path@345f72d` requires each name to be a
+field of a manifest the field before it may hold: a sub-manifest, or any
+sub-manifest branch of a `:case` field
+(`src/manifest/manifest.lisp:field-children@345f72d`). A path through a
+scalar or into a repeat is an expansion error; a path through a branch that
+lacks its field is an error when the code runs, naming the selector and its
+value.
+**Alternatives:** A selective read nested in the sub-manifest, decoding only
+the named field (deferred: it reuses no existing code path, and a cell's
+glyph word is four units; the fast path of SPECOPS-DRAFT-over-arrays-D8 is
+where a read's cost is to be cut); paths through repeats by element index
+(deferred by SPECOPS-DRAFT-over-arrays-O5).
+
+### SPECOPS-DRAFT-manifest-D75 — A patch is generated from the manifest's layout fixed at expansion, field by field
+
+**Status:** Proposed
+**Context:** A full write emits each field's code in order, advancing the
+write position by what it writes (`src/manifest/manifest.lisp:marshal@v0.1.3`).
+A patch must write only the fields given, leave the units between them as
+they are, keep the other groups of a masque, and check the whole record
+against the vector first (SPECOPS-DRAFT-over-arrays-D3,
+SPECOPS-DRAFT-over-arrays-D11, SPECOPS-DRAFT-over-arrays-D12). Only a record
+of fixed size may be patched (SPECOPS-DRAFT-over-arrays-D9), so every field's
+extent is known at expansion.
+**Decision:** In `src/manifest/manifest.lisp:marshal@345f72d`, `(:patch t)`
+first makes each path a nested pair of its first name, merging the paths and
+pairs given for one sub-manifest and refusing a field given twice
+(`src/manifest/manifest.lisp:nest-paths@345f72d`). The manifest's layout,
+each field's extent and the record's size, is found at expansion
+(`src/manifest/manifest.lisp:item-extent@345f72d`,
+`src/manifest/manifest.lisp:manifest-layout@345f72d`); a manifest whose
+layout varies is refused, naming its first field of varying width. The code
+checks the record's end against the vector's size, then, field by field, in
+a local function of `marshal`, `patch-generate`:
+
+- a field given is written by its full-write code;
+- a masque with groups given is read as it stands, each group given is
+  placed into the value, by `dpb` for a binary mask and by arithmetic in
+  powers of ten for a decimal one, after a check that the value fits
+  (`src/manifest/manifest.lisp:masque-group-bits@345f72d`), and the value is
+  written back;
+- any other field, a span's children included, is passed over by its extent.
+
+A sub-manifest's nested pairs are expanded by the same macro, so they write
+only the fields they give, and the patch flag reaches nested expansions in
+the lexicon the two macros share. A selector that the patch does not give is
+read by a selective `unmarshal` of the record at its start, with checks off,
+and converted to its code. A patch resolves no slots, so it is not written
+through a buffer; the internal flag that sends a manifest with slots through
+one is renamed `backpatching`, apart from the new option. Writing a slot, a
+field in a region a `:checksum-of` slot covers
+(`src/manifest/manifest.lisp:checksummed-names@345f72d`), a repeat, or a field
+the manifest lacks is an expansion error, as are `(:from record)` with
+`(:patch t)` and a path in a full write. A destination that is not a vector is
+an error at expansion where the form shows it, and when the code runs
+otherwise. A full write's pairs of odd length, as when a path given first is
+taken for the options, are an expansion error naming the list taken.
+**Alternatives:** Positions found by passing over the fields when the code
+runs, as a full write advances (rejected: every extent is fixed for a record
+a patch may write, and passing over costs the code to do so); the whole
+record read, changed and rewritten (rejected: a patch would cost a full read
+and a full write, against the plan's cost targets); masque groups written by
+the masque's full-write code with the other groups as defaults (rejected: it
+would overwrite the groups not given).
+
+### SPECOPS-DRAFT-manifest-D76 — Keys through a `:case` field are checked against every branch at expansion, and against the chosen branch when the code runs
+
+**Status:** Proposed
+**Context:** A `:case` field's branches are each expanded, and the selector
+chooses one when the code runs (`src/manifest/scan.lisp:case-clauses@v0.1.3`).
+In a patch, the nested expansion of each branch checked the keys given
+against its own manifest's fields, so a key of only one branch, such as a
+mask's `:reach`, was an expansion error in the other branch, the layer.
+**Decision:** In `src/manifest/manifest.lisp:marshal@345f72d`, the keys given
+within a `:case` field are checked at expansion against the fields of all its
+sub-manifest branches together, and one that no branch has is an expansion
+error. A branch whose manifest lacks a key given expands to an error,
+signalled only if that branch is chosen, naming the key, the field, the
+branch's manifest and the selector's value.
+`src/manifest/scan.lisp:case-clauses@345f72d` passes the selector's
+variable to each branch's expansion for the message.
+**Alternatives:** The keys given selecting the branch when no selector is
+given (rejected: the selector in the vector decides,
+SPECOPS-DRAFT-over-arrays-D11); every key checked only when the code runs
+(rejected: a misspelt key would be found late).
+
+### Implementation
+
+- **`src/manifest/manifest.lisp`.** For reads: `field-children`, `check-path`
+  and `path-value-form`, and in `unmarshal`, selection by a path's first name
+  and the path's value among the values returned. For patches: `item-extent`,
+  `manifest-layout`, `manifest-extent`, `nest-paths`, `masque-group-bits` and
+  `checksummed-names`; and in `marshal`, the option `:patch`, the record's
+  check against the vector, `given-p` and `patch-generate`, the selector read
+  from the vector, the checks of SPECOPS-DRAFT-manifest-D76, the refusals,
+  the error for pairs of odd length, and the `backpatching` rename. Both
+  docstrings describe the additions.
+- **`src/manifest/scan.lisp`.** `case-clauses` passes the selector's variable
+  to each branch as `:selector-value`.
+- **`test/test-manifest-arrays.lisp`.** A manifest of two plain cells,
+  `cell-pair`; two probes, `patch-slot-probe` and `patch-sum-probe`; the
+  helpers `patched-grid` and `with-units`; a section, "Paths", of four tests,
+  from `test/test-manifest-arrays.lisp:paths-read-fields-inside-sub-manifests-and-case-branches@345f72d`
+  to `test/test-manifest-arrays.lisp:a-path-that-names-no-field-is-an-expansion-error@345f72d`;
+  and a section, "Patches", of ten, from
+  `test/test-manifest-arrays.lisp:a-patch-writes-only-the-fields-it-is-given@345f72d`
+  to `test/test-manifest-arrays.lisp:a-patch-needs-a-vector@345f72d`: fields
+  given, through `plain-cell` and the common view `cell-common`; paths and
+  nested pairs; a selector given and one read from the vector; a branch that
+  lacks its field; a tile's 16-bit masque; patches chained by their results;
+  an overrun that writes nothing; records with slots and a checksum patched
+  outside them; and the errors.
+- **`test/test-manifest-ref.lisp`.** A manifest, `segment`, and the
+  Reference's examples,
+  `test/test-manifest-ref.lisp:ref-paths@345f72d` and
+  `test/test-manifest-ref.lisp:ref-patch@345f72d`.
+- **`specops.asd`.** Version 0.1.4.
+- **`doc/Ref.Manifest.md`.** Written after the commit: version 0.1.4, its code
+  references pinned to `v0.1.4`, `(:patch t)` among `marshal`'s options and a
+  section, "Patches", paths in "Selective reads", the overrun position of a
+  patch, "backpatched" where the buffering of a manifest with slots is
+  described, and the limits of paths and patches.
+
+### Verification
+
+Run with `sbcl --non-interactive --eval '(asdf:test-system :specops)'`. At
+`345f72d`, `manifest-arrays` has 36 tests with 109 assertions, `manifest-ref`
+33 with 91, and the root suite 476 tests with 798 assertions; all pass, and
+each test passes alone in three shuffled orders. Every earlier test passes
+unchanged. `src/manifest/manifest.lisp` compiles with no warnings; the format
+systems `specops.format.goff`, `.wasm` and `.elf` load, and the GOFF script
+passes.
+
+### Files
+
+Table: Files changed in commit `345f72d`, and the documents updated after it.
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/manifest/manifest.lisp` | Modified | Paths in `unmarshal`; `(:patch t)` in `marshal` |
+| `src/manifest/scan.lisp` | Modified | The selector's variable passed to each branch |
+| `test/test-manifest-arrays.lisp` | Modified | Paths and patches |
+| `test/test-manifest-ref.lisp` | Modified | The Reference's examples of paths and patches |
+| `specops.asd` | Modified | Version 0.1.4 |
+| `doc/Ref.Manifest.md` | Modified | Release 0.1.4, paths and patches, after the commit |
+| `doc/Log.Manifest.md` | Modified | This update |
+| `doc/Plan.OverArrays.md` | Modified | Progress update for the steps, after the commit |
+
+### Metrics
+
+- Tests: 476, with 798 assertions, up from 460 and 747.
+- Regressions at `345f72d`: 0.
+
+### Outstanding Work
+
+New:
+
+- **A branch mismatch leaves a patch partly written.** The record's bounds
+  are checked before any unit is written, but a key the chosen branch lacks is
+  found only when that branch is reached, after the fields before it are
+  written. The selectors could be read and the branches checked first.
+- **A path reads its first field whole,** a sub-manifest decoded to a plist
+  for one of its fields, and a patch reads a selector it is not given through
+  a selective `unmarshal`; both are costs for the fast path,
+  SPECOPS-DRAFT-over-arrays-D8, to remove.
+- **A masque group's range check in a patch** accepts any value that fits the
+  group's width as signed or as unsigned, whatever the group's type.
+- **Decimal masques in a patch** are implemented but not tested; no test
+  manifest of fixed size has one.
+- The other items of the previous updates remain.
