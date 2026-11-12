@@ -34,9 +34,9 @@ fields from when it is given (:from RECORD); NIL when RECORD holds no value for 
                                             (if (zerop remainder) (- root 3)
                                                 (error "Invalid unit.")))))
                         (symbol (case unit (:byte 0) (:word 1) (:doubleword 2) (:quadword 3)))))
-           ;; the manifest's byte order applies to every field that gives none; big-endian
+           ;; the manifest's order of units applies to every field that gives none; big-endian
            ;; when the manifest gives none either
-           (swap-by (case endian ((nil :big) 0) (:little 1) (:middle 2) (:pdp 2) (t endian)))
+           (order (unit-order endian))
            ;; (:record t) names the record class after the manifest; a symbol names it
            (record-class (if (eq t record) name record))
            (field-specs (list (list 'list :type :config :unit-spec unit-spec
@@ -123,9 +123,10 @@ fields from when it is given (:from RECORD); NIL when RECORD holds no value for 
                    (multiple-value-bind (width signed subtype-list type-indicator type-conditions)
                        (parse-type predicate)
                    (let (;; (width) (signed) (subtype-list) (type-indicator) (type-conditions)
-                         (this-swap-by (case endian
-                                         ((nil) nil) (:big 0) (:little 1) (:middle 2) (:pdp 2)
-                                         (t endian))))
+                         (this-order (and endian (unit-order endian))))
+                     ;; a width the order cannot group is an error now, not when the field is used
+                     (when (and (integerp width) (plusp width))
+                       (unit-significances width (or this-order order)))
                      ;; a :case field passes :stop-by to its branches, for its vector branches
                      (when (and stop-by (not (intersection '(:vec :case) subtype-list)))
                        (error "Field ~s: :stop-by applies to :vec fields only." symbol))
@@ -136,7 +137,7 @@ fields from when it is given (:from RECORD); NIL when RECORD holds no value for 
                            :codec (list 'quote codec) :slot (format-slot-spec slot)
                            :type-indicator type-indicator :type-conditions type-conditions
                            :subtypes (and subtype-list (cons 'list subtype-list))
-                           :end-by end-by :swap-by (or this-swap-by swap-by)
+                           :end-by end-by :order (list 'quote (or this-order order))
                            :stop-by (list 'quote stop-by) :place place
                            :default default)))))
                (constant-entry (value width)
@@ -153,9 +154,10 @@ fields from when it is given (:from RECORD); NIL when RECORD holds no value for 
                        (error "Constant #x~x needs ~a units of ~a bits, more than its width of ~a."
                               value needed unit-bits width)))
                    (let ((w (or width needed)))
+                     (unit-significances w order)
                      (list 'list :type :masque :length w :constant value
                                  :actual (format nil "h:~v,'0X" (/ (* w unit-bits) 4) value)
-                                 :swap-by swap-by :bindings (list 'list)))))
+                                 :order (list 'quote order) :bindings (list 'list)))))
                (process-entry (f accumulator)
                  (cond
                    ;; a bare number: a constant in as few units as it needs
@@ -184,14 +186,14 @@ fields from when it is given (:from RECORD); NIL when RECORD holds no value for 
                                                        :mode (if (integerp spec) :count spec)
                                                        ;; :count | :to | :align
                                                        :n    (if (integerp spec) spec n)
-                                                       :swap-by swap-by)
+                                                       :order (list 'quote order))
                                            accumulator)))
                              (:str (destructuring-bind (actual &key codec encode-by length end-by)
                                        (rest f)
                                      (let ((count (* (length actual) (or length 1))))
-                                       ;; strings are read and written in stream order, through
-                                       ;; serializer 0; any byte order belongs to the codec
-                                       (push (list 'list :type :string :actual actual :swap-by 0
+                                       ;; strings are read and written in stream order, a unit
+                                       ;; to a code; any byte order belongs to the codec
+                                       (push (list 'list :type :string :actual actual :order :big
                                                          :end-by end-by :length count
                                                          ;; :index (+ (length actual) (if end-by 1 0))
                                                          :encode-by (list 'quote encode-by)
@@ -220,8 +222,9 @@ fields from when it is given (:from RECORD); NIL when RECORD holds no value for 
                                                       (if (zerop (logand masque-width
                                                                          (1- (ash 1 (+ 3 unit-spec)))))
                                                           0 1))))
+                                            (unit-significances unit-width order)
                                             (push (list 'list :type :masque :length unit-width
-                                                              :actual spec-string :swap-by swap-by
+                                                              :actual spec-string :order (list 'quote order)
                                                               :bindings (cons 'list (reverse bindings-out)))
                                                   accumulator)))))
                              ;; :place among the options places the sub-manifest's bytes
@@ -244,7 +247,7 @@ fields from when it is given (:from RECORD); NIL when RECORD holds no value for 
                              ;; (place tag :align n): where the fields placed under TAG are written
                              (:place (destructuring-bind (tag &key align) (rest f)
                                        (push (list 'list :type :place :tag tag :align align
-                                                         :swap-by swap-by)
+                                                         :order (list 'quote order))
                                              accumulator)))))
                    (t (error "Invalid clause; may not start with ~a." (first f))))
                  accumulator))
@@ -252,7 +255,7 @@ fields from when it is given (:from RECORD); NIL when RECORD holds no value for 
         (dolist (f fields) (setf field-specs (process-entry f field-specs)))
 
         (when length (push (list 'list :type :pad :with (or pad 0) :offset offset
-                                       :mode :to :n length :swap-by swap-by)
+                                       :mode :to :n length :order (list 'quote order))
                            field-specs))
         
         ;; the record class is defined from the stored fields, so it follows their registration
@@ -326,16 +329,6 @@ manifest is walked once."
                      (child (first (getf b :actual))))))))
       (walk items))))
 
-(defun manifest-swap-specs (items)
-  "The byte orders used by ITEMS, a manifest's stored fields, and by every manifest nested
-in them, whose code shares the top-level manifest's serializers."
-  (let ((specs nil))
-    (walk-manifest (lambda (item)
-                     (let ((s (getf item :swap-by)))
-                       (when s (pushnew s specs))))
-                   items)
-    specs))
-
 (defun manifest-slots-p (items &optional kind)
   "True when ITEMS, a manifest's stored fields, or a manifest nested in them, has a slot
 field: one of KIND, such as :checksum-of, when KIND is given."
@@ -403,6 +396,7 @@ manifest nested in them, and the tags of the place directives there, as two valu
 at POSITION would lie past SIZE, the vector's allocated size. A fill pointer is neither read
 nor set, so a caller that wants a vector to grow sizes it or grows it itself."))
 
+(declaim (ftype (function (t t t) nil) signal-overrun))
 (defun signal-overrun (manifest size position)
   (error 'manifest-overrun :manifest manifest :size size :position position))
 
@@ -530,6 +524,137 @@ decimal mask, in digits, and the mask's factor, 10 for a decimal mask, else NIL.
                                  (and (eq :span (getf it :type)) (walk (getf it :items)))))))
       (walk items))))
 
+(defun locate-field (items name)
+  "The stored field among ITEMS, a manifest's stored fields, that is or holds the field NAME,
+inside spans or as a keyword group of a masque; its position in units from the manifest's
+start; and NAME's binding, when NAME is a masque group. NIL when NAME is not found at a
+position fixed at expansion."
+  (let ((pos 0))
+    (labels ((walk (items)
+               (dolist (item items)
+                 (let ((binding (and (eq :masque (getf item :type))
+                                     (find-if (lambda (b) (and (not (eq :binding (first b)))
+                                                               (eq name (getf b :name))))
+                                              (getf item :bindings)))))
+                   (cond ((or binding (and (eq name (getf item :name))
+                                           (not (eq :span (getf item :type)))))
+                          (return-from locate-field (values item pos binding)))
+                         ((eq :span (getf item :type)) (walk (getf item :items)))
+                         (t (let ((e (item-extent item nil pos)))
+                              (unless e (return-from locate-field nil))
+                              (incf pos e))))))))
+      (walk items)
+      nil)))
+
+(defun selector-load-form (items sel vector base-form unit-bits)
+  "A form loading the code of the :case selector SEL, a field of ITEMS, a manifest's stored
+fields, from VECTOR, in the record of that manifest beginning at BASE-FORM."
+  (multiple-value-bind (item offset binding) (locate-field items sel)
+    (unless item
+      (error "marshal: the :case selector ~s is not at a position fixed at expansion." sel))
+    (let ((source (make-instance 'vector-source :vector vector))
+          (at (if (zerop offset) base-form `(+ ,base-form ,offset))))
+      (if binding
+          (multiple-value-bind (w p factor) (masque-group-bits (getf item :actual) (getf binding :bind-to))
+            (let* ((raw (load-form source (make-encoding (getf item :length) unit-bits
+                                                         :order (getf item :order))
+                                   at))
+                   (group (if factor
+                              `(floor (mod ,raw ,(expt factor (+ p w))) ,(expt factor p))
+                              `(ldb (byte ,w ,p) ,raw))))
+              (if (getf binding :signed)
+                  (let ((v (gensym "V")))
+                    `(let ((,v ,group)) (if (logbitp ,(1- w) ,v) (- ,v ,(ash 1 w)) ,v)))
+                  group)))
+          (load-form source (make-encoding (getf item :length) unit-bits :order (getf item :order)
+                                           :signed (getf item :signed))
+                     at)))))
+
+(defun selector-code-form (enum-name value)
+  "VALUE, a selector's value as a patch gives it, as its code through the enum ENUM-NAME."
+  (cond ((not enum-name) value)
+        ((keywordp value)
+         (or (getf (rest (gethash enum-name *enums*)) value)
+             (error "~a is not a member of enum ~a." value enum-name)))
+        ((constantp value) value)
+        (t (let ((v (gensym "V")))
+             `(let ((,v ,value))
+                (if (keywordp ,v) (getf (rest (gethash ',enum-name *enums*)) ,v) ,v))))))
+
+(defun hoist-patch-selectors (item-lists pairs)
+  "PAIRS, a patch's field pairs over the fields of one of the manifests whose stored fields
+are ITEM-LISTS, with each selector's value that is a form replaced by a variable, at any
+depth of nested pairs; and the bindings of the variables to the forms, in order, so that each
+is evaluated once, before the patch checks its branches."
+  (let ((bindings nil) (out nil))
+    (loop :for (k v) :on pairs :by #'cddr
+          :do (let* ((items (find-if (lambda (is) (find-field is k)) item-lists))
+                     (item (and items (find-field items k))))
+                (cond ((and item (consp v) (keywordp (first v))
+                            (or (eq :manifest (getf item :type)) (member :case (getf item :subtypes))))
+                       (multiple-value-bind (nested more) (hoist-patch-selectors (field-children item) v)
+                         (setf bindings (append bindings more))
+                         (push k out) (push nested out)))
+                      ((and (not (constantp v))
+                            (some (lambda (is) (member k (case-selectors is))) item-lists))
+                       (let ((g (gensym (string k))))
+                         (setf bindings (append bindings (list (list g v))))
+                         (push k out) (push g out)))
+                      (t (push k out) (push v out)))))
+    (values (nreverse out) bindings)))
+
+(defun patch-branch-checks (manifest items pairs vector base-form unit-bits)
+  "Forms checking, before a patch writes, that each key PAIRS give within a :case field of
+ITEMS, the stored fields of MANIFEST, is a field of the branch chosen: by the selector's value
+in PAIRS, else as the selector stands in VECTOR, in the record beginning at BASE-FORM; at any
+depth of nested pairs (SPECOPS-DRAFT-over-arrays-D17)."
+  (loop :for (k v) :on pairs :by #'cddr
+        :for item := (and (keywordp k) (consp v) (keywordp (first v)) (find-field items k))
+        :when item
+          :append
+          (multiple-value-bind (top offset) (locate-field items k)
+            (declare (ignore top))
+            (let ((at (if (eql 0 offset) base-form `(+ ,base-form ,offset))))
+              (cond ((eq :manifest (getf item :type))
+                     (let ((child (first (getf item :actual))))
+                       (patch-branch-checks child (rest (gethash child *manifests*)) v vector at
+                                            unit-bits)))
+                    ((member :case (getf item :subtypes))
+                     (let* ((sel (getf item :type-indicator))
+                            (enum-name (getf (find-field items sel) :enumerate-by))
+                            (enum (and enum-name (gethash enum-name *enums*)))
+                            (code (if (loop :for (kk) :on pairs :by #'cddr :thereis (eq kk sel))
+                                      (selector-code-form enum-name (getf pairs sel))
+                                      (selector-load-form items sel vector base-form unit-bits)))
+                            (c (gensym "C"))
+                            (branches (getf item :type-conditions)))
+                       `((let ((,c ,code))
+                           (case ,c
+                             ,@(loop :for b :in branches
+                                     :for keys := (translate-keys (getf b :keys) enum k)
+                                     :collect
+                                     `(,keys
+                                       ,@(if (eq :manifest (getf b :type))
+                                             (let* ((child (first (getf b :actual)))
+                                                    (child-items (rest (gethash child *manifests*)))
+                                                    (fields (manifest-field-names child-items))
+                                                    (absent (loop :for (kk) :on v :by #'cddr
+                                                                  :unless (member kk fields) :return kk)))
+                                               (if absent
+                                                   `((error "marshal: a patch of manifest ~s gives ~s within ~
+                                                             ~s, which the branch chosen, manifest ~s, lacks; ~
+                                                             that branch was chosen by ~s = ~s."
+                                                            ',manifest ',absent ',k ',child ',sel ,c))
+                                                   (or (patch-branch-checks child child-items v vector at
+                                                                            unit-bits)
+                                                       '(nil))))
+                                             `((error "marshal: field ~s was given nested values, but its ~
+                                                       selector chose a branch that is not a sub-manifest."
+                                                      ',k)))))
+                             ,@(unless (find 'otherwise branches :key (lambda (b) (getf b :keys)))
+                                 `((otherwise (error "Field ~s: no branch for selector value ~s."
+                                                     ',k ,c))))))))))))))
+
 (defmacro marshal (name destination &body pairs)
   "Write the fields of the manifest NAME to DESTINATION, a vector, a stream or a function
 of one unit, and return the position after the last unit. PAIRS give field values as
@@ -569,7 +694,8 @@ and returns the record's end."
          ;; a manifest with a slot anywhere in it is backpatched, so a function or a stream is
          ;; written through a buffer; the top-level expansion decides
          (backpatching (and (not nested) (not (getf options :patch)) (manifest-slots-p (rest spec))))
-         (unit-type `(unsigned-byte ,(ash 1 (+ 3 (or (getf params :unit-spec) 0)))))
+         (unit-bits (ash 1 (+ 3 (or (getf params :unit-spec) 0))))
+         (unit-type `(unsigned-byte ,unit-bits))
          (holder (and (not nested) (getf options :buffer) (gensym "HOLDER")))
          ;; (:at index): the record begins at INDEX of a vector destination
          (at (and (not nested) (getf options :at)))
@@ -579,8 +705,17 @@ and returns the record's end."
          (dest (gensym "DEST")) (in-place (gensym "IN-PLACE")) (limit (gensym "LIMIT"))
          ;; the tags of placed fields, here or nested, when this is the top-level expansion
          (place-tags (and (not nested) (manifest-places (rest spec))))
-         regions slots slots-of swap-specs offset access enter index write prefix counts
-         values length serializers map b i sub-lexicon written
+         regions slots slots-of offset access enter index prefix counts
+         values length map b i sub-lexicon written
+         ;; where the code being generated stores its units: an entering target, or for a
+         ;; record of fixed size in a simple vector, a vector target (SPECOPS-DRAFT-over-arrays-D14)
+         target
+         ;; whether the fields' spans are mapped, which only slots read
+         mapping
+         ;; a patch's selector values given as forms, bound once before anything is written
+         hoisted
+         ;; the record's start, evaluated once whichever path writes it
+         start
          ;; the queues of placed fields' writers, by tag, waiting for their place directives
          places)
 
@@ -604,11 +739,11 @@ and returns the record's end."
 
     ;; populate the symbol lexicon or import it from an enclosing marshal macro
     (if (getf pairs :-+sub-lexicon+-)
-        (destructuring-bind (&key ac-sym en-sym ba-sym in-sym wr-sym pr-sym
-                               vl-sym ln-sym sr-sym mp-sym ct-sym b-sym i-sym pl-sym or-sym pa-sym)
+        (destructuring-bind (&key ac-sym en-sym ba-sym in-sym pr-sym tg-obj
+                               vl-sym ln-sym mp-sym ct-sym b-sym i-sym pl-sym or-sym pa-sym)
             (getf pairs :-+sub-lexicon+-)
-          (setf access ac-sym enter en-sym base ba-sym index in-sym write wr-sym prefix pr-sym
-                values vl-sym length ln-sym serializers sr-sym map mp-sym counts ct-sym
+          (setf access ac-sym enter en-sym base ba-sym index in-sym prefix pr-sym target tg-obj
+                values vl-sym length ln-sym map mp-sym counts ct-sym
                 b b-sym i i-sym places pl-sym origin or-sym patch pa-sym
                 ;; propagate the same lexicon to deeper sub-manifests so nested
                 ;; inlining keeps sharing the top-level environment
@@ -616,10 +751,8 @@ and returns the record's end."
         (setf access (gensym "AC")
               enter (gensym "EN")
               index (gensym "IN")
-              write (gensym "WR")
               values (gensym "VL")
               length (gensym "LN")
-              serializers (gensym "SR")
               map (gensym "MP")
               counts (gensym "CT")     ; elements written by fields that :count-of slots cover
               b (gensym "BB")
@@ -628,16 +761,17 @@ and returns the record's end."
               ;; where the record begins, from which its offset slots count
               origin (gensym "ORIGIN")
               sub-lexicon (list :ac-sym access :en-sym enter :ba-sym base :in-sym index
-                                :wr-sym write
                                 :vl-sym values :ln-sym length
-                                :sr-sym serializers :mp-sym map :ct-sym counts :b-sym b :i-sym i
+                                :mp-sym map :ct-sym counts :b-sym b :i-sym i
                                 :pl-sym places :or-sym origin :pa-sym patch)))
+    ;; the spans of fields are mapped only for slots to read, which a patch never writes
+    (setf mapping (and (not patch) (manifest-slots-p (rest spec))))
 
 
     
     (labels ((preprocess-spec (spec-items)
                (dolist (item spec-items)
-                 (destructuring-bind (&key length name swap-by type slot items &allow-other-keys) item
+                 (destructuring-bind (&key length name (order :big) type slot items &allow-other-keys) item
                    (setf offset (getf item :offset))
                    (push (qualify name) regions)
                    (when (and slot (eq :count-of (first slot)))
@@ -652,24 +786,35 @@ and returns the record's end."
                                  not a vector or a repeated sub-manifest." name (second slot)))))
                    (when slot
                      (push item slots)
-                     (push (list (qualify name) (first slot) length swap-by)
+                     (push (list (qualify name) (first slot) length order)
                            (getf slots-of (qualify (second slot)))))
                    (case type
                      (:span (preprocess-spec items))))))
              (qualify (name)
                (if (not (and prefix name))
                    name (intern (format nil "~a/~a" prefix name) :keyword)))
-             (resolve-region (name slot-field slot-type slot-width swap-by)
-               `(funcall ,write (aref ,serializers ,swap-by)
-                        (cons ,slot-width
-                              ;; :length-of → (- end start) ; :offset-of → start ;
-                              ;; :count-of → the elements written
-                              ,(case slot-type
-                                 (:length-of `(- (third (assoc ,name ,map))
-                                                 (second (assoc ,name ,map))))
-                                 (:offset-of `(- (second (assoc ,name ,map)) ,origin))
-                                 (:count-of `(rest (assoc ,name ,counts)))))
-                        (second (assoc ',slot-field ,map)))) ; slot's reserved position
+             (store (order width value-form &key (check t))
+               ;; the code storing VALUE-FORM in WIDTH units of ORDER at the target
+               (store-form target (make-encoding width unit-bits :order order) value-form
+                           :check check))
+             (store-at (position-form order width value-form)
+               ;; the same, at POSITION-FORM, after which the position is as it was: a slot's
+               ;; backpatching, which needs a target that stores where its position is set
+               (let ((o (gensym "O")))
+                 `(let ((,o ,index))
+                    (setf ,index ,position-form)
+                    ,(store order width value-form)
+                    (setf ,index ,o))))
+             (resolve-region (name slot-field slot-type slot-width order)
+               (store-at `(second (assoc ',slot-field ,map)) ; the slot's reserved position
+                         order slot-width
+                         ;; :length-of → (- end start) ; :offset-of → start ;
+                         ;; :count-of → the elements written
+                         (case slot-type
+                           (:length-of `(- (third (assoc ,name ,map))
+                                           (second (assoc ,name ,map))))
+                           (:offset-of `(- (second (assoc ,name ,map)) ,origin))
+                           (:count-of `(rest (assoc ,name ,counts))))))
              (counted-form (qname form)
                ;; FORM writes the field QNAME; when a :count-of slot covers the field, which
                ;; preprocess-spec has checked is a vector or a repeat, record the number of
@@ -677,9 +822,6 @@ and returns the record's end."
                (if (find :count-of (getf slots-of qname) :key #'second)
                    `(push (cons ,qname ,form) ,counts)
                    form))
-             (assign-serializer (s)
-               `(setf (aref ,serializers ,s)
-                      (serializer-for ,(getf params :unit-spec) ,s)))
              (missing-form (field)
                `(error "marshal: field ~s of manifest ~s has no value, in the record or as a default."
                        ',field ',manifest-name))
@@ -722,7 +864,8 @@ and returns the record's end."
                                     (append (list 'marshal child destination)
                                             (and child-record `((:from ,child-record)))
                                             (list :-+sub-lexicon+-
-                                                  (list* :pr-sym (qualify name) sub-lexicon))
+                                                  (list* :pr-sym (qualify name) :tg-obj target
+                                                         sub-lexicon))
                                             literal))))
                    (if child-record `(let ((,child-record ,record)) ,expansion) expansion))))
              (case-value-context (name default enumerate-by slot plan)
@@ -779,10 +922,8 @@ and returns the record's end."
                (let* ((item (selector-item sel))
                       (v (value-source sel (getf item :default))))
                  (cond ((and patch (not (given-p sel)))
-                        ;; the selector as it stands in the record, read when the code runs
-                        (let ((r (gensym "SEL")))
-                          `(let ((,r (unmarshal ,name ,access (:at ,base :check nil) ,sel)))
-                             ,(enumerate (getf item :enumerate-by) r))))
+                        ;; the selector as it stands in the record, its code loaded directly
+                        (selector-load-form (rest spec) sel access base unit-bits))
                        ((not (member sel written))
                         (error "marshal: field ~s needs its :case selector ~s, which must come before it."
                                field sel))
@@ -799,7 +940,7 @@ and returns the record's end."
                ;; is given, its given groups written when it is a masque, and otherwise passed
                ;; over by its extent; returns the code and the extent
                (let ((e (item-extent item (getf params :unit-spec) pos)))
-                 (destructuring-bind (&key type name bindings actual (swap-by 0) items slot
+                 (destructuring-bind (&key type name bindings actual (order :big) items slot
                                         &allow-other-keys)
                      item
                    (values
@@ -811,9 +952,9 @@ and returns the record's end."
                                                    bindings)))
                          (if given
                              (let ((raw (gensym "RAW")))
-                               `((let ((,raw (funcall (load-time-value
-                                                       (deserializer-for ,(getf params :unit-spec) ,swap-by))
-                                                      ,index ,e nil ,access)))
+                               `((let ((,raw ,(load-form (make-instance 'vector-source :vector access)
+                                                         (make-encoding e unit-bits :order order)
+                                                         index)))
                                    ,@(loop :for b :in given
                                            :collect (destructuring-bind (&key name bind-to enumerate-by
                                                                           &allow-other-keys)
@@ -840,7 +981,7 @@ and returns the record's end."
                                                                        (error "marshal: ~s does not fit group ~a of masque ~s."
                                                                               ,v ',bind-to ,actual))
                                                                      (setf ,raw (dpb ,v (byte ,w ,p) ,raw)))))))))
-                                   (funcall (aref ,serializers ,swap-by) (cons ,e ,raw) ,enter))))
+                                   ,(store order e raw :check nil))))
                              `((incf ,index ,e)))))
                       (:span
                        (let ((forms nil) (p pos))
@@ -917,28 +1058,26 @@ and returns the record's end."
                                  (let ((,end ,index))
                                    (declare (ignorable ,end))
                                    ,@(loop :for p :in positions
-                                           :for (slot-field kind width swap-by) :in entries
+                                           :for (slot-field kind width order) :in entries
                                            :collect
-                                           `(funcall ,write (aref ,serializers ,swap-by)
-                                                     (cons ,width
-                                                           ,(ecase kind
-                                                              (:length-of `(- ,end ,start))
-                                                              (:offset-of `(- ,start ,origin))
-                                                              (:checksum-of
-                                                               `(funcall ,(getf (cddr (getf (find slot-field slots
-                                                                                                 :key (lambda (s) (qualify (getf s :name))))
-                                                                                           :slot))
-                                                                                :by)
-                                                                         ,access ,start ,end))))
-                                                     ,p)))))
+                                           (store-at p order width
+                                                     (ecase kind
+                                                       (:length-of `(- ,end ,start))
+                                                       (:offset-of `(- ,start ,origin))
+                                                       (:checksum-of
+                                                        `(funcall ,(getf (cddr (getf (find slot-field slots
+                                                                                          :key (lambda (s) (qualify (getf s :name))))
+                                                                                    :slot))
+                                                                         :by)
+                                                                  ,access ,start ,end))))))))
                              (getf ,places ,tag)))))))
              (place-directive (item)
                ;; write the fields queued under the directive's tag, each aligned when asked
-               (destructuring-bind (&key tag align (swap-by 0) &allow-other-keys) item
+               (destructuring-bind (&key tag align (order :big) &allow-other-keys) item
                  (let ((f (gensym "F"))
                        (pad (and align
                                  `(loop :repeat ,(pad-count-form :align align index base)
-                                        :do (funcall (aref ,serializers ,swap-by) (cons 1 0) ,enter)))))
+                                        :do ,(store order 1 0)))))
                    (unless places
                      (error "marshal: manifest ~s has a place directive for ~s, but no field is ~
                              placed under it." manifest-name tag))
@@ -949,7 +1088,7 @@ and returns the record's end."
                      ,@(and pad (list pad))
                      (setf (getf ,places ,tag) nil)))))
              (generate (item &optional context)
-               (destructuring-bind (&key name type (swap-by 0) default count actual bindings with
+               (destructuring-bind (&key name type (order :big) default count actual bindings with
                                       length end-by codec slot enumerate-by subtypes items mode n
                                       &allow-other-keys) ;; keys only field plans read
                    item
@@ -965,7 +1104,7 @@ and returns the record's end."
                      (:place (place-directive item))
                      (:pad `(:-pad
                              (loop :repeat ,(pad-count-form mode n index base)
-                                   :do (funcall (aref ,serializers ,swap-by) (cons 1 ,with) ,enter))))
+                                   :do ,(store order 1 (or with 0)))))
                      (:string
                       (let ((encoder (gensym "EN")) (in (gensym "I")))
                         `(,qname
@@ -976,21 +1115,18 @@ and returns the record's end."
                                                                      ,in ,(write-to-string codec)
                                                                      "invalid input."))))))
                             (loop :for ch :across ,actual
-                                  :do (funcall (aref ,serializers 0)
-                                               ,(if codec `(funcall ,encoder ch) '(char-code ch))
-                                               ,enter))
-                            ,@(when end-by `((funcall (aref ,serializers 0) ,end-by ,enter)))))))
+                                  :do ,(store-code-form target unit-bits
+                                                        (if codec `(funcall ,encoder ch) '(char-code ch))))
+                            ,@(when end-by (list (store-code-form target unit-bits end-by)))))))
                      (:masque `(:-masque
-                                (funcall (aref ,serializers ,swap-by)
-                                         ;; (masque ,actual ,@(mapcar #'masque-binder bindings))
-                                         ;; a value too wide for its group is an error, not truncated
-                                         (cons ,length (masque ,actual ((:overflow . :error))
-                                                               ,@(mapcar #'masque-binder bindings)))
-                                         ,enter)))
+                                ;; a value too wide for its group is an error, not truncated
+                                ,(store order length `(masque ,actual ((:overflow . :error))
+                                                              ,@(mapcar #'masque-binder bindings))
+                                        :check nil)))
                      (:manifest
                       (append
-                       `((push (list ,qname ,index ,index) ,map))
-                       (loop :for closure :in context
+                       (and mapping `((push (list ,qname ,index ,index) ,map)))
+                       (loop :for closure :in context :when mapping
                              :collect `(unless (assoc ,closure ,map)
                                          (push (list ,closure ,index ,index) ,map)))
                        (list name (let ((plan (field-plan item)))
@@ -1010,8 +1146,8 @@ and returns the record's end."
                                                  (list :value (or (getf pairs name)
                                                                   (and from name
                                                                        `(field-value ,from ',name))))))))))
-                       `((setf (third (assoc ,qname ,map)) ,index))
-                       (loop :for closure :in context
+                       (and mapping `((setf (third (assoc ,qname ,map)) ,index)))
+                       (loop :for closure :in context :when mapping
                              :collect `(setf (third (assoc ,closure ,map)) ,index))
                        (loop :for slot-of :in (getf slots-of qname)
                              :when (not (eq :checksum-of (second slot-of)))
@@ -1020,17 +1156,17 @@ and returns the record's end."
                       ;; push a fresh per-instance region at the span's start so that
                       ;; repeated span names across sibling sub-manifests don't collide
                       ;; in the shared map (each instance gets its own start/end)
-                      (append `((push (list ,qname ,index ,index) ,map))
+                      (append (and mapping `((push (list ,qname ,index ,index) ,map)))
                               (loop :for i :in items :append (generate i (cons qname context)))
-                              `((setf (third (assoc ,qname ,map)) ,index))
+                              (and mapping `((setf (third (assoc ,qname ,map)) ,index)))
                               (loop :for slot-of :in (getf slots-of qname)
                                     :when (not (eq :checksum-of (second slot-of)))
                                       :collect (apply #'resolve-region qname slot-of))))
                      (t (let ((length-form length))
                           ;; (print (list :oo name type-indicator type-conditions))
                           `(,qname
-                            (push (list ,qname ,index ,index) ,map)
-                            ,@(loop :for closure :in context
+                            ,@(and mapping `((push (list ,qname ,index ,index) ,map)))
+                            ,@(loop :for closure :in context :when mapping
                                     :collect `(unless (assoc ,closure ,map)
                                                 (push (list ,closure ,index ,index) ,map)))
 
@@ -1052,8 +1188,7 @@ and returns the record's end."
                                    (write-effector
                                     plan
                                     (list* :name name
-                                           :write (lambda (w f) `(funcall (aref ,serializers ,swap-by)
-                                                                          (cons ,w ,f) ,enter))
+                                           :write (lambda (w f) (store order w f))
                                            :write-manifest #'write-manifest
                                            (cond ((member :case subtypes)
                                                   (case-value-context name default enumerate-by slot plan))
@@ -1130,23 +1265,19 @@ and returns the record's end."
                                ;;       ,@(and term-form (list (funcall write-element term))))))
                                ;; a checksum over a placed field is backpatched where it is placed
                                ((and slot (eq :checksum-of (first slot)) (not (placed-item (second slot))))
-                                `(funcall (aref ,serializers ,swap-by)
-                                          (cons ,length-form
-                                                (destructuring-bind (start end)
-                                                    (rest (assoc ,(qualify (second slot)) ,map))
-                                                  (funcall ,(getf slot :by) ,access start end)))
-                                          ,enter))
-                               (t `(funcall (aref ,serializers ,swap-by)
-                                            (cons ,length-form
-                                                  ,(scalar-value-form name default enumerate-by slot))
-                                            ,enter)))
+                                (store order length-form
+                                       `(destructuring-bind (start end)
+                                            (rest (assoc ,(qualify (second slot)) ,map))
+                                          (funcall ,(getf slot :by) ,access start end))))
+                               (t (store order length-form
+                                         (scalar-value-form name default enumerate-by slot))))
 
-                            (setf (third (assoc ,qname ,map)) ,index)
+                            ,@(and mapping `((setf (third (assoc ,qname ,map)) ,index)))
                             ,@(and (getf slots-of qname)
                                    (loop :for slot-of :in (getf slots-of qname)
                                          :when (not (eq :checksum-of (second slot-of)))
                                            :collect (apply #'resolve-region qname slot-of)))
-                            ,@(loop :for closure :in context
+                            ,@(loop :for closure :in context :when mapping
                                     :collect `(setf (third (assoc ,closure ,map)) ,index))
                             ;; (push ,(getf pairs name) ,values)
                             ;; (push ,qname ,values)
@@ -1155,7 +1286,6 @@ and returns the record's end."
                             ))))))))
 
       (preprocess-spec (rest spec))
-      (setf swap-specs (manifest-swap-specs (rest spec)))
 
       (loop :for (key _) :on slots-of :by #'cddr
             :unless (member key regions)
@@ -1174,130 +1304,158 @@ and returns the record's end."
                                 fields." manifest-name k))
                       (when (member k checksummed)
                         (error "marshal: a patch of manifest ~s cannot write field ~s, which a ~
-                                :checksum-of slot covers." manifest-name k)))))
-      
-      (append (if (getf pairs :-+sub-lexicon+-)
-                  `(let ((,base ,index)
-                         ,@(and from `((,from ,(getf options :from))))
-                         ,@(mapcar (lambda (p) (list (rest p) nil)) selvars)))
-                  ;; bind selector variables in sub-manifest's expression
-                  `(let* ((,access ,destination)
-                          ,@(and from `((,from ,(getf options :from))))
-                          (,index ,(cond (at `(let ((,i ,at))
-                                                (unless (typep ,i '(integer 0))
-                                                  (error "marshal: (:at ~s) is not an index of ~
-                                                          a vector." ,i))
-                                                ,i))
-                                         (t (or offset 0))))
-                          (,base ,index)
-                          (,origin ,index)
-                          (,values) ;; (,bindings-sym)
-                          ,@(if (getf params :length) `((,length ,(getf params :length))))
-                          ;; ,@(loop :for c :in (case-selectors (rest spec)) :collect (list c '(gensym)))
-                          ,@(mapcar (lambda (p) (list (rest p) nil)) selvars)
-                          (,enter) (,write) (,map) (,counts)
-                           (,serializers (make-array ,(1+ (reduce #'max swap-specs :initial-value 0)) :initial-element nil))
-                           ,@(and backpatching `((,dest nil)))
-                           ,@(and places `((,places nil)))
-                           ,@(and holder `((,holder ,(getf options :buffer)))))
-                     ,@(and holder (not backpatching) `((declare (ignore ,holder))))
-                     ;; a vector is written in place, with every unit checked against its size
-                     (flet ((,in-place (,limit)
-                              (setf ,enter (lambda (,b)
-                                             (when (>= ,index ,limit)
-                                               (signal-overrun ',manifest-name ,limit ,index))
-                                             (setf (aref ,access ,index) ,b)
-                                             (incf ,index))
-                                    ,write (lambda (serializer datum position)
-                                             (let ((opos ,index))
-                                               (setf ,index position)
-                                               (funcall serializer datum ,enter)
-                                               (setf ,index opos))))))
-                       (typecase ,access
-                         ,@(if backpatching
-                               ;; slots are resolved and checksums computed in place only in a
-                               ;; simple array of units, which checksum functions can read;
-                               ;; otherwise in a buffer, passed on once the record is complete
-                               `(((simple-array ,unit-type (*))
-                                  (,in-place (array-dimension ,access 0)))
-                                 ,@(and (or at patch)
-                                        `(((or function stream)
-                                           (error ,(if patch
-                                                       "marshal: a patch needs a vector destination, not ~*~s."
-                                                       "marshal: (:at ~s) needs a vector destination, not ~s.")
-                                                  ,index ,access))))
-                                 ((or vector function stream)
-                                  (,in-place most-positive-fixnum) ; for its backpatching WRITE
-                                  (setf ,dest ,access
-                                        ,access (or ,(and holder `(reusable-buffer ,holder ',unit-type))
-                                                    (make-array 256 :element-type ',unit-type))
-                                        ,enter (lambda (,b)
-                                                 (when (>= ,index (length ,access))
-                                                   (setf ,access (grow-buffer ,access ,index)))
-                                                 (setf (aref ,access ,index) ,b)
-                                                 (incf ,index)))))
-                               `((vector   (,in-place (array-dimension ,access 0)))
-                                 ,@(and (or at patch)
-                                        `(((or function stream)
-                                           (error ,(if patch
-                                                       "marshal: a patch needs a vector destination, not ~*~s."
-                                                       "marshal: (:at ~s) needs a vector destination, not ~s.")
-                                                  ,index ,access))))
-                                 (function (setf ,enter (lambda (,b) (funcall ,access ,b) (incf ,index))))
-                                 (stream   (setf ,enter (lambda (,b) (write-byte ,b ,access) (incf ,index))))))
-                         (t (error "marshal: manifest ~s cannot be written to ~s, which is not a vector, ~
-                                    a stream or a function." ',manifest-name ,access))))))
+                                :checksum-of slot covers." manifest-name k))))
+        ;; selectors given as forms are evaluated once, before the branches are checked
+        (unless nested
+          (multiple-value-setq (pairs hoisted) (hoist-patch-selectors (list (rest spec)) pairs))))
 
-              (unless (getf pairs :-+sub-lexicon+-)
-                (mapcar #'assign-serializer swap-specs))
-              
-              (cond ((not spec) (error "Manifest not found."))
-                    (patch
-                     (multiple-value-bind (layout size) (manifest-layout name)
-                       (unless layout
-                         (error "marshal: a patch needs a manifest of fixed size, and manifest ~s ~
-                                 varies in size from field ~s." name (or (getf size :name) (getf size :type))))
-                       (append
-                        ;; the whole record checked against the vector before any unit is written
-                        (and (not nested)
-                             `((let ((,b (+ ,origin ,size)))
-                                 (when (> ,b (array-dimension ,access 0))
-                                   (signal-overrun ',manifest-name (array-dimension ,access 0) ,b)))))
-                        (let ((pos 0) (forms nil))
-                          (dolist (item (rest spec) forms)
-                            (multiple-value-bind (f e) (patch-generate item pos nil)
-                              (setf forms (append forms f))
-                              (incf pos e)))))))
-                    (t (apply #'append (mapcar #'generate (rest spec)))))
-
-              ;; `((print (list :mmm ,map)))
-
-              ;; a field placed after the last place directive for its tag was never written
-              (and (not nested) places
-                   (let ((tag (gensym "TAG")) (queue (gensym "Q")))
-                     `((loop :for (,tag ,queue) :on ,places :by #'cddr
-                             :when ,queue
-                               :do (error "marshal: fields of manifest ~s placed under ~s come after ~
-                                           its last place directive, so they are not written."
-                                          ',manifest-name ,tag)))))
-
-              (and backpatching
-                   (let ((u (gensym "U")))
-                     `((when ,dest
-                         (etypecase ,dest
-                           (function (loop :for ,u :from ,base :below ,index
-                                           :do (funcall ,dest (aref ,access ,u))))
-                           (stream (write-sequence ,access ,dest :start ,base :end ,index))
-                           ;; by AREF, which a fill pointer does not bound
-                           (vector (when (> ,index (array-dimension ,dest 0))
-                                     (signal-overrun ',manifest-name (array-dimension ,dest 0)
-                                                     (array-dimension ,dest 0)))
-                                   (loop :for ,u :from ,base :below ,index
-                                         :do (setf (aref ,dest ,u) (aref ,access ,u)))))
-                         ,@(and holder `((when ,holder (setf (manifest-buffer-array ,holder) ,access))))))))
-              
-              (list index)
-              ))))
+      (flet ((body-forms ()
+               ;; the fields' code, for the current target
+               (setf written nil)
+               (cond ((not spec) (error "Manifest not found."))
+                     (patch
+                      (multiple-value-bind (layout size) (manifest-layout name)
+                        (unless layout
+                          (error "marshal: a patch needs a manifest of fixed size, and manifest ~s ~
+                                  varies in size from field ~s." name (or (getf size :name) (getf size :type))))
+                        (append
+                         ;; the whole record checked against the vector, and every branch the
+                         ;; patch writes through against its keys, before any unit is written
+                         (and (not nested)
+                              `((let ((,b (+ ,origin ,size)))
+                                  (when (> ,b (array-dimension ,access 0))
+                                    (signal-overrun ',manifest-name (array-dimension ,access 0) ,b)))))
+                         (and (not nested)
+                              (patch-branch-checks manifest-name (rest spec) pairs access origin unit-bits))
+                         (let ((pos 0) (forms nil))
+                           (dolist (item (rest spec) forms)
+                             (multiple-value-bind (f e) (patch-generate item pos nil)
+                               (setf forms (append forms f))
+                               (incf pos e)))))))
+                     (t (apply #'append (mapcar #'generate (rest spec))))))
+             (record-bindings ()
+               ;; the variables the fields' code shares, from the record's start
+               `((,index ,start)
+                 (,base ,index)
+                 (,origin ,index)
+                 (,values)
+                 ,@(if (getf params :length) `((,length ,(getf params :length))))
+                 ,@(mapcar (lambda (p) (list (rest p) nil)) selvars)
+                 (,enter) (,map) (,counts))))
+        (if nested
+            (progn
+              (unless target (error "marshal: sub-manifest ~s has no target." name))
+              `(let ((,base ,index)
+                     ,@(and from `((,from ,(getf options :from))))
+                     ,@(mapcar (lambda (p) (list (rest p) nil)) selvars))
+                 ,@(body-forms)))
+            (let* ((size (manifest-extent name))
+                   ;; T4: a record of fixed size, with no slots and no placed fields, is
+                   ;; written to a simple vector of its unit type through stores of its own
+                   (fast (and size (not backpatching) (not places))))
+              (setf start (gensym "START"))
+              `(let* ((,access ,destination)
+                      ,@(and from `((,from ,(getf options :from))))
+                      (,start ,(cond (at `(let ((,i ,at))
+                                            (unless (typep ,i '(integer 0))
+                                              (error "marshal: (:at ~s) is not an index of ~
+                                                      a vector." ,i))
+                                            ,i))
+                                     (t (or offset 0))))
+                      ,@(and holder `((,holder ,(getf options :buffer))))
+                      ,@hoisted)
+                 ,@(and holder (not backpatching) `((declare (ignore ,holder))))
+                 ,(let ((general
+                          (progn
+                            (setf target (make-instance 'entry-target :enter enter))
+                            `(let* (,@(record-bindings)
+                                    ,@(and backpatching `((,dest nil)))
+                                    ,@(and places `((,places nil))))
+                               (declare (ignorable ,base ,origin ,values ,map ,counts))
+                               ;; a vector is written in place, with every unit checked against its size
+                               (flet ((,in-place (,limit)
+                                        (setf ,enter (lambda (,b)
+                                                       (when (>= ,index ,limit)
+                                                         (signal-overrun ',manifest-name ,limit ,index))
+                                                       (setf (aref ,access ,index) ,b)
+                                                       (incf ,index)))))
+                                 (typecase ,access
+                                   ,@(if backpatching
+                                         ;; slots are resolved and checksums computed in place only in a
+                                         ;; simple array of units, which checksum functions can read;
+                                         ;; otherwise in a buffer, passed on once the record is complete
+                                         `(((simple-array ,unit-type (*))
+                                            (,in-place (array-dimension ,access 0)))
+                                           ,@(and (or at patch)
+                                                  `(((or function stream)
+                                                     (error ,(if patch
+                                                                 "marshal: a patch needs a vector destination, not ~*~s."
+                                                                 "marshal: (:at ~s) needs a vector destination, not ~s.")
+                                                            ,index ,access))))
+                                           ((or vector function stream)
+                                            (setf ,dest ,access
+                                                  ,access (or ,(and holder `(reusable-buffer ,holder ',unit-type))
+                                                              (make-array 256 :element-type ',unit-type))
+                                                  ,enter (lambda (,b)
+                                                           (when (>= ,index (length ,access))
+                                                             (setf ,access (grow-buffer ,access ,index)))
+                                                           (setf (aref ,access ,index) ,b)
+                                                           (incf ,index)))))
+                                         `((vector   (,in-place (array-dimension ,access 0)))
+                                           ,@(and (or at patch)
+                                                  `(((or function stream)
+                                                     (error ,(if patch
+                                                                 "marshal: a patch needs a vector destination, not ~*~s."
+                                                                 "marshal: (:at ~s) needs a vector destination, not ~s.")
+                                                            ,index ,access))))
+                                           (function (setf ,enter (lambda (,b) (funcall ,access ,b) (incf ,index))))
+                                           (stream   (setf ,enter (lambda (,b) (write-byte ,b ,access) (incf ,index))))))
+                                   (t (error "marshal: manifest ~s cannot be written to ~s, which is not a vector, ~
+                                              a stream or a function." ',manifest-name ,access))))
+                               ,@(body-forms)
+                               ;; a field placed after the last place directive for its tag was never written
+                               ,@(and places
+                                      (let ((tag (gensym "TAG")) (queue (gensym "Q")))
+                                        `((loop :for (,tag ,queue) :on ,places :by #'cddr
+                                                :when ,queue
+                                                  :do (error "marshal: fields of manifest ~s placed under ~s come after ~
+                                                              its last place directive, so they are not written."
+                                                             ',manifest-name ,tag)))))
+                               ,@(and backpatching
+                                      (let ((u (gensym "U")))
+                                        `((when ,dest
+                                            (etypecase ,dest
+                                              (function (loop :for ,u :from ,base :below ,index
+                                                              :do (funcall ,dest (aref ,access ,u))))
+                                              (stream (write-sequence ,access ,dest :start ,base :end ,index))
+                                              ;; by AREF, which a fill pointer does not bound
+                                              (vector (when (> ,index (array-dimension ,dest 0))
+                                                        (signal-overrun ',manifest-name (array-dimension ,dest 0)
+                                                                        (array-dimension ,dest 0)))
+                                                      (loop :for ,u :from ,base :below ,index
+                                                            :do (setf (aref ,dest ,u) (aref ,access ,u)))))
+                                            ,@(and holder `((when ,holder (setf (manifest-buffer-array ,holder) ,access))))))))
+                               ,index))))
+                    (if (not fast)
+                        general
+                        (progn
+                          (setf target (make-instance 'vector-target :vector access :index index))
+                          `(if (and (typep ,access '(simple-array ,unit-type (*)))
+                                    (typep ,start '(integer 0 (,array-dimension-limit))))
+                               (let* ((,access ,access) ,@(record-bindings))
+                                 (declare (type (simple-array ,unit-type (*)) ,access)
+                                          (type (integer 0 (,array-dimension-limit)) ,base ,origin)
+                                          (type (integer 0 (,(+ array-dimension-limit size))) ,index)
+                                          (ignorable ,base ,origin ,values ,enter ,map ,counts))
+                                 ;; one check of the record's extent; an overrun reports the unit
+                                 ;; the general path would (SPECOPS-DRAFT-over-arrays-D16)
+                                 ,@(and (not patch)
+                                        (list (extent-check-form
+                                               target size
+                                               (lambda (n) `(signal-overrun ',manifest-name ,n (max ,index ,n))))))
+                                 ,@(body-forms)
+                                 ,index)
+                               ,general)))))))))))
 
 (defun enumerated (value form)
   "The keyword that stands for VALUE in the enum FORM, or VALUE itself when the enum names
@@ -1606,8 +1764,7 @@ at INDEX of a vector source; offset slots count from the record's start."
                                  :from-end t))
                        (t :all)))
          (keys (or keys all-keys))
-         (dvector (make-array 4 :initial-element nil))
-         (base (gensym "BA")) (dsym (gensym "DS"))
+         (base (gensym "BA"))
          ;; a manifest-buffer that a stream source keeps its units in, given (:buffer b)
          (holder (and (not nested) (getf params :buffer) (gensym "HOLDER")))
          ;; (:at index): the record begins at INDEX of a vector source
@@ -1646,7 +1803,7 @@ at INDEX of a vector source; offset slots count from the record's start."
               ends (and (manifest-places (rest spec)) (gensym "ENDS"))
               ;; where the record begins, from which its offset slots count
               origin (gensym "ORIGIN")
-              sub-lexicon (list :cr-sym cursor :ds-sym dsym :bf-sym buffer :pe-sym ends
+              sub-lexicon (list :cr-sym cursor :bf-sym buffer :pe-sym ends
                                 :or-sym origin)))
           
     ;; (loop :for item :in (rest spec) :do (setf (getf fields (getf item :name)) item))
@@ -1654,7 +1811,11 @@ at INDEX of a vector source; offset slots count from the record's start."
     ;; (print (list :ff fields keys))
 
 
-    (let ((vars) (reads) (src (gensym "SRC"))
+    (let* ((vars) (reads) (src (gensym "SRC"))
+           ;; every unit is loaded through the code builder, from whatever SRC holds
+           (units-source (make-instance 'general-source :source src
+                                                        :unit-power (or (getf config :unit-spec) 0)))
+           (unit-bits (ash 1 (+ 3 (or (getf config :unit-spec) 0))))
           ;; for checked reads: (region start end), the variables recording where a region a
           ;; slot covers begins and ends, each made only when a check uses it; (field . at),
           ;; where each checked slot field begins; the checks not yet emitted; and the
@@ -1760,12 +1921,14 @@ at INDEX of a vector source; offset slots count from the record's start."
                                       :length-form #'length-form
                                       :unit-bits (ash 1 (+ 3 (getf config :unit-spec))))))
                (item-ctx (item)
-                 (let ((swap-by (or (getf item :swap-by) 0)))
+                 (let ((order (or (getf item :order) :big)))
                    (list :name (getf item :name) :cursor cursor :src src
                          :read-manifest #'read-manifest :skip-manifest #'skip-manifest
                          :select-manifest #'select-manifest
                          :read-at (lambda (at w sg)
-                                    `(funcall (aref ,dsym ,swap-by) ,at ,w ,sg ,src)))))
+                                    (load-form units-source
+                                               (make-encoding w unit-bits :order order :signed sg)
+                                               at)))))
                (place-form (item)
                  ;; a place directive: move past the furthest unit its placed fields were read
                  ;; to, then align as they were written
@@ -1860,12 +2023,9 @@ at INDEX of a vector source; offset slots count from the record's start."
                  (let* ((rname (getf item :name))
                         (rv (and rname (rest (assoc rname region-vars))))
                         (at (and rname (rest (assoc rname slot-starts))))
-                        (swap-by (or (getf item :swap-by) 0))
                         ;; the tag of a placed field, and where its read returns to
                         (placed (and (not (eq :place (getf item :type))) (getf item :place)))
                         (save (and placed (first (push (gensym "SAVE") saves)))))
-                   (unless (aref dvector swap-by)
-                     (setf (aref dvector swap-by) `(deserializer-for ,(getf config :unit-spec) ,swap-by)))
                    (when placed
                      ;; a placed field is read where its offset slot says, and the cursor returns
                      (let ((off (rest (assoc rname offset-sources))))
@@ -1887,15 +2047,13 @@ at INDEX of a vector source; offset slots count from the record's start."
                      (push rname done)
                      (emit-ready-checks))))
                (read-item (item)
-                 (destructuring-bind (&key name type subtypes length signed (swap-by 0)
+                 (destructuring-bind (&key name type subtypes length signed (order :big)
                                         items enumerate-by actual codec end-by
                                         bindings mode n &allow-other-keys)
                      item
                    (when nil ;; (member type '(:span)) ;; :manifest))
                      (error "unmarshal: ~a fields not yet supported." type))
 
-                   (unless (aref dvector swap-by)
-                     (setf (aref dvector swap-by) `(deserializer-for ,(getf config :unit-spec) ,swap-by)))
 
                    (case type
                      (:place (push (place-form item) reads))
@@ -1909,7 +2067,8 @@ at INDEX of a vector source; offset slots count from the record's start."
                         ;; a mismatch is reported once, at the first unit that differs
                         (when check
                           (push `(loop :for ch :across ,actual :for ,i :from 0
-                                       :for ,got := (funcall (aref ,dsym 0) (+ ,cursor ,i) 1 nil ,src)
+                                       :for ,got := ,(load-form units-source (make-encoding 1 unit-bits)
+                                                                `(+ ,cursor ,i))
                                        :for ,want := ,(if codec `(funcall ,codec ch) '(char-code ch))
                                        :unless (eql ,got ,want)
                                          :do ,(constant-failed
@@ -1920,7 +2079,7 @@ at INDEX of a vector source; offset slots count from the record's start."
                                 reads)
                           (when end-by
                             (let ((pos `(+ ,cursor ,(length actual))))
-                              (push `(let ((,got (funcall (aref ,dsym 0) ,pos 1 nil ,src)))
+                              (push `(let ((,got ,(load-form units-source (make-encoding 1 unit-bits) pos)))
                                        (unless (eql ,end-by ,got)
                                          ,(constant-failed end-by got pos
                                                            "unmarshal: missing terminator after ~s."
@@ -1989,7 +2148,9 @@ at INDEX of a vector source; offset slots count from the record's start."
                                           (push `(setf ,var ,(interpret (if code `(setf ,code ,form) form)
                                                                         enumerate-by))
                                                 sets)))))))
-                            (push `(let ((,raw (funcall (aref ,dsym ,swap-by) ,cursor ,length nil ,src)))
+                            (push `(let ((,raw ,(load-form units-source
+                                                          (make-encoding length unit-bits :order order)
+                                                          cursor)))
                                      (declare (ignorable ,raw))
                                      ,@(and check
                                             (if factor
@@ -2032,12 +2193,16 @@ at INDEX of a vector source; offset slots count from the record's start."
                              (if (and enumerate-by (member name (case-selectors (rest spec))))
                                  (let ((raw (gensym (format nil "~a-RAW" name))))
                                    (push (cons name raw) raws)
-                                   (push `(setf ,var ,(interpret `(setf ,raw (funcall (aref ,dsym ,swap-by)
-                                                                                      ,cursor ,length ,signed ,src))
+                                   (push `(setf ,var ,(interpret `(setf ,raw ,(load-form units-source
+                                                                                         (make-encoding length unit-bits
+                                                                                                        :order order :signed signed)
+                                                                                         cursor))
                                                                  enumerate-by))
                                          reads))
-                                 (push `(setf ,var ,(interpret `(funcall (aref ,dsym ,swap-by)
-                                                                         ,cursor ,length ,signed ,src)
+                                 (push `(setf ,var ,(interpret (load-form units-source
+                                                                          (make-encoding length unit-bits
+                                                                                         :order order :signed signed)
+                                                                          cursor)
                                                                enumerate-by))
                                        reads))))
                          (push (list 'incf cursor length) reads))))))))
@@ -2086,7 +2251,6 @@ at INDEX of a vector source; offset slots count from the record's start."
                                             ,i))
                                        0))))
                 (,base ,(if (getf params :-+sub-lexicon+-) cursor origin))
-                (,dsym (vector ,@(coerce dvector 'list)))
                 ,@(and (not (getf params :-+sub-lexicon+-))
                        (list (list cursor origin)))
                 ,@(and buffer (not nested) `((,buffer nil)))

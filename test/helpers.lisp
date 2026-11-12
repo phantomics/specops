@@ -19,6 +19,10 @@
   :description "Serialization primitives: masque and unmasque, IEEE float bits, checksums and integer sources"
   :in specops)
 
+(def-suite units
+  :description "The code builder for binary values: orders of units, stores and loads"
+  :in specops)
+
 (def-suite manifest
   :description "The manifest layer: defmanifest, marshal and unmarshal"
   :in specops)
@@ -577,14 +581,21 @@ return its value. The file is deleted afterwards."
     (with-open-file (in path :element-type '(unsigned-byte 8))
       (funcall function in))))
 
+(defun deserializer-call-p (form)
+  "True when FORM, part of an expansion, is a load of units from a source: a call of the
+deserializer the code builder makes once, (funcall (load-time-value (deserializer-for ...)) ...)."
+  (and (consp form) (eq 'funcall (first form))
+       (consp (second form)) (eq 'load-time-value (first (second form)))
+       (consp (second (second form))) (eq 'deserializer-for (first (second (second form))))))
+
 (defun reads-outside-guard (form)
-  "The number of deserializer calls, (funcall (aref ...) ...), in FORM, an expansion, outside
-the code that passes over the rest of a stream's record."
+  "The number of deserializer calls in FORM, an expansion, outside the code that passes over
+the rest of a stream's record."
   (cond ((atom form) 0)
         ((and (eq 'when (first form)) (consp (second form))
               (eq 'stream-source-p (first (second form))))
          0)
-        ((and (eq 'funcall (first form)) (consp (second form)) (eq 'aref (first (second form))))
+        ((deserializer-call-p form)
          (1+ (reads-outside-guard (rest form))))
         (t (+ (reads-outside-guard (car form)) (reads-outside-guard (cdr form))))))
 

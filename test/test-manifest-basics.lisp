@@ -104,6 +104,19 @@
   (str "AB")
   (:x :u16 :default 0))
 
+;; Orders of units: little-endian 16-bit units, and the grouped orders of 8-bit units, as
+;; manifests and as fields.
+(defmanifest word-little-probe (:unit 16 :endian :little)
+  (:a (:u 2) :default 0)
+  (:b (:s 1) :default 0)
+  (:c (:u 2) :default 0 :endian :big))
+
+(defmanifest pdp-probe (:unit 8 :endian :pdp)
+  (:a (:u 4) :default 0)
+  (:b :u16 :default 0)
+  (:c :u8 :default 0)
+  (:d (:u 4) :default 0 :endian (:little :big 2)))
+
 ;; :to inside a sub-manifest counts from the child's start.
 (defmanifest pad-inner (:unit 8 :endian :big)
   (:a :u8 :default 0)
@@ -824,3 +837,32 @@ when the manifest is defined."
     (marshal pad-probe (lambda (b) (push b acc)) :len 1 :data #(7) :x #x11 :y #x22)
     (is (equalp '(1 7 #xAA #xAA #x11 0 0 0 0 0 0 0 #x22)
                 (reverse acc)))))
+
+;;; ============================================================
+;;; Orders of units
+;;; ============================================================
+
+(def-test little-endian-orders-a-field-s-units-not-its-bytes ()
+  "In a manifest of 16-bit units, :little stores a field's least significant unit first and
+leaves each unit whole, and reads the field back so."
+  (let ((v (make-array 5 :element-type '(unsigned-byte 16))))
+    (marshal word-little-probe v :a #x01020304 :b -2 :c #x0A0B0C0D)
+    (is (equalp #(#x0304 #x0102 #xFFFE #x0A0B #x0C0D) v))
+    (is (equal '(:a #x01020304 :b -2 :c #x0A0B0C0D) (unmarshal word-little-probe v)))))
+
+(def-test pdp-order-is-badc-and-a-grouped-order-may-be-cdab ()
+  "In a manifest of 8-bit units, :pdp stores a 32-bit field as the PDP-11 does, BADC, a 16-bit
+field low byte first and a byte as it is, while (:little :big 2) stores CDAB; each reads back."
+  (let ((v (make-array 11 :element-type '(unsigned-byte 8))))
+    (marshal pdp-probe v :a #x01020304 :b #x0506 :c 7 :d #x08090A0B)
+    (is (equalp #(2 1 4 3  6 5  7  #x0A #x0B 8 9) v))
+    (is (equal '(:a #x01020304 :b #x0506 :c 7 :d #x08090A0B) (unmarshal pdp-probe v)))))
+
+(def-test the-retired-middle-order-and-unknown-orders-are-expansion-errors ()
+  ":middle, retired, and an order that is not one are errors when the manifest is expanded,
+for the manifest as for a field."
+  (dolist (form '((defmanifest m (:unit 8 :endian :middle) (:a :u16))
+                  (defmanifest m (:unit 8) (:a :u16 :endian :middle))
+                  (defmanifest m (:unit 8 :endian :sideways) (:a :u16))
+                  (defmanifest m (:unit 8) (:a (:u 3) :endian :pdp))))
+    (signals error (macroexpand-1 form))))

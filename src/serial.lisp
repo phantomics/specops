@@ -33,10 +33,10 @@ representation, including the sign bit. Zero has width 0."
                   (error "Attempted to serialize incompatible value - must be an integer, a vector or a pair indicating integer value and encoding width.")))))))
 
 (defun swap-segments (value width granularity)
-  "Swap segments of a number for cross-endian encoding. This function supports
-swapping at multiple levels of granularity to support systems like the PDP-11,
-where words are entered in little-endian order with big-endian byte order
-within words."
+  "Reverse the order of the segments of VALUE, WIDTH bytes wide, each of 2^(GRANULARITY+2)
+bits: bytes at granularity 1, 16-bit words at 2, and none at 0. At granularity 2 a 32-bit
+value is word-swapped, CDAB, not in the PDP-11's order, BADC. The serializers of `serialize'
+use it; the manifest layer orders units through src/units.lisp."
   (if (zerop granularity)
       value (let* ((span (ash 1 (+ 2 granularity)))
                    (mask (1- (ash 1 span)))

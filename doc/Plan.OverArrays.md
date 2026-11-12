@@ -33,6 +33,11 @@ decisions:
   - SPECOPS-D104
   - SPECOPS-D105
   - SPECOPS-D106
+  - SPECOPS-DRAFT-over-arrays-D13
+  - SPECOPS-DRAFT-over-arrays-D14
+  - SPECOPS-DRAFT-over-arrays-D15
+  - SPECOPS-DRAFT-over-arrays-D16
+  - SPECOPS-DRAFT-over-arrays-D17
 open-questions:
   - SPECOPS-O20
   - SPECOPS-O21
@@ -395,6 +400,137 @@ the position, writing nothing.
 steward chose the check before writing, and an overrun would otherwise leave
 a record partly patched).
 
+### SPECOPS-DRAFT-over-arrays-D13 — Binary values are coded by a code builder of their own, which the manifest effectors call
+
+**Status:** Proposed
+**Context:** SPECOPS-D102's remedy T3 has each field written by code of its
+own width and byte order. The manifest layer's effectors build a field's code
+from its plan and a context whose hooks, `:write` and `:read-at`, are
+functions of a width and a value (`src/manifest/scan.lisp:write-effector@v0.1.4`),
+and those hooks call the generic serializer; plain scalars, masques,
+constants, pads, strings and slots call it directly
+(`src/manifest/manifest.lisp:marshal@v0.1.4`). What coding a value needs is
+small: its width in units, the unit's size, the order of its units, its
+signedness and range, and where its units go. The assembler and the program
+layer serialize values too, outside manifests, through
+`src/serial.lisp:serialize@v0.1.4`.
+**Decision:** A code builder for binary values, in its own file,
+`src/units.lisp`, loaded before the manifest layer and independent of it,
+builds the forms that store and load a value. An *encoding* gives a value's
+width in units, the unit's bits, the order of its units and its signedness. A
+*target* is where units are stored: a function entered with each unit, or a
+vector at a position, declared simple where it is known to be. A *source* is
+where they are loaded from: a vector, an entering function or a stream, or an
+integer. Its generic functions return forms: a store, with the value's range
+check, of a value's units in their order; a load, assembling a value,
+signed where the encoding is; and a target's single check of a record's
+extent. Units are split out at expansion, so a constant is stored as literal
+units. Its classes and outputs are simpler than the manifest effectors', and
+the manifest effectors place its forms in theirs: the `:write` and
+`:read-at` hooks call it, as do the writers that call the serializers
+directly now. It is internal until the manifest layer has proven it, then to
+be documented and its symbols exported. `serialize` and `serializer-for`
+remain, for the assembler and the program layer.
+**Alternatives:** The store as an effector of the manifest's own effector
+system, a second axis of dispatch on the destination (not taken: the steward
+chose a builder usable independently of manifests, whose code the manifest
+effectors place); `serialize` made faster in place (rejected: a generic
+function called when the code runs cannot know a field's width and order at
+expansion, which is where T3's gain comes from).
+
+### SPECOPS-DRAFT-over-arrays-D14 — The fast path is two targets of the code builder, and patches and scalar reads use it too
+
+**Status:** Proposed
+**Context:** SPECOPS-D102 adopts T3, code of each field's own; T2, no span map
+without slots; and T4, one bounds check and direct stores for a record of
+fixed size written to a simple vector of its unit type. A patch's masque
+groups are read and written back through `deserializer-for` and the generic
+serializer, and a selector it is not given is read through a selective
+`unmarshal` (`src/manifest/manifest.lisp:marshal@v0.1.4`). `unmarshal` decodes
+the order of units through `swap-segments`, as `marshal` encodes it.
+**Decision:** Every unit `marshal` writes is stored through
+SPECOPS-DRAFT-over-arrays-D13's builder. The general path, T3, stores through
+an entering target, so streams, functions and the check of each unit work as
+before. For a record of fixed size, the expansion also holds a second rendering
+of its fields, T4, storing through a vector target after one check of the
+record's extent, and a test of the destination's type when the code runs
+chooses between them. A manifest without slots keeps no span map, T2. Patches
+take the same code: a masque's groups are loaded, deposited and stored, and
+the selectors are loaded directly. `unmarshal`'s scalar reads load through the
+builder from a general source, so that the order of units is defined in one
+place; the reads' own fast path is the roadmap's next step. With every unit
+written through the builder, the serializers `marshal` makes on each call are
+no longer needed, and T1 with them. A test asserts that writing one of
+Lexter's cells through the fast path allocates nothing; times stay in
+`scripts/bench-manifests.lisp` (SPECOPS-D67).
+**Alternatives:** Patches left on the generic serializer (not taken: the
+steward chose to apply T3 to them as well); `swap-segments` fixed for reads,
+and replaced in the reads step (not taken: the order of units would be
+defined in two places meanwhile).
+
+### SPECOPS-DRAFT-over-arrays-D15 — A byte order is the order of a field's units, and mixed orders are written explicitly
+
+**Status:** Proposed
+**Context:** `:little` reverses a field's bytes, not its units, so in a
+manifest of 16-bit units `(:u 2)` holding `#x01020304` is written
+`#x0403 #x0201` (`src/serial.lisp:swap-segments@v0.1.4`), which the Reference
+lists as a limit. Formats of 16-bit units order them both ways: Modbus
+devices commonly store a 32-bit value low register first, and x86 stores a
+32-bit value low word first. `:middle`, also `:pdp`, writes `#x01020304` in an
+8-bit manifest as `03 04 01 02`, the order often called word-swapped (CDAB),
+while the PDP-11 stores it as `02 01 04 03` (BADC); "middle-endian" names
+either in different sources. No manifest in the repository uses `:middle` or
+`:pdp`, or `:little` with units wider than 8 bits.
+**Decision:** `:big` stores a field's most significant unit first, and
+`:little` its least significant first, whatever the unit's width. A mixed
+order is written `(outer inner group)`: the field's units in groups of
+GROUP, the groups in the OUTER order and the units within each group in the
+INNER one. `(:big :little 2)` is BADC and `(:little :big 2)` is CDAB, in an
+8-bit manifest. `:pdp` names the PDP-11's order, BADC, `(:big :little 2)`.
+`:middle` is retired, an expansion error that names the explicit forms. Reads
+follow the same orders.
+**Alternatives:** `:pdp` corrected to BADC and `:middle` kept as CDAB (not
+taken: the steward chose the explicit form, since "middle-endian" names
+different orders); the byte orders left as they are, with their limit
+documented (rejected: a manifest of 16-bit units could not describe a
+little-endian 32-bit value).
+
+### SPECOPS-DRAFT-over-arrays-D16 — The fast path signals the errors the general path does, and writes nothing before an overrun
+
+**Status:** Proposed
+**Context:** SPECOPS-O27 asks whether the fast path must report errors as the
+general path does. A range check is the same test on either path, and its
+message is built only when it fails. The general path checks each unit
+against the vector as it stores it, so an overrun leaves the units before it
+written, and signals `manifest-overrun` at the first unit that does not fit.
+The fast path checks the record's extent once, before it stores anything.
+**Decision:** The fast path signals the same conditions, with the same
+messages and readers, as the general path. An overrun's position is the unit
+the general path would report, the greater of the record's start and the
+vector's size, computed only when the check fails. The fast path writes
+nothing before an overrun, so a record that also holds a value out of range
+signals the overrun, where the general path signals whichever comes first.
+This answers SPECOPS-O27.
+**Alternatives:** Writing unit by unit up to an overrun, as the general path
+does (rejected: it needs the check of each unit that T4 removes); reporting the
+record's end, as a patch does (SPECOPS-D106) (not taken: the steward chose
+the general path's reports).
+
+### SPECOPS-DRAFT-over-arrays-D17 — A patch reads its selectors and checks its branches before it writes
+
+**Status:** Proposed
+**Context:** SPECOPS-O36 asks whether a patch should find a key that the
+chosen branch lacks before it writes, as SPECOPS-D106 finds an overrun.
+**Decision:** A patch reads every selector it needs and does not give, and
+checks each key it gives through a `:case` field against the branch chosen,
+before it stores its first unit. A key the branch lacks signals the error
+SPECOPS-DRAFT-manifest-D76 describes, with nothing written. The selectors are
+read once each, and the values read choose the branches written. This
+answers SPECOPS-O36.
+**Alternatives:** The writes through `:case` fields ordered last (rejected:
+it narrows a partial write but does not remove it); the partial write
+accepted and documented (not taken: the steward chose the check first).
+
 ## Lexter's cell model as a test case
 
 Lexter's record is eight little-endian 32-bit words in an array of
@@ -510,9 +646,6 @@ SPECOPS-D102 and is a step of the roadmap.
 - **Element indices in paths** (SPECOPS-O24). Paths into the instances of a
   repeat, such as `(:points 2 :x)`, to whose design the steward has prior art
   of his own to contribute.
-- **Branches checked before a patch writes**
-  (SPECOPS-O36). A key that the chosen branch lacks found
-  before the first unit is written, as an overrun is.
 
 ## Open Questions
 
@@ -582,6 +715,9 @@ The candidates:
 Which of these SPECOPS-D106's reasoning requires, and at what cost to a patch
 that the fast path (SPECOPS-D102) is to make cheap, is open.
 
+Answered by SPECOPS-DRAFT-over-arrays-D17: the first, before the patch
+writes.
+
 ## Prior Art
 
 Table: Prior systems and what this plan draws from each.
@@ -623,18 +759,25 @@ Table: Prior systems and what this plan draws from each.
    so that the code does not use one word for two things. The Reference
    updated, its sentence on what cannot be patched in place saying
    "backpatched", and released as 0.1.4, with the paths of step 3.
-5. **The fast path** (SPECOPS-D102). Each field written by
-   code of its own, no span map without slots, and one bounds check with
-   direct stores for records of fixed size written to simple vectors of their
-   unit type, measured again with `scripts/bench-manifests.lisp` against the
-   evaluation's estimates and the initial target, a full write of a Lexter cell
-   in 80 ns or less. The gain of code made for each field for destinations
-   other than simple vectors, streams and functions among them, which the
-   evaluation did not measure, measured as well. The Reference updated, as a
-   release of its own after 0.1.4.
-6. **Later additions**, as users show the need: the layout as data of
-   SPECOPS-O22, reads measured and remedied as writes are
-   (SPECOPS-O25), and the others listed under
+5. **The fast path** (SPECOPS-D102, SPECOPS-DRAFT-over-arrays-D13 to
+   SPECOPS-DRAFT-over-arrays-D17). The code builder for binary values,
+   `src/units.lisp`, with a suite of its own; every unit `marshal` writes
+   stored through it, the general path through an entering target and, for
+   records of fixed size, a second rendering through a vector target after
+   one check of the extent; no span map without slots; patches through the
+   same code, with their selectors read and branches checked first; scalar
+   reads loaded through it; byte orders as orders of units. A test that a
+   cell's fast write allocates nothing. Measured again with the direct cases
+   of `scripts/bench-manifests.lisp` against the initial target, a full write
+   of a Lexter cell in 80 ns or less, and the gain of the general path for
+   streams and functions, which the evaluation did not measure, measured as
+   well. The Reference updated, its byte orders and the path error of
+   `7eb7ddf` among the changes, and released as 0.2.0.
+6. **Reads** (SPECOPS-O25). Reads measured as writes were, and remedied
+   through the code builder's sources: a fixed record's one bounds check and
+   direct loads. Before recursive manifests (SPECOPS-0010).
+7. **Later additions**, as users show the need: the layout as data of
+   SPECOPS-O22, and the others listed under
    [Later Additions](#later-additions).
 
 Each step is recorded in an update to the

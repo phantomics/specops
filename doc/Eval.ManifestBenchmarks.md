@@ -305,3 +305,8 @@ tests of errors would show any difference. SPECOPS-D106 has since settled the
 like question for patches: a patch checks its whole record before it writes,
 and reports the record's end as the position of an overrun, a precedent for
 T4's one check.
+
+Answered by SPECOPS-DRAFT-over-arrays-D16, in the
+[plan for manifests over arrays](Plan.OverArrays.md): the fast path signals
+what the general path does, with the same position for an overrun, and writes
+nothing before one.

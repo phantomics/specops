@@ -1,15 +1,16 @@
 ;;;; scripts/bench-manifests.lisp — Measurements for doc/Eval.ManifestBenchmarks.md: the cost of
-;;;; writing one record with marshal, against packing it by hand and against binary-structures,
-;;;; and the gain each remedy would bring, estimated by transforming marshal's expansion
+;;;; writing one record with marshal, against packing it by hand and against binary-structures
 ;;;;
 ;;; Run with: sbcl --noinform --non-interactive --load scripts/bench-manifests.lisp
 ;;;
 ;;; Needs Quicklisp, for binary-structures. Each case writes one record a million times, in each
-;;; of five runs, and the fastest run is reported, with the bytes allocated per record. The
-;;; transformed expansions T1 to T4 are estimates, made only to measure what a change to the
-;;; generated code would gain; they are not code the manifest layer generates, and they hold
-;;; only for the plain cell, a record of fixed size with no slots, written to a simple vector of
-;;; octets.
+;;; of five runs, and the fastest run is reported, with the bytes allocated per record. Every
+;;; write is checked to give the same 32 bytes. The cases are direct: the code marshal
+;;; generates, by the fast path into a simple vector and by the general path into a vector
+;;; that is not simple or a function; a patch; a read of one field; packing by hand; and
+;;; binary-structures. The estimates T1 to T4 of the evaluation, made by transforming the
+;;; expansion of release 0.1.3, are in this script as of commit 6fd7863; they match only that
+;;; expansion, and no longer apply.
 
 (ql:quickload "binary-structures" :silent t)
 (asdf:load-system :specops/test)
@@ -52,103 +53,6 @@
   (g5 org.shirakumo.binary-structures.types:uint32))
 
 ;;; ------------------------------------------------------------
-;;; The expansion and its transformations
-;;; ------------------------------------------------------------
-
-(defun proper-list-p (x)
-  (and (listp x) (handler-case (list-length x) (error () nil))))
-
-(defun map-tree (function f)
-  "FUNCTION applied to each element of F, when F is a proper list; otherwise F."
-  (if (proper-list-p f) (mapcar function f) f))
-
-(defun expansion ()
-  (macroexpand-1 (macroexpand-1 '(write-plain-cell buf glyph ink palette))))
-
-(defun expansion-parts (e)
-  "The variables of marshal's expansion E: the destination, the position, the serializers,
-the span map, and the function that enters a unit."
-  (let* ((bindings (second e))
-         (var (lambda (test) (first (find-if test bindings))))
-         (sr (funcall var (lambda (b) (and (consp (second b)) (eq 'make-array (first (second b)))))))
-         (ac (funcall var (lambda (b) (eq 'buf (second b)))))
-         (in (first (second bindings)))
-         (flet-form (find 'flet (cddr e) :key (lambda (f) (and (consp f) (first f)))))
-         (en (second (third (first (second flet-form))))))   ; (in-place (limit) (setf en ...))
-    (list :sr sr :ac ac :in in :en en)))
-
-(defun t1 (e)
-  "The serializers made once, at load time, instead of on each call."
-  (destructuring-bind (&key sr &allow-other-keys) (expansion-parts e)
-    (let ((setters (remove-if-not (lambda (f) (and (consp f) (eq 'setf (first f))
-                                                   (consp (second f)) (eq 'aref (first (second f)))
-                                                   (eq sr (second (second f)))))
-                                  (cddr e))))
-      `(let* ,(mapcar (lambda (b)
-                        (if (eq (first b) sr)
-                            `(,sr (load-time-value
-                                   (let ((,sr ,(second b))) ,@setters ,sr)))
-                            b))
-                      (second e))
-         ,@(remove-if (lambda (f) (member f setters)) (cddr e))))))
-
-(defun t2 (e)
-  "As T1, without the map of each field's span, which a manifest with no slots never reads."
-  (labels ((map-form-p (f)
-             (and (consp f)
-                  (or (and (eq 'push (first f)) (consp (second f)) (eq 'list (first (second f))))
-                      (and (eq 'setf (first f)) (consp (second f)) (eq 'third (first (second f)))))))
-           (strip (f)
-             (if (proper-list-p f) (mapcar #'strip (remove-if #'map-form-p f)) f)))
-    (strip (t1 e))))
-
-(defun t3 (e)
-  "As T2, each field written by code of its own width and byte order, not by the generic
-serializer from a fresh (width . value) pair."
-  (destructuring-bind (&key sr en &allow-other-keys) (expansion-parts e)
-    (labels ((rewrite (f)
-               (cond ((and (consp f) (eq 'funcall (first f)) (consp (second f))
-                           (eq 'aref (first (second f))) (eq sr (second (second f)))
-                           (consp (third f)) (eq 'cons (first (third f))))
-                      (destructuring-bind (width value) (rest (third f))
-                        (let ((x (gensym "X")))
-                          `(let ((,x ,value))
-                             (unless (and (typep ,x 'fixnum) (<= 0 ,x ,(1- (ash 1 (* 8 width)))))
-                               (error "Value ~a does not fit within ~a unit(s)." ,x ,width))
-                             (locally (declare (type fixnum ,x))
-                               ,@(loop :for j :below width
-                                       :collect `(funcall ,en (ldb (byte 8 ,(* 8 j)) ,x))))))))
-                     (t (map-tree #'rewrite f)))))
-      (rewrite (t2 e)))))
-
-(defun t4 (e &optional (declare t))
-  "As T3, the record's 32 units checked against the vector once, and each unit stored
-directly, with the vector and the position declared unless DECLARE is false."
-  (destructuring-bind (&key ac in en &allow-other-keys) (expansion-parts e)
-    (labels ((rewrite (f)
-               (cond ((and (consp f) (eq 'funcall (first f)) (eq en (second f)))
-                      `(progn (setf (aref ,ac ,in) ,(third f)) (incf ,in)))
-                     (t (map-tree #'rewrite f)))))
-      (let ((e3 (t3 e)))
-        `(let* ,(second e3)
-           ,@(and declare
-                  `((declare (type (simple-array (unsigned-byte 8) (*)) ,ac) (type fixnum ,in))))
-           (when (> (+ ,in 32) (length ,ac))
-             (specops::signal-overrun 'plain-cell (length ,ac) (length ,ac)))
-           ,@(rewrite (remove-if (lambda (f) (and (consp f) (eq 'flet (first f)))) (cddr e3))))))))
-
-(defmacro define-writer (name transform)
-  `(defun ,name (buf glyph ink palette n)
-     (dotimes (i n) ,(funcall transform (expansion)))))
-
-(define-writer write-t1 t1)
-(define-writer write-t2 t2)
-(define-writer write-t3 t3)
-(define-writer write-t4 t4)
-(defun t4-undeclared (e) (t4 e nil))
-(define-writer write-t4-undeclared t4-undeclared)
-
-;;; ------------------------------------------------------------
 ;;; The cases
 ;;; ------------------------------------------------------------
 
@@ -159,6 +63,21 @@ directly, with the vector and the position declared unless DECLARE is false."
   (dotimes (i n)
     (marshal plain-cell buf :glyph-count 2 :type-1 1 :swatch #x1234 :palette 7
                             :g0 (:glyph 103 :ink 1) :g1 (:glyph 9 :operation :union))))
+
+(defun write-to-function (glyph ink palette n)
+  (let ((sink (lambda (u) u)))
+    (dotimes (i n)
+      (marshal plain-cell sink :glyph-count 2 :type-1 1 :swatch #x1234 :palette palette
+                               :g0 (:glyph glyph :ink ink) :g1 (:glyph 9 :operation :union)))))
+
+(defun patch-cell (buf palette n)
+  (dotimes (i n)
+    (marshal plain-cell buf (:patch t) :blink 0 :palette palette (:g1 :reach) 0)))
+
+(defun read-blink (buf n)
+  (let ((s 0))
+    (dotimes (i n) (incf s (unmarshal plain-cell buf nil :blink)))
+    s))
 
 (defun write-by-hand (buf glyph ink palette n)
   (declare (type (simple-array (unsigned-byte 8) (*)) buf) (fixnum n glyph ink palette)
@@ -201,22 +120,28 @@ directly, with the vector and the position declared unless DECLARE is false."
 
 (let* ((n 1000000)
        (expected (let ((v (ub8 32))) (write-by-marshal v 103 1 7 1) v))
+       (not-simple (lambda () (make-array 32 :element-type '(unsigned-byte 8) :adjustable t)))
        (cases
-         (list (list "marshal, the plain cell" (lambda (b) (write-by-marshal b 103 1 7 n)))
-               (list "marshal, the plain cell, every value a constant" (lambda (b) (write-constants b n)))
-               (list "T1: serializers made once" (lambda (b) (write-t1 b 103 1 7 n)))
-               (list "T2: and no span map" (lambda (b) (write-t2 b 103 1 7 n)))
-               (list "T3: and each field written by its own code" (lambda (b) (write-t3 b 103 1 7 n)))
-               (list "T4, without declarations" (lambda (b) (write-t4-undeclared b 103 1 7 n)))
-               (list "T4: and one bounds check, direct stores" (lambda (b) (write-t4 b 103 1 7 n)))
-               (list "by hand" (lambda (b) (write-by-hand b 103 1 7 n)))
-               (list "marshal, the cell as bytes and words" (lambda (b) (write-bytes-by-marshal b 103 1 7 n)))
-               (list "binary-structures, the cell as bytes and words"
+         (list (list "marshal, fast path: a simple vector" (ub8 32)
+                     (lambda (b) (write-by-marshal b 103 1 7 n)))
+               (list "marshal, fast path, every value a constant" (ub8 32)
+                     (lambda (b) (write-constants b n)))
+               (list "marshal, general path: a vector not simple" (funcall not-simple)
+                     (lambda (b) (write-by-marshal b 103 1 7 n)))
+               (list "marshal, general path: a function" nil
+                     (lambda (b) (declare (ignore b)) (write-to-function 103 1 7 n)))
+               (list "marshal, a patch of three fields" (copy-seq expected)
+                     (lambda (b) (patch-cell b 7 n)))
+               (list "unmarshal, :blink alone" (copy-seq expected)
+                     (lambda (b) (read-blink b n)))
+               (list "by hand" (ub8 32) (lambda (b) (write-by-hand b 103 1 7 n)))
+               (list "marshal, the cell as bytes and words" (ub8 32)
+                     (lambda (b) (write-bytes-by-marshal b 103 1 7 n)))
+               (list "binary-structures, the cell as bytes and words" (ub8 32)
                      (lambda (b) (write-bytes-by-binary-structures b 103 1 7 n))))))
   (format t "~&~a, ~a~%" (lisp-implementation-type) (lisp-implementation-version))
   (dolist (c cases)
-    (destructuring-bind (label fn) c
-      (let ((buf (ub8 32)))
-        (multiple-value-bind (ns bytes) (measure (lambda () (funcall fn buf)) n)
-          (format t "~&~48a ~8,1f ns ~8,1f bytes ~:[(different bytes)~;~]~%"
-                  label ns bytes (equalp buf expected)))))))
+    (destructuring-bind (label buf fn) c
+      (multiple-value-bind (ns bytes) (measure (lambda () (funcall fn buf)) n)
+        (format t "~&~48a ~8,1f ns ~8,1f bytes ~:[(different bytes)~;~]~%"
+                label ns bytes (or (null buf) (equalp (coerce buf '(vector (unsigned-byte 8))) expected)))))))

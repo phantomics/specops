@@ -21,6 +21,11 @@
                 #:portable-decode-float #:portable-encode-float
                 #:make-stream-source #:fill-stream-source #:stream-source-p #:source-units
                 #:field-plan #:known-count #:known-extent #:rule
-                #:check-failed #:grow-buffer #:manifest-buffer-array)
+                #:check-failed #:grow-buffer #:manifest-buffer-array
+                #:deserializer-for
+                ;; the code builder for binary values, internal until proven
+                #:unit-order #:unit-significances #:make-encoding
+                #:entry-target #:vector-target #:general-source #:vector-source
+                #:store-form #:store-code-form #:load-form #:extent-check-form)
   (:export #:run-all-tests
            #:run-suite))

@@ -159,6 +159,23 @@
   (handler-case (progn (funcall thunk) "")
     (error (e) (princ-to-string e))))
 
+(defun write-sample-cell (buffer index glyph palette)
+  "Write at INDEX of BUFFER the plain cell of g underlined in the text's colour, with GLYPH and
+PALETTE known only when the code runs, as a terminal writes a character."
+  (marshal plain-cell buffer (:at index) :glyph-count 2 :type-1 1 :swatch #x1234
+                                         :palette palette :g0 (:glyph glyph :ink 1)
+                                         :g1 (:glyph 9 :operation :union)))
+
+(defun patch-sample-cell (buffer index palette)
+  "Patch the cell at INDEX of BUFFER: its blink bit, its palette slot, and a mask's reach."
+  (marshal plain-cell buffer (:at index :patch t) :blink 1 :palette palette (:g1 :reach) 2))
+
+(defun not-simple (vector)
+  "A vector holding VECTOR's units that is not a simple array, so a write to it takes the
+general path."
+  (make-array (length vector) :element-type (array-element-type vector) :adjustable t
+                              :initial-contents vector))
+
 (defun patched-grid ()
   "A 64-byte vector holding at 32 a plain cell of two glyphs, the second a mask: glyph 103 in
 ink 1 under glyph 9 as a union, the cell wide, in swatch #x1234 and palette slot 7."
@@ -636,3 +653,93 @@ shows it, and when the code runs otherwise."
   (signals error (macroexpand-1 '(marshal plain-cell (lambda (u) u) (:patch t) :blink 1)))
   (let ((f (lambda (u) u)))
     (signals error (marshal plain-cell f (:patch t) :blink 1))))
+
+;;; ============================================================
+;;; The fast path
+;;; ============================================================
+
+#+sbcl
+(def-test a-cell-written-or-patched-in-a-simple-vector-allocates-nothing ()
+  "A full write, a write at an index and a patch of a cell in a simple vector of octets, the
+fast path, allocate nothing."
+  (let ((grid (ub8 64)))
+    (write-sample-cell grid 0 103 7)
+    (write-sample-cell grid 32 104 8)
+    (patch-sample-cell grid 32 9)
+    (flet ((consed (thunk)
+             (let ((before (sb-ext:get-bytes-consed)))
+               (dotimes (n 1000) (funcall thunk))
+               (- (sb-ext:get-bytes-consed) before))))
+      (is (eql 0 (consed (lambda () (write-sample-cell grid 0 103 7)))))
+      (is (eql 0 (consed (lambda () (write-sample-cell grid 32 104 8)))))
+      (is (eql 0 (consed (lambda () (patch-sample-cell grid 32 9))))))))
+
+(def-test the-fast-and-the-general-path-write-the-same-units ()
+  "A record of fixed size writes the same units to a simple vector, by the fast path, as to a
+vector that is not simple or to a function, by the general path: in full, at an index, and
+patched."
+  (let ((records (list (cell-octets 0 #x0A 4 0  #x34 #x12 7 0  103 0 0 #x02  9 0 0 0)
+                       (cell-octets 0 #x0A 0 0  #x34 #x12 7 1  #x67 0 0 #x02  #x67 0 0 #x0D))))
+    (dolist (record records)
+      (let* ((cell (unmarshal plain-cell record))
+             (fast (ub8 40))
+             (general (not-simple (ub8 40)))
+             (units nil))
+        (marshal plain-cell fast (:at 8 :from cell))
+        (marshal plain-cell general (:at 8 :from cell))
+        (marshal plain-cell (lambda (u) (push u units)) (:from cell))
+        (is (equalp record (subseq fast 8)))
+        (is (equalp fast general))
+        (is (equalp record (coerce (reverse units) '(vector (unsigned-byte 8)))))
+        (patch-sample-cell fast 8 3)
+        (patch-sample-cell general 8 3)
+        (is (equalp fast general)))))
+  (let* ((tiles (cell-octets 4 1 #x80 #x22  #x34 #x12 9 #x20  140 0 0 2  0 0 0 0
+                             0 0 0 0  20 #x40 21 0))
+         (cell (unmarshal tile-cell tiles))
+         (fast (ub8 32))
+         (general (not-simple (ub8 32))))
+    (marshal tile-cell fast (:from cell))
+    (marshal tile-cell general (:from cell))
+    (is (equalp tiles fast))
+    (is (equalp fast general))))
+
+(def-test an-overrun-on-the-fast-path-writes-nothing-and-reports-as-the-general-path-does ()
+  "A record that would not fit signals manifest-overrun with the same size and position on
+the fast path as on the general path, the first unit that would not fit, but the fast path
+writes none of the record."
+  (dolist (at '(20 50))
+    (let* ((fast (make-array 40 :element-type '(unsigned-byte 8) :initial-element #xEE))
+           (general (not-simple fast))
+           (f (handler-case (write-sample-cell fast at 103 7) (manifest-overrun (c) c)))
+           (g (handler-case (write-sample-cell general at 103 7) (manifest-overrun (c) c))))
+      (is (eql 40 (overrun-size f)))
+      (is (eql (overrun-size g) (overrun-size f)))
+      (is (eql (max at 40) (overrun-position f)))
+      (is (eql (overrun-position g) (overrun-position f)))
+      (is-true (every (lambda (u) (= u #xEE)) fast)))))
+
+(def-test a-patch-checks-every-branch-before-it-writes ()
+  "A patch whose key the branch chosen lacks signals an error before it writes any unit, even
+when it gives fields before that branch, and at any depth of sub-manifests."
+  (let ((v (patched-grid)))
+    (signals error (marshal plain-cell v (:at 32 :patch t) :blink 1 :palette 9 (:g1 :ink) 2))
+    (is (equalp (patched-grid) v)))
+  (let ((v (ub8 72)))
+    (replace v (cell-octets 0 2 0 0  #x34 #x12 7 0  103 0 0 2  9 0 0 #x04) :start1 8)
+    (replace v (cell-octets 0 #x0A 0 0  #x34 #x12 7 0  104 0 0 2  9 0 0 #x08) :start1 40)
+    (let ((before (copy-seq v)))
+      (signals error (marshal cell-pair v (:at 8 :patch t) (:left :blink) 1 (:right :g1 :ink) 2))
+      (is (equalp before v))
+      (marshal cell-pair v (:at 8 :patch t) (:left :blink) 1 (:right :g1 :reach) 3)
+      (is (equalp '(1 3) (multiple-value-list
+                          (unmarshal cell-pair v (:at 8) (:left :blink) (:right :g1 :reach))))))))
+
+(def-test a-selector-a-patch-gives-as-a-form-is-evaluated-once ()
+  "A selector's value that a patch gives as a form, which chooses the branch its other keys
+are checked against, is evaluated once."
+  (let ((v (patched-grid))
+        (evaluations 0))
+    (marshal plain-cell v (:at 32 :patch t) :type-1 (progn (incf evaluations) 0) (:g1 :ink) 2)
+    (is (eql 1 evaluations))
+    (is (eql 2 (unmarshal plain-cell v (:at 32) (:g1 :ink))))))

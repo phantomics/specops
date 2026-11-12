@@ -278,11 +278,9 @@
                    (and (consp tree) (or (has-case-p (car tree)) (has-case-p (cdr tree))))))
 
 (defun count-reads (tree)
-               ;; element reads are calls of a deserializer: (funcall (aref ds …) …)
+               ;; element reads are calls of a deserializer
                (if (consp tree)
-                   (+ (if (and (eq (car tree) 'funcall) (consp (second tree))
-                               (eq (car (second tree)) 'aref))
-                          1 0)
+                   (+ (if (deserializer-call-p tree) 1 0)
                       (count-reads (car tree)) (count-reads (cdr tree)))
                    0))
 

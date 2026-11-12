@@ -57,9 +57,10 @@ Project-specific facts the skills cannot infer:
 - Test directory: test/
 - Test-system form: secondary `specops/test`, defined in `specops.asd`
 - Run command: `sbcl --non-interactive --eval '(asdf:test-system :specops)'`
-- Suites: root `specops`; `serial`; `manifest`, with `manifest-basics`,
-  `-fields`, `-records`, `-variable`, `-reads`, `-destinations` and
-  `-formats`, one `test-*.lisp` file each. No `*-slow` suite exists yet.
+- Suites: root `specops`; `serial`; `units`, the code builder for binary
+  values; `manifest`, with `manifest-basics`, `-fields`, `-records`,
+  `-variable`, `-reads`, `-destinations`, `-formats`, `-arrays` and `-ref`,
+  one `test-*.lisp` file each. No `*-slow` suite exists yet.
 - The test package `specops-tests` imports the SpecOps internals it uses as an
   explicit list in `test/package.lisp`; add a symbol there rather than writing
   `specops::`.

@@ -4,6 +4,7 @@
 
 (load "src/package.lisp")
 (load "src/serial.lisp")
+(load "src/units.lisp")
 (load "src/manifest/manifest.lisp")
 (load "src/assembler.lisp")
 (load "src/program.lisp")
