@@ -5,7 +5,7 @@ genre:         Architecture
 scope:         project
 project:       SpecOps
 language:      en
-status:        Current
+status:        Proposed
 authors:
   - Andrew Sengul
 approved-by:   Andrew Sengul

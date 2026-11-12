@@ -15,6 +15,7 @@ relates-to:
   - SPECOPS-0006
   - SPECOPS-0003
   - SPECOPS-0004
+  - SPECOPS-DRAFT-manifest-benchmarks
 decisions:
   - SPECOPS-DRAFT-over-arrays-D1
   - SPECOPS-DRAFT-over-arrays-D2
@@ -23,6 +24,7 @@ decisions:
   - SPECOPS-DRAFT-over-arrays-D5
   - SPECOPS-DRAFT-over-arrays-D6
   - SPECOPS-DRAFT-over-arrays-D7
+  - SPECOPS-DRAFT-over-arrays-D8
 open-questions:
   - SPECOPS-DRAFT-over-arrays-O1
   - SPECOPS-DRAFT-over-arrays-O2
@@ -280,6 +282,44 @@ fixed positions are patched as SPECOPS-DRAFT-over-arrays-D3 describes.
 the steward chose to reserve it, since no format in view needs it, and
 building it would delay the patches that Lexter does need).
 
+### SPECOPS-DRAFT-over-arrays-D8 — Writes use code made for each field, no span map without slots, and a fast path for records of fixed size written to simple vectors
+
+**Status:** Proposed
+**Context:** The prototype measured a write of one of Lexter's cells at some
+2,500 ns, with some 1,300 bytes allocated, where the same bytes packed by hand
+take 8 ns; the steward set the target at 80 ns, with no allocation as the
+ideal. The [evaluation of the cost of a write](Eval.ManifestBenchmarks.md)
+found the cost in the generic serializer every field is written through, from
+a fresh `(width . value)` pair; in a map of each field's span, which only slots
+read; and in the closures through which each unit is entered and checked
+against the vector. Estimated by transforming `marshal`'s own expansion, its
+remedies T1 to T4 bring the cell to 2,564, 2,344, 360 and 16 ns.
+**Decision:** `marshal` takes the evaluation's three remedies that gain:
+
+- **Each field written by code of its own (T3).** For each field, the
+  expansion emits code of the field's width and byte order, which are known
+  there, with the field's range check, in place of a call of the generic
+  serializer with a fresh pair. This serves every record and every destination.
+- **No span map without slots (T2).** A manifest with no slots keeps no map of
+  its fields' spans; one with slots may keep only the spans its slots cover.
+- **A fast path for records of fixed size (T4).** For a record whose size is
+  fixed at expansion, the expansion adds a branch, chosen when the code runs
+  when the destination is a simple vector of the manifest's unit type, that
+  checks the record's units against the vector once and stores each unit
+  directly, with the vector and the position declared. Any other destination
+  takes the general code.
+
+Making the serializers once, at load time (T1), is kept for whatever still
+calls them, but is not a remedy on its own. The work is the roadmap's step
+after paths and patches, which the steward has put first.
+**Alternatives:** The serializers made once in the expansion of `defmanifest`
+alone, the steward's first suspect (not taken as the remedy: the evaluation
+measured no gain in time and 79 bytes fewer); the fast path without
+declarations (rejected: 132 ns, above the target); the fast path for every
+record (not possible as measured: a record of varying size has no extent to
+check once, SPECOPS-DRAFT-manifest-benchmarks-O2); the fast path before paths
+and patches (not taken by the steward, who has put it after them).
+
 ## Lexter's cell model as a test case
 
 Lexter's record is eight little-endian 32-bit words in an array of
@@ -372,12 +412,10 @@ is built on these manifests.
 ## Later Additions
 
 These are recorded for after the roadmap's main steps, each to be taken up if
-the prototype or a user shows the need:
+the prototype or a user shows the need. The fast path for records of fixed
+size (SPECOPS-O15), first listed here, is now decided by
+SPECOPS-DRAFT-over-arrays-D8 and is a step of the roadmap.
 
-- **A fast path for records of fixed size** (SPECOPS-O15). Today a write in
-  place calls a closure for each unit and checks the vector's bounds at each.
-  A record whose extent is fixed at expansion could be written with one bounds
-  check and direct stores. The prototype's measurement decides it.
 - **The layout as data** (SPECOPS-O18, SPECOPS-DRAFT-over-arrays-O3). A
   function giving each fixed field's unit offset, bit offset and width, which
   a patch computes anyway, would let a generator, such as Lexter's
@@ -459,9 +497,15 @@ Table: Prior systems and what this plan draws from each.
    so that the code does not use one word for two things. The Reference
    updated, its sentence on what cannot be patched in place saying
    "backpatched", and released as 0.1.4, with the paths of step 3.
-5. **Later additions**, as the prototype and users show the need: the fast
-   path of SPECOPS-O15 and the layout as data of
-   SPECOPS-DRAFT-over-arrays-O3.
+5. **The fast path** (SPECOPS-DRAFT-over-arrays-D8). Each field written by
+   code of its own, no span map without slots, and one bounds check with
+   direct stores for records of fixed size written to simple vectors of their
+   unit type, measured again with `scripts/bench-manifests.lisp` against the
+   evaluation's estimates. The Reference updated, as a release of its own after
+   0.1.4.
+6. **Later additions**, as users show the need: the layout as data of
+   SPECOPS-DRAFT-over-arrays-O3, and reads measured and remedied as writes are
+   (SPECOPS-DRAFT-manifest-benchmarks-O1).
 
 Each step is recorded in an update to the
 [Manifest Development Log, SPECOPS-0006](Log.Manifest.md) and a progress
@@ -552,3 +596,38 @@ previous update are marked "new".
 
 The assessment depends on nothing open. Patches gain from it, since a patch
 of a fixed record would otherwise carry each call's present costs.
+
+## Update 2026-11-11 — Progress: the cost of a write assessed
+
+This installment records the assessment the previous update put first, made
+at commit `cba66c2` and written up as the
+[evaluation of the cost of a write](Eval.ManifestBenchmarks.md). Its
+measurements, against packing by hand and against binary-structures, show
+three remedies reaching the steward's target of 80 ns with no allocation,
+which SPECOPS-DRAFT-over-arrays-D8 adopts. The steward has put their
+implementation after paths and patches, as the roadmap's fifth step.
+
+### Progress
+
+Table: State of each Roadmap step at commit `cba66c2`. Entries new since the
+previous update are marked "new".
+
+| Step | State | Done | Remaining |
+|---|---|---|---|
+| 1. The prototype | Done | As before | — |
+| 2. Records at an index | Done | As before | As before |
+| 3. Paths | Not started | — | Keys through sub-manifests and `:case` branches |
+| 4. Patches | Not started | — | `(:patch t)`, released as 0.1.4 with paths |
+| 5. The fast path | New: decided | New: the cost of a write measured, and its remedies chosen (SPECOPS-DRAFT-over-arrays-D8) | Code made for each field, no span map without slots, and the fast path for records of fixed size |
+| 6. Later additions | Not started | — | The layout as data; reads measured |
+
+### Priorities
+
+1. **Paths and patches,** released as 0.1.4.
+2. **The fast path,** as a release of its own after them.
+
+### Dependencies
+
+Patches depend on paths. The fast path depends on nothing, and will carry
+patches with it: a patch of a fixed record stores its fields through the same
+code as a full write.
