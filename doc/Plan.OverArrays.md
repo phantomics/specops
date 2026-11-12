@@ -957,3 +957,59 @@ so for patches to gain, step 5 must replace that code too. A selector that a
 patch does not give is read through a selective `unmarshal`, and a path reads
 its first field whole. Both are reads, which SPECOPS-D102 does not cover; they
 fall to the cost of reads (SPECOPS-O25).
+
+## Update 2026-11-12 — Progress: the fast path
+
+This installment charts the plan's progress at commit `023a7c6`, tagged
+`v0.2.0`, which completes its fifth step. The steward settled the step's
+design before it was built, as SPECOPS-DRAFT-over-arrays-D13 to
+SPECOPS-DRAFT-over-arrays-D17: a code builder for binary values of its own,
+the fast path as two of its targets, byte orders as orders of units, the fast
+path's errors those of the general path, and a patch's branches checked
+first. The [Manifest Development Log's](Log.Manifest.md) update of the same
+date records the work, with SPECOPS-DRAFT-manifest-D77 for the two paths,
+SPECOPS-DRAFT-manifest-D78 for stored orders and SPECOPS-DRAFT-manifest-D79
+for a patch's selectors; the [Manifest Reference](Ref.Manifest.md) describes
+release 0.2.0. All 497 tests pass, with 902 assertions.
+
+### Progress
+
+Table: State of each Roadmap step at commit `023a7c6`. Entries new since the
+previous update are marked "new".
+
+| Step | State | Done | Remaining |
+|---|---|---|---|
+| 1. The prototype | Done | As before | — |
+| 2. Records at an index | Done | As before | As before |
+| 3. Paths | Done | As before | As before |
+| 4. Patches | Done | As before; new: branches checked before the first write (SPECOPS-DRAFT-over-arrays-D17) | Records of varying size (SPECOPS-D103); `(:from record)` (SPECOPS-D104) |
+| 5. The fast path | New: done | New: the code builder, `src/units.lisp`, with the suite `units`; every unit `marshal` writes stored through it; a record of fixed size with no slots or placed fields written to a simple vector in 12 ns with nothing allocated, against 2,612 ns and 1,343 bytes before; the general path ten to fourteen times faster; patches through the same code, in 8 ns; scalar reads through it; byte orders as orders of units; a test that the fast path allocates nothing; released as 0.2.0 | The fast path for records with slots or placed fields (SPECOPS-O26) |
+| 6. Reads | Not started | — | Reads measured and remedied through the builder's sources (SPECOPS-O25) |
+| 7. Later additions | Not started | — | The layout as data, and the others listed |
+
+The target the steward set, a full write of a Lexter cell in 80 ns or less,
+is met at 12 ns, within 4 ns of packing by hand. A read of one field already
+costs half what it did, 108 ns against 224, and allocates nothing, since the
+array of deserializers made on each call is gone, but still calls a
+deserializer for each field.
+
+The fast path covers records of fixed size with no slots and no placed
+fields, which all of Lexter's cells are; the step's roadmap entry and
+SPECOPS-DRAFT-over-arrays-D14 name records of fixed size without that
+condition. Records of fixed size with slots take the general path, some ten
+times faster than before. SPECOPS-DRAFT-manifest-D77 records the condition,
+and SPECOPS-O26 asks how far the fast path can reach.
+
+### Priorities
+
+1. **Reads,** the roadmap's sixth step: measured as writes were, then a fixed
+   record's one bounds check and direct loads through the builder's vector
+   source, before recursive manifests (SPECOPS-0010).
+2. **Later additions,** as users show the need.
+
+### Dependencies
+
+Reads depend on nothing open: the builder's sources exist, and the general
+source already defines the order of units for every read. Recursive manifests
+wait for reads, so that a cycle's functions are built on the read code that
+will stay.

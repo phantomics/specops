@@ -91,6 +91,9 @@ decisions:
   - SPECOPS-DRAFT-manifest-D74
   - SPECOPS-DRAFT-manifest-D75
   - SPECOPS-DRAFT-manifest-D76
+  - SPECOPS-DRAFT-manifest-D77
+  - SPECOPS-DRAFT-manifest-D78
+  - SPECOPS-DRAFT-manifest-D79
 relates-to:
   - SPECOPS-0003
   - SPECOPS-0007
@@ -4071,3 +4074,255 @@ New:
 - **Decimal masques in a patch** are implemented but not tested; no test
   manifest of fixed size has one.
 - The other items of the previous updates remain.
+
+## Update 2026-11-12 — Release 0.2.0: the code builder and the fast path
+
+This installment covers commit `023a7c6`, tagged `v0.2.0`, the fifth step of
+the [plan for manifests over arrays of records](Plan.OverArrays.md), and the
+update of the [Manifest Reference](Ref.Manifest.md) after it. Binary values
+are now stored and loaded through a code builder of their own,
+`src/units.lisp`, which `marshal` and `unmarshal` call
+(SPECOPS-DRAFT-over-arrays-D13); `marshal` writes a record of fixed size into
+a simple vector by a fast path of its own, and patches and scalar reads take
+the same code (SPECOPS-DRAFT-over-arrays-D14); byte orders are orders of
+units (SPECOPS-DRAFT-over-arrays-D15); the fast path signals what the general
+path does (SPECOPS-DRAFT-over-arrays-D16); and a patch checks its branches
+before it writes (SPECOPS-DRAFT-over-arrays-D17). The release also carries
+the error of `7eb7ddf`, which names the branch a path found. This installment
+records how the layer carries the plan's decisions out.
+
+### SPECOPS-DRAFT-manifest-D77 — The two paths are two expansions of the same fields, each binding its own position, chosen by the destination's type
+
+**Status:** Proposed
+**Context:** SPECOPS-DRAFT-over-arrays-D14 has a record of fixed size written
+to a simple vector of its unit type by stores of its own, after one check of
+its extent, and other destinations through an entering target. The general
+path enters units through closures that capture and change the position
+(`src/manifest/manifest.lisp:marshal@v0.1.4`); SBCL keeps a variable that a
+closure captures and changes in a cell on the heap, made when the variable
+is bound, so a fast path that shared the general path's binding of the
+position would allocate on every call. The evaluation's T4 removed the
+closures altogether (SPECOPS-0009).
+**Decision:** In `src/manifest/manifest.lisp:marshal@023a7c6`, the top-level
+expansion binds the destination, the `:from` record and the record's start
+once, then branches on `(simple-array unit (*))` and an index of array
+range. Each branch binds the position, the base, the origin and the
+selectors afresh and holds the fields' code generated for its target: a
+vector target on the fast branch, where the position is declared an index
+and the vector its type, and an entering target on the general branch, with
+the closures. Nested sub-manifests receive the target in the lexicon, so
+their code follows the branch. The fast branch applies to a top-level record
+whose size is fixed at expansion (`src/manifest/manifest.lisp:manifest-extent@023a7c6`)
+and that has no slots and no placed fields; a record with either takes the
+general branch alone. `signal-overrun` is declared never to return, so that
+the compiler does not take the stores after a failed check as reachable.
+**Alternatives:** One expansion choosing its store for each unit when the
+code runs (rejected: a test for every unit, and the closures' captured
+position allocated on both paths); the fast branch for records with slots
+(deferred: their slots read a map of spans and are backpatched at positions,
+which SPECOPS-O26 asks how far one check of the extent can serve).
+
+### SPECOPS-DRAFT-manifest-D78 — A field's stored definition holds its order of units, checked against its width when the manifest is defined
+
+**Status:** Proposed
+**Context:** A field's byte order was stored as a number, the granularity
+`swap-segments` reverses at, which indexed an array of serializers that
+`marshal` made on each call and of deserializers that `unmarshal` made
+(`src/manifest/manifest.lisp:defmanifest@v0.1.4`). SPECOPS-DRAFT-over-arrays-D15
+makes an order the order of a field's units, and SPECOPS-DRAFT-over-arrays-D14
+defines it in the code builder alone.
+**Decision:** `src/manifest/manifest.lisp:defmanifest@023a7c6` stores each
+field's order under `:order`, quoted: `:big`, `:little` or `(outer inner
+group)`, as `src/units.lisp:unit-order@023a7c6` names it, in place of the
+numeric `:swap-by`. When a manifest is defined, each field's, masque's and
+constant's width is checked against its order
+(`src/units.lisp:unit-significances@023a7c6`), so a width that a grouped
+order cannot group is an error then. On write, `src/units.lisp:store-form@023a7c6`
+splits a value into units by significance; on read, the general source loads
+a field's units in stream order through one deserializer made at load time,
+`(deserializer-for unit-power 0)`, and the load moves each unit to its place
+(`src/units.lisp:load-form@023a7c6`), so that `swap-segments` orders nothing
+the manifest layer reads or writes. `serialize` and `serializer-for` keep
+their numeric granularities for the assembler and the program layer.
+**Alternatives:** The numeric codes kept, mapped onto orders (rejected: two
+representations of one order, and the new orders need codes of their own);
+the order checked only when a field is written or read (rejected: a mistake in
+a definition would be found where it is used, possibly in another file).
+
+### SPECOPS-DRAFT-manifest-D79 — A patch binds its selectors' forms first, and checks its branches with selectors loaded at their fixed positions
+
+**Status:** Proposed
+**Context:** SPECOPS-DRAFT-over-arrays-D17 has a patch check every key it
+gives through a `:case` field against the branch chosen before it writes
+anything, at any depth. The branch is chosen by the selector's value the
+patch gives, or by the selector as it stands in the vector. `marshal`
+evaluates the values it is given as it writes each field, in the manifest's
+order, so a check before the writes that evaluated a selector's form would
+evaluate it a second time when the selector is written.
+**Decision:** At the top level of a patch,
+`src/manifest/manifest.lisp:hoist-patch-selectors@023a7c6` replaces each
+selector's value given as a form, at any depth of nested pairs, by a
+variable bound to the form, after the destination, the `:from` record and the
+record's start and before anything else; the form is evaluated once, before
+the other fields' values. `src/manifest/manifest.lisp:patch-branch-checks@023a7c6`
+then emits, after the check of the record's extent, a `case` on each
+selector's code for each `:case` field the patch writes through, recursing
+into sub-manifests and into each branch, that signals the error of
+SPECOPS-DRAFT-manifest-D76, or the error for nested pairs given to a branch
+that is not a sub-manifest, before the first store. A selector not given is
+loaded at its position, fixed at expansion
+(`src/manifest/manifest.lisp:locate-field@023a7c6`,
+`src/manifest/manifest.lisp:selector-load-form@023a7c6`), directly from the
+vector; the write loads it again where the selector-chosen field is written,
+in place of the selective `unmarshal` of 0.1.4.
+**Alternatives:** The selector's form evaluated in the check and again in the
+write (rejected: a form with effects would have them twice); only the
+branches chosen by selectors not given checked first (rejected: a key that a
+branch chosen by a given form lacks would still be found after earlier
+writes); each selector loaded once and kept for the write (not taken: it
+would pass the values into nested expansions, where a second direct load of
+one or a few units costs nanoseconds).
+
+### Implementation
+
+- **`src/units.lisp`, new.** Orders (`unit-order`, `unit-significances`);
+  encodings (`make-encoding`, which normalizes its order); targets
+  (`entry-target`, `vector-target`) and sources (`general-source`,
+  `vector-source`); `store-form`, with the range check and message of the
+  generic serializer, `store-code-form`, for a string's codes, `load-form`
+  and `extent-check-form`. Internal, by SPECOPS-DRAFT-over-arrays-D13.
+- **`src/manifest/manifest.lisp`.** In `defmanifest`: orders stored under
+  `:order` and checked against widths, and `manifest-swap-specs` removed. In
+  `marshal`: the serializers, their array and the backpatching `write`
+  closure removed; every store, a slot's backpatching among them, through the
+  target, in the local functions `store` and `store-at`; the span map kept
+  only when the manifest has slots; the two branches of
+  SPECOPS-DRAFT-manifest-D77, and the fast path's single check of the extent,
+  reporting the unit the general path would. For patches: a masque's groups
+  loaded and stored through the builder, selectors loaded directly, and the
+  hoisting and checks of SPECOPS-DRAFT-manifest-D79, with the helpers
+  `locate-field`, `selector-load-form`, `selector-code-form`,
+  `hoist-patch-selectors` and `patch-branch-checks`. In `unmarshal`: every
+  load through a general source, and the array of deserializers removed.
+  `signal-overrun` declared never to return.
+- **`src/serial.lisp`.** The docstring of `swap-segments` states the order it
+  makes at granularity 2, CDAB, and that the manifest layer no longer uses it.
+- **`specops.asd`.** `units` among the files of `specops`, after `serial`;
+  `test-units` among the tests; version 0.2.0.
+- **`test/test-units.lisp`, new, and the suite `units`.** Twelve tests, from
+  `test/test-units.lisp:an-order-gives-the-significance-of-each-unit-as-stored@023a7c6`
+  to `test/test-units.lisp:a-store-and-a-load-in-one-order-round-trip@023a7c6`:
+  orders and their errors, stores at both targets, two's complement, integers
+  split at expansion, range errors that store nothing, codes of several
+  units, the extent check, and loads from both sources, signed and in every
+  order.
+- **`test/test-manifest-basics.lisp`.** Two probes and three tests of byte
+  orders through manifests: 16-bit little-endian units, BADC and CDAB, and
+  `:middle` and ungroupable widths as expansion errors.
+- **`test/test-manifest-arrays.lisp`.** The helpers `write-sample-cell`,
+  `patch-sample-cell` and `not-simple`, and five tests, from
+  `test/test-manifest-arrays.lisp:a-cell-written-or-patched-in-a-simple-vector-allocates-nothing@023a7c6`
+  to `test/test-manifest-arrays.lisp:a-selector-a-patch-gives-as-a-form-is-evaluated-once@023a7c6`:
+  no allocation on the fast path, in full, at an index and patched; the same
+  units on both paths; an overrun reported alike and writing nothing on the
+  fast path; branches checked first, at depth; and a selector's form
+  evaluated once.
+- **`test/helpers.lisp`, `test/package.lisp`, `test/test-manifest-fields.lisp`.**
+  The suite `units`; `deserializer-call-p`, the one test of a load in an
+  expansion, used by `reads-outside-guard` and `count-reads`; and the
+  builder's symbols and `deserializer-for` among the internals the tests
+  import.
+- **`scripts/`.** `bench-manifests.lisp` measures the direct cases, with the
+  general path to a vector not simple and to a function, a patch and a read
+  added, its transformations of 0.1.3 left at `6fd7863`; the five scripts
+  that load the sources one by one load `src/units.lisp`.
+- **`AGENTS.md`.** The suites listed, `units`, `manifest-arrays` and
+  `manifest-ref` among them.
+- **`doc/Ref.Manifest.md`.** Written after the commit: version 0.2.0, its code
+  references pinned to `v0.2.0`, byte orders as orders of units, with their
+  table, the overrun of a record checked whole, the branches of a patch
+  checked first and a selector's form evaluated once, the path error naming
+  the branch found, the limit on byte orders removed, and the files of the
+  builder.
+
+### Verification
+
+Run with `sbcl --non-interactive --eval '(asdf:test-system :specops)'`. At
+`023a7c6`, `units` has 12 tests with 59 assertions, `manifest-basics` 81 with
+120, `manifest-arrays` 42 with 146, `manifest-ref` 33 with 91, and the root
+suite 497 tests with 902 assertions; all pass, and each test passes alone in
+three shuffled orders. Every earlier test passes; the two that counted
+deserializer calls in expansions count the builder's loads instead.
+`src/manifest/manifest.lisp` and `src/units.lisp` compile with no warnings,
+and the expansions in the test system draw fewer style warnings than at
+`cf1ab4f`, 1,913 against 2,945, all of the kind "defined but never used". The
+format systems `specops.format.goff`, `.wasm` and `.elf` load, and the six
+scripts in `scripts/` pass as they did.
+
+Table: The cost of one of Lexter's cells at `cf1ab4f`, the code of 0.1.4, and at
+`023a7c6`, the fastest of five runs of a million records, measured with
+`scripts/bench-manifests.lisp` as of `023a7c6` on the machine of SPECOPS-0009.
+
+| Case | `cf1ab4f` | `023a7c6` |
+|---|---|---|
+| `marshal`, a simple vector, the fast path | 2,612 ns, 1,343 bytes | 12 ns, 0 bytes |
+| `marshal`, every value a constant | 2,632 ns, 1,343 bytes | 12 ns, 0 bytes |
+| `marshal`, a vector not simple, the general path | 2,704 ns, 1,343 bytes | 268 ns, 64 bytes |
+| `marshal`, a function, the general path | 2,292 ns, 1,328 bytes | 160 ns, 48 bytes |
+| `marshal`, a patch of three fields | 760 ns, 464 bytes | 8 ns, 0 bytes |
+| `unmarshal`, `:blink` alone | 224 ns, 144 bytes | 108 ns, 0 bytes |
+| `marshal`, the cell as bytes and words | 2,224 ns, 1,184 bytes | 24 ns, 0 bytes |
+| Packing by hand | 8 ns, 0 bytes | 8 ns, 0 bytes |
+| binary-structures, the cell as bytes and words | 36 ns, 0 bytes | 40 ns, 0 bytes |
+
+A full write of a cell meets the plan's initial target of 80 ns or less, at
+12 ns, with nothing allocated, within 4 ns of packing by hand; the general
+path is some ten to fourteen times faster than before, and a read of one
+field twice as fast, with nothing allocated.
+
+### Files
+
+Table: Files changed in commit `023a7c6`, and the documents updated after it.
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/units.lisp` | Added | The code builder for binary values |
+| `src/manifest/manifest.lisp` | Modified | Orders stored; stores and loads through the builder; the two paths; patches' checks first |
+| `src/serial.lisp` | Modified | The docstring of `swap-segments` |
+| `specops.asd` | Modified | `units` and `test-units`; version 0.2.0 |
+| `test/test-units.lisp` | Added | The suite `units` |
+| `test/test-manifest-basics.lisp` | Modified | Byte orders through manifests |
+| `test/test-manifest-arrays.lisp` | Modified | The fast path |
+| `test/helpers.lisp`, `test/package.lisp`, `test/test-manifest-fields.lisp` | Modified | The suite, the loads counted, the imports |
+| `scripts/bench-manifests.lisp` | Modified | The direct cases |
+| `scripts/test-*.lisp` | Modified | `src/units.lisp` loaded |
+| `AGENTS.md` | Modified | The suites listed |
+| `doc/Plan.OverArrays.md` | Modified | SPECOPS-DRAFT-over-arrays-D13 to SPECOPS-DRAFT-over-arrays-D17, in the commit; the progress update, after it |
+| `doc/Eval.ManifestBenchmarks.md` | Modified | SPECOPS-O27's answer, in the commit |
+| `doc/Ref.Manifest.md` | Modified | Release 0.2.0, after the commit |
+| `doc/Log.Manifest.md` | Modified | This update |
+
+### Metrics
+
+- Tests: 497, with 902 assertions, up from 477 and 805.
+- Regressions at `023a7c6`: 0.
+
+### Outstanding Work
+
+New:
+
+- **The fast path for records with slots.** A record of fixed size with slots
+  or placed fields takes the general path (SPECOPS-DRAFT-manifest-D77);
+  SPECOPS-O26 asks how far one check of the extent can serve it.
+- **Reads.** `unmarshal` loads through the general source, one call of a
+  deserializer for each field; the reads' own fast path, a fixed record's one
+  check and direct loads, is the plan's next step (SPECOPS-O25).
+- **An example of byte orders in the Reference.** The orders are tested in
+  `manifest-basics`; an example in `manifest-ref` would let the Reference show
+  them, as SPECOPS-D70 has its examples.
+- **Enumerated values given as forms** are converted when the code runs by a
+  look-up in the table of enums, on the fast path as on the general one.
+- **`serialize` and its callers,** the assembler and the program layer, still
+  use the generic serializer and its numeric granularities.
+- The items of the previous updates remain: a masque group's range check in a
+  patch, decimal masques in a patch, and the others.

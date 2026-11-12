@@ -11,7 +11,7 @@ authors:
   - Andrew Sengul
 approved-by:   Andrew Sengul
 reviewed:      2026-11-01
-api-version:   0.1.4
+api-version:   0.2.0
 provenance:
   assistant:   claude-opus (OpenCode)
   session:     Manifest Reference
@@ -25,7 +25,7 @@ glossary:      SPECOPS-0002
 # Manifest Reference
 
 This reference describes SpecOps's manifest layer as released in version
-0.1.4, tagged `v0.1.4`: `defmanifest`, which declares the layout of a binary
+0.2.0, tagged `v0.2.0`: `defmanifest`, which declares the layout of a binary
 record; `marshal`, which writes a record's fields to a vector, a stream or a
 function; `unmarshal`, which reads them back from a vector, an integer or a
 stream; the record classes and conditions these define and signal; the stop
@@ -56,7 +56,7 @@ examples are run with the rest of the suite and cannot drift from the code
   there, and called *expansion errors* below.
 - **Examples** are evaluated in a package that uses `specops`, with this
   helper, which builds the source vectors of 8-bit manifests
-  (`test/test-manifest-ref.lisp:octets@v0.1.4`):
+  (`test/test-manifest-ref.lisp:octets@v0.2.0`):
 
   ```lisp
   (defun octets (&rest units)
@@ -82,21 +82,21 @@ symbol: `str`, `vec`, `pad`, `masque`, `span`, `manifest` or `place`
 (SPECOPS-D31); or a constant number, bare or as `(width . value)` (see
 [Constants, masques and pads](#constants-masques-and-pads)). Directives are recognized by their symbol's name, in any
 package (SPECOPS-D48). Defined in
-`src/manifest/manifest.lisp:defmanifest@v0.1.4`.
+`src/manifest/manifest.lisp:defmanifest@v0.2.0`.
 
 Table: The parameters of `defmanifest`.
 
 | Parameter | Value | Meaning |
 |---|---|---|
 | `:unit` | `8`, `16`, `32` or `64`; or `0` to `3`; or `:byte`, `:word`, `:doubleword` or `:quadword` | The width of a unit, in bits or as a power of two above 8. Required: keyword types and masques need it. |
-| `:endian` | `:big`, `:little`, or `:middle` (also `:pdp`) | The byte order of every field that gives none of its own. Default `:big` (SPECOPS-D56). |
+| `:endian` | `:big`, `:little`, `:pdp`, or `(outer inner group)` | The order of the units of every field that gives none of its own; see [Byte orders](#byte-orders). Default `:big` (SPECOPS-D56). |
 | `:length` | An integer | Pads the record with the `:pad` value to this many units from its start; a record already longer is an error when the code runs. |
 | `:pad` | An integer | The fill unit of `:length`. Default 0. |
 | `:record` | `t` or a symbol | Defines a record class, named after the manifest for `t` (SPECOPS-D59). |
 
 `:index`, `:vextend-by` and `:count-from` are accepted and ignored.
 
-Example (`test/test-manifest-ref.lisp:ref-shape-written-and-read@v0.1.4`):
+Example (`test/test-manifest-ref.lisp:ref-shape-written-and-read@v0.2.0`):
 
 ```lisp
 (defenum shape-kind nil :circle 1 :square 2 :triangle 3)
@@ -143,7 +143,7 @@ A keyword that names no type, or `:u` or `:s` with no width, is an expansion
 error in a field; `:u` and `:s` alone are the types of
 [masque groups](#constants-masques-and-pads). A width counts units, so
 in a 16-bit manifest `(:u 1)` is one 16-bit unit and
-`(:u 2)` two (SPECOPS-D32; `test/test-manifest-ref.lisp:ref-word-sample-widths-count-units@v0.1.4`):
+`(:u 2)` two (SPECOPS-D32; `test/test-manifest-ref.lisp:ref-word-sample-widths-count-units@v0.2.0`):
 
 ```lisp
 (defmanifest word-sample (:unit 16 :endian :big)
@@ -175,14 +175,28 @@ float too large for its format is an error (SPECOPS-D91).
 
 ### Byte orders
 
-`:big` writes the most significant byte first, `:little` the least. `:middle`,
-or `:pdp`, writes a 32-bit field's 16-bit halves least significant first, each
-half big-endian: `#x01020304` is written `03 04 01 02`. A constant string is
-written in stream order, whatever the byte order (SPECOPS-D56).
+A byte order is the order in which a field's units are stored, whatever the
+width of a unit (SPECOPS-DRAFT-over-arrays-D15):
 
-In manifests of units wider than 8 bits, only `:big` is dependable in 0.1.4:
-`:little` and `:middle` reorder the field's bytes, not its units (see
-[Limits in 0.1.4](#limits-in-014)).
+Table: The byte orders, and how each stores `#x01020304` as four 8-bit units.
+
+| Order | Stores | `#x01020304` |
+|---|---|---|
+| `:big` | The most significant unit first | `01 02 03 04` |
+| `:little` | The least significant unit first | `04 03 02 01` |
+| `(outer inner group)` | The units in groups of GROUP, the groups in the OUTER order and the units of each group in the INNER one | `(:little :big 2)`: `03 04 01 02` |
+| `:pdp` | The PDP-11's order, `(:big :little 2)` | `02 01 04 03` |
+
+In a manifest of 16-bit units, `:little` stores `(:u 2)` holding `#x01020304`
+as `#x0304 #x0102`, each unit whole. A field of no more units than a grouped
+order's group is stored in the group's inner order, so under `:pdp` a 16-bit
+field in 8-bit units is stored low byte first; a field of more units that is
+not a whole number of groups is an expansion error. `:middle`, of earlier
+releases, is an expansion error naming the explicit forms, since
+"middle-endian" names different orders in different sources. A constant
+string is written in stream order, whatever the byte order (SPECOPS-D56).
+Reads follow the same orders (`test/test-manifest-basics.lisp:pdp-order-is-badc-and-a-grouped-order-may-be-cdab@v0.2.0`,
+`test/test-manifest-basics.lisp:little-endian-orders-a-field-s-units-not-its-bytes@v0.2.0`).
 
 ### `defenum`
 
@@ -195,7 +209,7 @@ Defines the enumeration NAME, pairing keywords with integer codes, for
 enumerated by NAME writes a keyword as its code, and an integer as itself; on
 read, a code the enumeration lacks reads as the integer, so it can be written
 back unchanged (SPECOPS-D57;
-`test/test-manifest-ref.lisp:ref-shape-unknown-code@v0.1.4`):
+`test/test-manifest-ref.lisp:ref-shape-unknown-code@v0.2.0`):
 
 ```lisp
 (unmarshal shape (octets 9 0 0 0 0 0 1) nil :kind)
@@ -203,7 +217,7 @@ back unchanged (SPECOPS-D57;
 ```
 
 A keyword default goes through the enumeration
-(`test/test-manifest-ref.lisp:ref-shape-defaults@v0.1.4`):
+(`test/test-manifest-ref.lisp:ref-shape-defaults@v0.2.0`):
 
 ```lisp
 (let ((buf (make-array 7 :element-type '(unsigned-byte 8))))
@@ -238,8 +252,8 @@ Elements are read back as a vector of codes, or as a string under a codec.
 A LEB128 field writes the fewest bytes its value needs; a vector of LEB128
 integers takes `:count`, `:end-by` or a length slot as any vector does.
 
-Example (`test/test-manifest-ref.lisp:ref-entry-name-written@v0.1.4` and
-`test/test-manifest-ref.lisp:ref-entry-name-read@v0.1.4`):
+Example (`test/test-manifest-ref.lisp:ref-entry-name-written@v0.2.0` and
+`test/test-manifest-ref.lisp:ref-entry-name-read@v0.2.0`):
 
 ```lisp
 (defmanifest entry-name (:unit 8 :endian :big)
@@ -277,7 +291,7 @@ unmatched selector with no `otherwise` is an error. A masque's keyword group
 may be a selector (SPECOPS-D90). A key the selector's enumeration lacks, or a
 selector after the field it selects for, is an expansion error.
 
-Example (`test/test-manifest-ref.lisp:ref-value-cell-branches@v0.1.4`):
+Example (`test/test-manifest-ref.lisp:ref-value-cell-branches@v0.2.0`):
 
 ```lisp
 (defmanifest value-cell (:unit 8 :endian :big)
@@ -335,7 +349,7 @@ Example (`test/test-manifest-ref.lisp:ref-value-cell-branches@v0.1.4`):
   multiple of N units from the start of the destination (SPECOPS-D42). On
   read, pads are passed over; written back, they hold FILL (SPECOPS-D62).
 
-Example (`test/test-manifest-ref.lisp:ref-constants@v0.1.4`), the start of
+Example (`test/test-manifest-ref.lisp:ref-constants@v0.2.0`), the start of
 a WebAssembly module, its magic number in stream order and its version, 1, in
 four units:
 
@@ -354,8 +368,8 @@ four units:
 ;; => :CONSTANT
 ```
 
-Example (`test/test-manifest-ref.lisp:ref-frame-header-layout@v0.1.4` and
-`test/test-manifest-ref.lisp:ref-frame-header-constant-checked@v0.1.4`):
+Example (`test/test-manifest-ref.lisp:ref-frame-header-layout@v0.2.0` and
+`test/test-manifest-ref.lisp:ref-frame-header-constant-checked@v0.2.0`):
 
 ```lisp
 (defmanifest frame-header (:unit 8 :endian :big :length 12)
@@ -407,8 +421,8 @@ A checksum function takes a vector of units, a start and an end, as `crc`,
 same manifest, or in an instance it repeats (SPECOPS-D66); a region the
 manifest lacks is an expansion error.
 
-Example (`test/test-manifest-ref.lisp:ref-chunk-slots-written@v0.1.4` and
-`test/test-manifest-ref.lisp:ref-chunk-read@v0.1.4`):
+Example (`test/test-manifest-ref.lisp:ref-chunk-slots-written@v0.2.0` and
+`test/test-manifest-ref.lisp:ref-chunk-read@v0.2.0`):
 
 ```lisp
 (defmanifest chunk (:unit 8 :endian :big :record t)
@@ -447,8 +461,8 @@ inlined into the parent's (SPECOPS-D37, SPECOPS-D63). With `:count` or
 
 `:place tag` places the instance (see [Placed fields](#placed-fields)).
 
-Example (`test/test-manifest-ref.lisp:ref-polygon-counted@v0.1.4` and
-`test/test-manifest-ref.lisp:ref-repeats-until@v0.1.4`):
+Example (`test/test-manifest-ref.lisp:ref-polygon-counted@v0.2.0` and
+`test/test-manifest-ref.lisp:ref-repeats-until@v0.2.0`):
 
 ```lisp
 (defmanifest point (:unit 8 :endian :big :record t)
@@ -498,7 +512,7 @@ slots may cover it too. On read, a placed field is read at the offset its slot
 gives (SPECOPS-D84). A tag no directive declares, a slot after its placed
 field, and a placed field inside a span are expansion errors.
 
-Example (`test/test-manifest-ref.lisp:ref-archive-placed@v0.1.4`):
+Example (`test/test-manifest-ref.lisp:ref-archive-placed@v0.2.0`):
 
 ```lisp
 (defmanifest archive-entry (:unit 8 :endian :big :record t)
@@ -530,13 +544,18 @@ Example (`test/test-manifest-ref.lisp:ref-archive-placed@v0.1.4`):
 Writes the manifest NAME to DESTINATION and returns the position after the
 last unit written, counted from the start of the destination (SPECOPS-D28,
 SPECOPS-D60). Defined in
-`src/manifest/manifest.lisp:marshal@v0.1.4`.
+`src/manifest/manifest.lisp:marshal@v0.2.0`.
 
 - **Destination.** A vector, written from position 0, or from the index
   `(:at index)` gives; a binary output
   stream; or a function of one argument, called with each unit in turn. A
   vector too small signals `manifest-overrun`; its fill pointer is neither
-  read nor set (SPECOPS-D75). A manifest with slots is written through a
+  read nor set (SPECOPS-D75). A record of fixed size, with no slots and no
+  placed fields, written to a simple vector of its unit type is checked
+  against the vector whole before any unit is written, so an overrun leaves
+  the vector as it was; otherwise the units before the overrun are written.
+  The condition and its position are the same either way
+  (SPECOPS-DRAFT-over-arrays-D16). A manifest with slots is written through a
   buffer to a stream or a function, which cannot be backpatched in place
   (SPECOPS-D73).
 - **Values.** Each FIELD, a keyword, is followed by a form giving its value,
@@ -561,10 +580,10 @@ SPECOPS-D60). Defined in
   first: `(:at i :from record)`. Pairs of odd length, as when a path is
   given first and taken for the options, are an expansion error.
 
-Examples (`test/test-manifest-ref.lisp:ref-marshal-to-a-function@v0.1.4`,
-`test/test-manifest-ref.lisp:ref-marshal-from-a-record@v0.1.4`,
-`test/test-manifest-ref.lisp:ref-marshal-to-and-from-a-stream@v0.1.4` and
-`test/test-manifest-ref.lisp:ref-marshal-buffer-reused@v0.1.4`):
+Examples (`test/test-manifest-ref.lisp:ref-marshal-to-a-function@v0.2.0`,
+`test/test-manifest-ref.lisp:ref-marshal-from-a-record@v0.2.0`,
+`test/test-manifest-ref.lisp:ref-marshal-to-and-from-a-stream@v0.2.0` and
+`test/test-manifest-ref.lisp:ref-marshal-buffer-reused@v0.2.0`):
 
 ```lisp
 (let ((units nil))
@@ -609,9 +628,12 @@ writes do (SPECOPS-D100).
 - **Branches.** A field reached through a `:case` field is written in the
   branch its selector chooses: the selector's value given in the same patch
   when there is one, and otherwise the selector as it stands in the vector,
-  read when the code runs. A key that no branch has is an expansion error; one
+  read when the code runs. A key that no branch has is an expansion error. One
   that the chosen branch lacks is an error when the code runs, naming the
-  branch and the selector's value.
+  branch found and the selector's value, signalled before any unit is
+  written, at any depth of sub-manifests (SPECOPS-DRAFT-over-arrays-D17). A
+  selector's value given as a form is evaluated once, before the values of
+  the other fields.
 - **Bounds.** The whole record is checked against the vector before any unit
   is written; a record that would not fit signals `manifest-overrun` at the
   record's end, and nothing is written (SPECOPS-D106).
@@ -630,7 +652,7 @@ SPECOPS-D103, SPECOPS-D104):
 - a destination that is not a vector, where the form shows it; otherwise
   the error comes when the code runs.
 
-Example (`test/test-manifest-ref.lisp:ref-patch@v0.1.4`):
+Example (`test/test-manifest-ref.lisp:ref-patch@v0.2.0`):
 
 ```lisp
 (let ((v (octets 1 2 3 4)))
@@ -648,7 +670,7 @@ Makes an empty `manifest-buffer`, a holder for the array through which
 `marshal` writes a manifest with slots to a stream or a function, and in which
 `unmarshal` keeps the units it reads from a stream (SPECOPS-D79). The array
 grows as needed and is kept between calls. Defined with the structure
-`src/manifest/manifest.lisp:manifest-buffer@v0.1.4`.
+`src/manifest/manifest.lisp:manifest-buffer@v0.2.0`.
 
 ## Reading: `unmarshal`
 
@@ -657,7 +679,7 @@ grows as needed and is kept between calls. Defined with the structure
 ```
 
 Reads the manifest NAME from SOURCE (SPECOPS-D40, SPECOPS-D61). Defined in
-`src/manifest/manifest.lisp:unmarshal@v0.1.4`.
+`src/manifest/manifest.lisp:unmarshal@v0.2.0`.
 
 - **Source.** A vector whose element type is the manifest's unit, such as
   `(unsigned-byte 8)`, read from position 0, or from the index `(:at index)`
@@ -680,7 +702,7 @@ Reads the manifest NAME from SOURCE (SPECOPS-D40, SPECOPS-D61). Defined in
 
   An unknown option is an expansion error.
 
-Example (`test/test-manifest-ref.lisp:ref-unmarshal-sources@v0.1.4`):
+Example (`test/test-manifest-ref.lisp:ref-unmarshal-sources@v0.2.0`):
 
 ```lisp
 (unmarshal shape #x02FFFE2C01000A)
@@ -721,7 +743,7 @@ Table: What each position counts from, with `(:at index)`.
 A record therefore holds the same units at any index, unless an `:align` pad
 falls differently, and `marshal`'s result is where the next record begins.
 
-Example (`test/test-manifest-ref.lisp:ref-records-at-an-index@v0.1.4`):
+Example (`test/test-manifest-ref.lisp:ref-records-at-an-index@v0.2.0`):
 
 ```lisp
 (let ((shapes (make-array 21 :element-type '(unsigned-byte 8)))
@@ -743,7 +765,7 @@ and constants in the part read are checked (SPECOPS-D82). A key that names a
 sub-manifest gives its whole plist. A key the manifest lacks is an expansion
 error.
 
-Example (`test/test-manifest-ref.lisp:ref-unmarshal-selective@v0.1.4`):
+Example (`test/test-manifest-ref.lisp:ref-unmarshal-selective@v0.2.0`):
 
 ```lisp
 (unmarshal shape (octets 2 #xFF #xFE #x2C #x01 0 10) nil :size :kind)
@@ -756,9 +778,10 @@ sub-manifest branches of `:case` fields (SPECOPS-D99). The
 field the path's first name names is read, and the value taken from it. A
 path that names no field along it, or that passes through a scalar or into a
 repeat, is an expansion error; a path through a branch that lacks its field is
-an error when the code runs, naming the selector's value.
+an error when the code runs, naming the branch found and the selector that
+chose it, with its value.
 
-Example (`test/test-manifest-ref.lisp:ref-paths@v0.1.4`), with a manifest of
+Example (`test/test-manifest-ref.lisp:ref-paths@v0.2.0`), with a manifest of
 two `point`s:
 
 ```lisp
@@ -777,7 +800,7 @@ checked as they are read, and a failure signals `manifest-check-failed`, with
 restarts to accept the value or substitute another (SPECOPS-D69,
 SPECOPS-D70; see [Conditions](#conditions)).
 
-Example (`test/test-manifest-ref.lisp:ref-chunk-check-failed@v0.1.4`):
+Example (`test/test-manifest-ref.lisp:ref-chunk-check-failed@v0.2.0`):
 
 ```lisp
 (let ((bad (octets 0 0 0 3  #x44 #x41 #x54 #x41  1 7 3  #xAD #xEA #x58 #x81)))
@@ -798,7 +821,7 @@ Example (`test/test-manifest-ref.lisp:ref-chunk-check-failed@v0.1.4`):
 A manifest defined with `(:record t)`, or `(:record class-name)`, has a record
 class: a standard class with a slot for each named field, in the same set of
 fields as `unmarshal`'s plist (SPECOPS-D59). Defined in
-`src/manifest/manifest.lisp:define-manifest-record@v0.1.4`.
+`src/manifest/manifest.lisp:define-manifest-record@v0.2.0`.
 
 - Each slot has an initarg, the field's keyword, and an accessor named after
   the class and the field, such as `shape-x`; a missing value is `nil`.
@@ -816,7 +839,7 @@ read and written back reproduces the source, except where the source holds pad
 units other than the pad's fill, or slots that disagree with their regions,
 which are written in canonical form (SPECOPS-D62).
 
-Example (`test/test-manifest-ref.lisp:ref-records@v0.1.4`):
+Example (`test/test-manifest-ref.lisp:ref-records@v0.2.0`):
 
 ```lisp
 (let ((s (make-shape :kind :triangle :x 3)))
@@ -837,7 +860,7 @@ Example (`test/test-manifest-ref.lisp:ref-records@v0.1.4`):
 A generic function: the value of the field NAME, a keyword, in RECORD, a plist
 or a record; `nil` when it holds none. Each record class adds a method.
 `marshal` calls it for `(:from record)`. Defined in
-`src/manifest/manifest.lisp:field-value@v0.1.4`.
+`src/manifest/manifest.lisp:field-value@v0.2.0`.
 
 ## Conditions
 
@@ -849,7 +872,7 @@ Table: The conditions of the manifest layer, their readers and restarts.
 | `manifest-overrun`, an `error` | `marshal`, when a vector destination is too small | `overrun-manifest`, `overrun-size`, `overrun-position` | — |
 
 For `manifest-check-failed`, defined in
-`src/manifest/manifest.lisp:manifest-check-failed@v0.1.4`:
+`src/manifest/manifest.lisp:manifest-check-failed@v0.2.0`:
 
 - `check-kind` is `:checksum`, `:length`, `:offset` or `:count` for a slot
   field, or `:constant` for a constant string, a terminator or a masque's
@@ -863,9 +886,9 @@ For `manifest-check-failed`, defined in
   value for a slot field, such as `check-expected`.
 
 For `manifest-overrun`, defined in
-`src/manifest/manifest.lisp:manifest-overrun@v0.1.4`, `overrun-size` is the
+`src/manifest/manifest.lisp:manifest-overrun@v0.2.0`, `overrun-size` is the
 vector's allocated size and `overrun-position` the unit that would not fit
-(`test/test-manifest-ref.lisp:ref-marshal-overrun@v0.1.4`); for a patch, which
+(`test/test-manifest-ref.lisp:ref-marshal-overrun@v0.2.0`); for a patch, which
 checks before it writes, the position is the record's end.
 
 ## Stop rules
@@ -875,7 +898,7 @@ A `:vec` field may end where a user's rule says: `:stop-by class`, or
 of `stop-rule` (SPECOPS-D55). A fresh instance is made for each field each
 time it is read or written. The class must exist when a manifest that names
 it is expanded, so define it inside `eval-when` with all three situations.
-Defined in `src/manifest/scan.lisp:stop-rule@v0.1.4`.
+Defined in `src/manifest/scan.lisp:stop-rule@v0.2.0`.
 
 Table: The stop rule protocol, generic functions specialized on the rule.
 
@@ -890,10 +913,10 @@ Table: The stop rule protocol, generic functions specialized on the rule.
 A rule may instead define methods on `stop-effector` and `frame-effector`,
 which return code fragments that are inlined at expansion in place of calls to
 the five functions, with no change to the manifests that use it
-(`src/manifest/scan.lisp:stop-effector@v0.1.4` and
-`src/manifest/scan.lisp:frame-effector@v0.1.4` document the fragments).
+(`src/manifest/scan.lisp:stop-effector@v0.2.0` and
+`src/manifest/scan.lisp:frame-effector@v0.2.0` document the fragments).
 
-Example (`test/test-manifest-ref.lisp:ref-stop-rule@v0.1.4`):
+Example (`test/test-manifest-ref.lisp:ref-stop-rule@v0.2.0`):
 
 ```lisp
 (eval-when (:compile-toplevel :load-toplevel :execute)
@@ -937,10 +960,10 @@ right as a binary mask's bits are (SPECOPS-D87).
 `:mask`, the default, reduces it to the group's width, two's complement for a
 negative value; `:error` signals an error, at expansion for a constant value;
 `nil` leaves it as it is (SPECOPS-D88). Defined in
-`src/serial.lisp:masque@v0.1.4` and `src/serial.lisp:unmasque@v0.1.4`.
+`src/serial.lisp:masque@v0.2.0` and `src/serial.lisp:unmasque@v0.2.0`.
 
-Example (`test/test-manifest-ref.lisp:ref-masque-and-unmasque@v0.1.4` and
-`test/test-manifest-ref.lisp:ref-masque-overflow@v0.1.4`):
+Example (`test/test-manifest-ref.lisp:ref-masque-and-unmasque@v0.2.0` and
+`test/test-manifest-ref.lisp:ref-masque-overflow@v0.2.0`):
 
 ```lisp
 (masque "h:aabb" (a #x12) (b #x34))       ;; => #x1234
@@ -960,9 +983,9 @@ Example (`test/test-manifest-ref.lisp:ref-masque-and-unmasque@v0.1.4` and
 Calls COLLECTOR with each UNIT-bit unit of ITEM, most significant first: an
 integer in as few units as it needs, a pair `(width . value)` in WIDTH units,
 or a vector's elements as they are. Defined in
-`src/serial.lisp:serialize@v0.1.4`.
+`src/serial.lisp:serialize@v0.2.0`.
 
-Example (`test/test-manifest-ref.lisp:ref-serialize@v0.1.4`):
+Example (`test/test-manifest-ref.lisp:ref-serialize@v0.2.0`):
 
 ```lisp
 (let ((units nil))
@@ -980,12 +1003,12 @@ Table: Checksum functions, which `:checksum-of` slots name with `:by`.
 
 | Function | Computes |
 |---|---|
-| `(crc buffer start end)` | CRC-32, as PNG and zlib use (`src/checksum.lisp:crc@v0.1.4`) |
-| `(adler32 buffer start end)` | Adler-32 (`src/checksum.lisp:adler32@v0.1.4`) |
-| `(adler32-checksum sequence &key start end)` | Adler-32 with keyword bounds (`src/checksum.lisp:adler32-checksum@v0.1.4`) |
-| `(sfnt-checksum buffer start end)` | The sum, modulo 2^32, of big-endian 32-bit words, the last padded with zeros, as sfnt and WOFF fonts use (`src/checksum.lisp:sfnt-checksum@v0.1.4`) |
+| `(crc buffer start end)` | CRC-32, as PNG and zlib use (`src/checksum.lisp:crc@v0.2.0`) |
+| `(adler32 buffer start end)` | Adler-32 (`src/checksum.lisp:adler32@v0.2.0`) |
+| `(adler32-checksum sequence &key start end)` | Adler-32 with keyword bounds (`src/checksum.lisp:adler32-checksum@v0.2.0`) |
+| `(sfnt-checksum buffer start end)` | The sum, modulo 2^32, of big-endian 32-bit words, the last padded with zeros, as sfnt and WOFF fonts use (`src/checksum.lisp:sfnt-checksum@v0.2.0`) |
 
-Example (`test/test-manifest-ref.lisp:ref-checksums@v0.1.4`):
+Example (`test/test-manifest-ref.lisp:ref-checksums@v0.2.0`):
 
 ```lisp
 (let ((v (map '(vector (unsigned-byte 8)) #'char-code "123456789")))
@@ -1008,10 +1031,10 @@ exactly; single and double floats as such; quad floats as exact rationals.
 Infinities and NaN read as `:infinity`, `:-infinity` and `:nan`, and those
 keywords are written as them; on SBCL, single and double precision use its
 own floats, so an infinity or a NaN, its payload included, reads as an SBCL
-float. Defined in `src/serial.lisp:encode-float-bits@v0.1.4` and
-`src/serial.lisp:decode-float-bits@v0.1.4`.
+float. Defined in `src/serial.lisp:encode-float-bits@v0.2.0` and
+`src/serial.lisp:decode-float-bits@v0.2.0`.
 
-Example (`test/test-manifest-ref.lisp:ref-float-bits@v0.1.4`):
+Example (`test/test-manifest-ref.lisp:ref-float-bits@v0.2.0`):
 
 ```lisp
 (encode-float-bits 1.5 32)                                  ;; => #x3FC00000
@@ -1028,13 +1051,10 @@ defines one from a table of code pages; the map modules define
 `specops.map.ebcdic:ebcdic-code-cp037`, `specops.map.ebcdic:ebcdic-code-cp310`
 and `specops.map.cp437:cp437-code`, in the systems `specops.map.ebcdic` and
 `specops.map.cp437`. A character or a code that a field's codec lacks is an
-error (SPECOPS-D43). Defined in `src/serial.lisp:defcodetable@v0.1.4`.
+error (SPECOPS-D43). Defined in `src/serial.lisp:defcodetable@v0.2.0`.
 
-## Limits in 0.1.4
+## Limits in 0.2.0
 
-- **Byte orders in wider units.** In a manifest of units wider than 8 bits,
-  `:little` and `:middle` reorder the bytes of a field, not its units:
-  `(:u 1)` holding 1 in a little-endian 16-bit manifest is written `#x0100`.
 - **Source vectors.** `unmarshal` reads a vector whose element type is the
   manifest's unit; a general vector such as `#(2 255)` is an error, reported
   as "Incompatible type for collection array."
@@ -1062,6 +1082,9 @@ src/
   checksum.lisp              crc, adler32, adler32-checksum, sfnt-checksum
   serial.lisp                serialize, defcodetable, masque, unmasque, stream
                              sources, IEEE float bits
+  units.lisp                 the code that stores and loads binary values in
+                             their orders of units, for the manifest layer;
+                             internal
   manifest/
     scan.lisp                stop rules, field plans and value assemblers
     manifest.lisp            defenum, defmanifest, records, marshal, unmarshal,
@@ -1072,6 +1095,7 @@ test/
   test-manifest-ref.lisp     this document's examples, the suite manifest-ref
   test-manifest-*.lisp       the manifest suites
   test-serial.lisp           the serialization suite
+  test-units.lisp            the suite units, of the code builder
 ```
 
 Description: The tree lists the files that implement the manifest layer, the
