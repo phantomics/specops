@@ -19,7 +19,7 @@ relates-to:
   - SPECOPS-0006
   - SPECOPS-0003
   - SPECOPS-0004
-  - SPECOPS-DRAFT-manifest-benchmarks
+  - SPECOPS-0009
 decisions:
   - SPECOPS-D95
   - SPECOPS-D96
@@ -39,7 +39,7 @@ open-questions:
   - SPECOPS-O22
   - SPECOPS-O23
   - SPECOPS-O24
-  - SPECOPS-DRAFT-over-arrays-O6
+  - SPECOPS-O36
 cites:
   - title:    The Cell Model Architecture (Lexter)
     locator:  Lexter repository, doc/Arch.CellModel.md — the record by word (LEXTER-D81 to LEXTER-D95); The Record; Invariants of a record
@@ -327,7 +327,7 @@ alone, the steward's first suspect (not taken as the remedy: the evaluation
 measured no gain in time and 79 bytes fewer); the fast path without
 declarations (rejected: 132 ns, above the target); the fast path for every
 record (not possible as measured: a record of varying size has no extent to
-check once, SPECOPS-DRAFT-manifest-benchmarks-O2); the fast path before paths
+check once, SPECOPS-O26); the fast path before paths
 and patches (not taken by the steward, who has put it after them).
 
 ### SPECOPS-D103 — In this iteration, only a record of fixed size may be patched
@@ -511,7 +511,7 @@ SPECOPS-D102 and is a step of the roadmap.
   repeat, such as `(:points 2 :x)`, to whose design the steward has prior art
   of his own to contribute.
 - **Branches checked before a patch writes**
-  (SPECOPS-DRAFT-over-arrays-O6). A key that the chosen branch lacks found
+  (SPECOPS-O36). A key that the chosen branch lacks found
   before the first unit is written, as an overrun is.
 
 ## Open Questions
@@ -562,7 +562,7 @@ patch name one instance's field, such as `(:points 2 :x)`. The steward has
 planned this for a later stage, and has prior art of his own to contribute to
 its design.
 
-### SPECOPS-DRAFT-over-arrays-O6 — Should a patch check its branches before it writes?
+### SPECOPS-O36 — Should a patch check its branches before it writes?
 
 A patch checks the record's bounds before it writes any unit, because a
 partial write would leave the record inconsistent (SPECOPS-D106). A key given
@@ -634,7 +634,7 @@ Table: Prior systems and what this plan draws from each.
    release of its own after 0.1.4.
 6. **Later additions**, as users show the need: the layout as data of
    SPECOPS-O22, reads measured and remedied as writes are
-   (SPECOPS-DRAFT-manifest-benchmarks-O1), and the others listed under
+   (SPECOPS-O25), and the others listed under
    [Later Additions](#later-additions).
 
 Each step is recorded in an update to the
@@ -786,14 +786,14 @@ previous update are marked "new".
 | 1. The prototype | Done | As before | — |
 | 2. Records at an index | Done | As before | As before |
 | 3. Paths | New: done | New: paths through sub-manifests and `:case` branches in selective reads, checked at expansion and the branch when the code runs; released as 0.1.4 | Element indices in paths (SPECOPS-O24) |
-| 4. Patches | New: done | New: `(:patch t)` for records of fixed size, with paths and nested pairs, masque groups written into their units, selectors given or read, the record checked first, the refusals, and the record's end returned; Lexter's cells patched in ten tests; `backpatching` renamed; released as 0.1.4 | Records of varying size (SPECOPS-D103); `(:from record)` (SPECOPS-D104); a branch mismatch found before the patch writes (SPECOPS-DRAFT-over-arrays-O6) |
+| 4. Patches | New: done | New: `(:patch t)` for records of fixed size, with paths and nested pairs, masque groups written into their units, selectors given or read, the record checked first, the refusals, and the record's end returned; Lexter's cells patched in ten tests; `backpatching` renamed; released as 0.1.4 | Records of varying size (SPECOPS-D103); `(:from record)` (SPECOPS-D104); a branch mismatch found before the patch writes (SPECOPS-O36) |
 | 5. The fast path | Decided | As before | As before |
 | 6. Later additions | Not started | — | The layout as data; reads measured |
 
 A patch checks the record's bounds before it writes, as
 SPECOPS-D106 decides, but a key that the branch chosen when
 the code runs lacks is found only when that branch is reached, after the
-fields before it are written; SPECOPS-DRAFT-over-arrays-O6 asks whether a
+fields before it are written; SPECOPS-O36 asks whether a
 patch should check its branches first.
 
 ### Priorities
@@ -813,4 +813,4 @@ and the generic serializer, from a fresh `(width . value)` pair
 so for patches to gain, step 5 must replace that code too. A selector that a
 patch does not give is read through a selective `unmarshal`, and a path reads
 its first field whole. Both are reads, which SPECOPS-D102 does not cover; they
-fall to the cost of reads (SPECOPS-DRAFT-manifest-benchmarks-O1).
+fall to the cost of reads (SPECOPS-O25).

@@ -1,5 +1,5 @@
 ---
-id:            SPECOPS-DRAFT-manifest-benchmarks
+id:            SPECOPS-0009
 title:         The Cost of Writing a Record with marshal Evaluation
 genre:         Eval
 subtype:       tradeoff
@@ -21,9 +21,9 @@ relates-to:
   - SPECOPS-0006
   - SPECOPS-0007
 open-questions:
-  - SPECOPS-DRAFT-manifest-benchmarks-O1
-  - SPECOPS-DRAFT-manifest-benchmarks-O2
-  - SPECOPS-DRAFT-manifest-benchmarks-O3
+  - SPECOPS-O25
+  - SPECOPS-O26
+  - SPECOPS-O27
 cites:
   - title:    binary-structures (Yukari Hafner)
     locator:  Shirakumo Quicklisp dist, commit d91c7ad — define-io-structure; the octet-vector backend
@@ -275,7 +275,7 @@ differs from it only in how a unit is stored.
 
 ## Open Questions
 
-### SPECOPS-DRAFT-manifest-benchmarks-O1 — What do reads cost, and do the same remedies serve them?
+### SPECOPS-O25 — What do reads cost, and do the same remedies serve them?
 
 Reading one flag of a cell costs some 210 ns and allocates 144 bytes
 (SPECOPS-0006). `unmarshal` makes a vector of deserializers on each call and
@@ -287,7 +287,7 @@ patch now reads in both ways: a masque's units through `deserializer-for`,
 and a selector it is not given through a selective `unmarshal`
 (`src/manifest/manifest.lisp:marshal@v0.1.4`).
 
-### SPECOPS-DRAFT-manifest-benchmarks-O2 — How much of T4 serves records with slots and variable-length fields?
+### SPECOPS-O26 — How much of T4 serves records with slots and variable-length fields?
 
 The cell has neither. A record with slots is backpatched, through a buffer
 when the destination is not a simple vector of its unit type, and a field of
@@ -295,7 +295,7 @@ variable length has no extent fixed at expansion. T3 serves both; how far one
 bounds check can reach, such as over the fixed fields before the first
 variable one, is to be measured on records such as PNG's.
 
-### SPECOPS-DRAFT-manifest-benchmarks-O3 — Do the remedies keep every error a full write signals?
+### SPECOPS-O27 — Do the remedies keep every error a full write signals?
 
 T3's range check stands in for the serializer's, with a message of its own,
 and T4's bounds check reports the vector's size, where a write unit by unit

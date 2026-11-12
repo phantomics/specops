@@ -1,5 +1,5 @@
 ---
-id:            SPECOPS-DRAFT-recursive-manifests
+id:            SPECOPS-0010
 title:         Recursive Manifests Survey
 genre:         Survey
 scope:         component
@@ -20,14 +20,14 @@ relates-to:
   - SPECOPS-0008
   - SPECOPS-0004
 open-questions:
-  - SPECOPS-DRAFT-recursive-manifests-O1
-  - SPECOPS-DRAFT-recursive-manifests-O2
-  - SPECOPS-DRAFT-recursive-manifests-O3
-  - SPECOPS-DRAFT-recursive-manifests-O4
-  - SPECOPS-DRAFT-recursive-manifests-O5
-  - SPECOPS-DRAFT-recursive-manifests-O6
-  - SPECOPS-DRAFT-recursive-manifests-O7
-  - SPECOPS-DRAFT-recursive-manifests-O8
+  - SPECOPS-O28
+  - SPECOPS-O29
+  - SPECOPS-O30
+  - SPECOPS-O31
+  - SPECOPS-O32
+  - SPECOPS-O33
+  - SPECOPS-O34
+  - SPECOPS-O35
 cites:
   - title:    Vox Survey (Vox)
     locator:  Vox repository, doc/Survey.Vox.md — The encoding; SpecOps's role; VOX-DRAFT-vox-O5
@@ -154,18 +154,18 @@ Table: Mechanisms for recursive references, and what each keeps and costs.
 
 | Mechanism | Where a call is made | Keeps | Costs |
 |---|---|---|---|
-| Inline until a cycle, then call | Where a cycle closes, found at expansion | Inlining wherever there is no cycle; manifests that never recur unchanged | Every walk at expansion made to detect cycles; a cycle's functions to define (SPECOPS-DRAFT-recursive-manifests-O1) |
+| Inline until a cycle, then call | Where a cycle closes, found at expansion | Inlining wherever there is no cycle; manifests that never recur unchanged | Every walk at expansion made to detect cycles; a cycle's functions to define (SPECOPS-O28) |
 | A function for every manifest | At every sub-manifest, recursive or not | Nothing to detect; each manifest's functions defined with it | The inlining of SPECOPS-D37 and SPECOPS-D63 everywhere, with its shared variables, and a call for every sub-manifest of every record |
 | The writer marks the reference, as Construct's `LazyBound` does | Where the writer marks one, as `(manifest :body wasm-instr :call t)` might | Nothing to infer; the writer chooses where the call goes | A cycle left unmarked still expands without end, so cycles must be detected anyway, to report one |
 | Inlining to a fixed depth, then an error | Nowhere | No calls and one code path; the depth is a `:max-depth` | Code that grows with the depth, and in a tree, whose levels may each hold several references, multiplies at every level |
 
-Which mechanism serves is SPECOPS-DRAFT-recursive-manifests-O8.
+Which mechanism serves is SPECOPS-O35.
 
 **The functions.** Each manifest at which a cycle closes needs a writer, a
 reader and, for selective reads, a function that passes over an instance.
 Their bodies are `marshal` and `unmarshal` code, which can be expanded only
 once every manifest of the cycle is defined; how they are defined is
-SPECOPS-DRAFT-recursive-manifests-O1.
+SPECOPS-O28.
 
 **What crosses a call.**
 
@@ -203,7 +203,7 @@ direction, a field states its own limits:
 A read that would exceed a limit signals a condition naming the field, the
 manifest and the limit; a write that would exceed it is an error, so that
 what is written can be read back. Where limits are stated and how they
-combine is SPECOPS-DRAFT-recursive-manifests-O2.
+combine is SPECOPS-O29.
 
 ## Three sketches
 
@@ -260,14 +260,14 @@ gaps that recursion does not close:
 
 - **A derived count.** The options' length is `6 + 8 × length` octets, and
   the manifest layer has no count that is a function of a field
-  (SPECOPS-DRAFT-recursive-manifests-O4).
+  (SPECOPS-O31).
 - **The branch list is written twice,** in the packet and in each header,
   because a sub-manifest cannot read its parent's Next Header field: the
   `:case` that dispatches on it must sit in the manifest that holds it
-  (SPECOPS-DRAFT-recursive-manifests-O6).
+  (SPECOPS-O33).
 - **TCP's checksum,** inside `tcp-segment`, covers a pseudo-header made of
   the enclosing header's addresses, which the segment cannot see
-  (SPECOPS-DRAFT-recursive-manifests-O6).
+  (SPECOPS-O33).
 
 ### A tree: ASN.1 BER
 
@@ -307,7 +307,7 @@ What the sketch leaves out marks what BER needs beyond recursion:
   number of length octets that follow, then the length in them. The width of
   the length field then depends on its value, and DER requires the shortest
   form (*X.690*, §10.1). A slot is backpatched in place, so its width must be
-  known before its value is (SPECOPS-DRAFT-recursive-manifests-O7).
+  known before its value is (SPECOPS-O34).
 - **Indefinite lengths,** in BER but not DER, end a constructed element at an
   end-of-contents element of tag 0 and length 0, which a repeat `:until` an
   instance whose fields have those values could express.
@@ -372,7 +372,7 @@ would still stand between that and Vox's use:
   rebuild the Lisp value from it, passing over the tree a second time. A
   function on a branch that turns its record into a value on read, as a codec
   turns codes into characters, would remove the second pass; whether that
-  belongs in manifests is SPECOPS-DRAFT-recursive-manifests-O3.
+  belongs in manifests is SPECOPS-O30.
 
 Datum's canonical form also requires a reader to reject a LEB128 integer not
 written in its fewest bytes, which the layer does not check.
@@ -396,11 +396,11 @@ Table: Gaps the surveyed formats expose, beyond recursion.
 
 | Gap | Formats | Question |
 |---|---|---|
-| Lengths and counts scaled or derived from fields | IPv4's IHL and TCP's data offset count 32-bit words; IPv4's total length includes the header; an IPv6 options header is 8 × (length + 1) octets | SPECOPS-DRAFT-recursive-manifests-O4 |
-| A checksum over a region that holds it | IPv4's header checksum, computed with its own field taken as zero | SPECOPS-DRAFT-recursive-manifests-O5 |
-| A sub-manifest reading its parent's fields | TCP's and UDP's checksums over the pseudo-header; IPv6's Next Header dispatch | SPECOPS-DRAFT-recursive-manifests-O6 |
-| A length whose width depends on its value | BER's long-form lengths, minimal in DER | SPECOPS-DRAFT-recursive-manifests-O7 |
-| Limits on counts and depth | Every format read from an untrusted source | SPECOPS-DRAFT-recursive-manifests-O2 |
+| Lengths and counts scaled or derived from fields | IPv4's IHL and TCP's data offset count 32-bit words; IPv4's total length includes the header; an IPv6 options header is 8 × (length + 1) octets | SPECOPS-O31 |
+| A checksum over a region that holds it | IPv4's header checksum, computed with its own field taken as zero | SPECOPS-O32 |
+| A sub-manifest reading its parent's fields | TCP's and UDP's checksums over the pseudo-header; IPv6's Next Header dispatch | SPECOPS-O33 |
+| A length whose width depends on its value | BER's long-form lengths, minimal in DER | SPECOPS-O34 |
+| Limits on counts and depth | Every format read from an untrusted source | SPECOPS-O29 |
 
 The arrays plan meets the third of these too, in Lexter's cells, whose glyph
 words are chosen by type bits a sub-manifest cannot see, and leaves it out of
@@ -425,7 +425,7 @@ its scope (SPECOPS-0008).
 - **Limits are only as good as the ones stated.** A field from a source
   without a stated limit stays unbounded; whether the layer should require
   limits for untrusted reads, or supply defaults, is part of
-  SPECOPS-DRAFT-recursive-manifests-O2.
+  SPECOPS-O29.
 
 ## Relationship to Other Work
 
@@ -487,7 +487,7 @@ its scope (SPECOPS-0008).
 
 ## Open Questions
 
-### SPECOPS-DRAFT-recursive-manifests-O1 — How are a cycle's functions defined?
+### SPECOPS-O28 — How are a cycle's functions defined?
 
 Their bodies can be expanded only once every manifest of the cycle exists.
 They could be defined by a form placed after the cycle, naming the manifests
@@ -496,7 +496,7 @@ or by `defmanifest` itself, expanding its functions at load time rather than
 compile time. Which manifests of a cycle get functions, how the functions are
 named, and whether users may call them are open too.
 
-### SPECOPS-DRAFT-recursive-manifests-O2 — Where are limits stated, and how do they combine?
+### SPECOPS-O29 — Where are limits stated, and how do they combine?
 
 The steward's direction is that a field states its own limits: the most
 elements a repeat or a vector takes, and the deepest nesting a recursive
@@ -509,7 +509,7 @@ a new kind, with a `continue` restart, or a condition of its own without one.
 Protocol Buffers and Cap'n Proto state their limits per reader, with
 defaults, and Cap'n Proto bounds the total data read as well as the depth.
 
-### SPECOPS-DRAFT-recursive-manifests-O3 — Should a branch convert its record to a Lisp value on read?
+### SPECOPS-O30 — Should a branch convert its record to a Lisp value on read?
 
 A function on a `:case` branch, applied to the record it reads, would let a
 manifest read Vox's Datum, or any tagged encoding, straight into Lisp values,
@@ -518,7 +518,7 @@ writing chooses by type, and the two directions would then differ; it would
 also make a read's result depend on code outside the manifest. Its costs and
 benefits are to be explored before it is decided.
 
-### SPECOPS-DRAFT-recursive-manifests-O4 — Should lengths and counts be scaled or derived from other fields?
+### SPECOPS-O31 — Should lengths and counts be scaled or derived from other fields?
 
 IPv4's IHL counts 32-bit words, an IPv6 options header's length counts 8-octet
 units after the first, and IPv4's total length covers the header and the
@@ -526,14 +526,14 @@ payload, so that the payload's length is a difference. A scale and an offset
 on a slot would cover the first two; the third needs a length computed from
 two fields. Which forms keep a manifest analysable at expansion?
 
-### SPECOPS-DRAFT-recursive-manifests-O5 — Should a checksum slot cover a region that holds it?
+### SPECOPS-O32 — Should a checksum slot cover a region that holds it?
 
 IPv4's header checksum is computed over the header with the checksum field
 taken as zero, and on read the stored value is checked by the same sum. A
 `:checksum-of` slot inside its own region would need its units zeroed for the
 computation, on write and on read.
 
-### SPECOPS-DRAFT-recursive-manifests-O6 — Should a sub-manifest read its parent's fields?
+### SPECOPS-O33 — Should a sub-manifest read its parent's fields?
 
 TCP's checksum covers its enclosing IP header's addresses, IPv6's dispatch by
 Next Header is repeated in every header that holds one, and Lexter's glyph
@@ -542,7 +542,7 @@ field of an enclosing manifest, inlined or across a call, would serve all
 three. How would such a reference be written, and what does it mean across a
 recursive call, whose code serves every caller?
 
-### SPECOPS-DRAFT-recursive-manifests-O7 — Should a length's width depend on its value?
+### SPECOPS-O34 — Should a length's width depend on its value?
 
 BER's lengths below 128 take one octet and longer ones several, and DER
 requires the shortest. A slot is written in place after its region, so its
@@ -551,7 +551,7 @@ buffer, or computing its size before writing it (SPECOPS-O17), would let a
 slot choose its width; which serves, and how a reader checks that a DER
 length is minimal, are open.
 
-### SPECOPS-DRAFT-recursive-manifests-O8 — Which mechanism makes a recursive reference expand?
+### SPECOPS-O35 — Which mechanism makes a recursive reference expand?
 
 A recursive reference can be made a call where a cycle closes, found at
 expansion; at every sub-manifest; where the writer marks it; or nowhere, by
@@ -559,5 +559,5 @@ inlining to a fixed depth. Each keeps and costs something different, as the
 table under "The mechanism" sets out. lisp-binary calls at every nested type,
 and binary-structures below the first level. Which serves SpecOps, whose
 manifests inline so that a record's checks and code are its own, is open, and
-how a cycle's functions are defined (SPECOPS-DRAFT-recursive-manifests-O1)
+how a cycle's functions are defined (SPECOPS-O28)
 follows from it.

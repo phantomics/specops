@@ -4061,7 +4061,7 @@ New:
   are checked before any unit is written, but a key the chosen branch lacks is
   found only when that branch is reached, after the fields before it are
   written. The selectors could be read and the branches checked first
-  (SPECOPS-DRAFT-over-arrays-O6).
+  (SPECOPS-O36).
 - **A path reads its first field whole,** a sub-manifest decoded to a plist
   for one of its fields, and a patch reads a selector it is not given through
   a selective `unmarshal`; both are costs for the fast path,
