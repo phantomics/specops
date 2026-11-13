@@ -993,8 +993,6 @@ and returns the record's end."
                      (t (let ((v (gensym "V")))                    ;; runtime form, resolve when it runs
                           `(let ((,v ,value))
                              (if (keywordp ,v) (getf (rest (gethash ',table-name *enums*)) ,v) ,v))))))
-             ;; (selector-form (sel)
-             ;;   (or (rest (assoc sel raws)) (var-of sel name)))
              (selector-item (sel)
                (or (find-field (rest spec) sel)
                    (error "marshal: :case selector ~s is not a field of ~a." sel name)))
@@ -1244,7 +1242,6 @@ and returns the record's end."
                                     :when (not (eq :checksum-of (second slot-of)))
                                       :collect (apply #'resolve-region qname slot-of))))
                      (t (let ((length-form length))
-                          ;; (print (list :oo name type-indicator type-conditions))
                           `(,qname
                             ,@(and mapping `((push (list ,qname ,index ,index) ,map)))
                             ,@(loop :for closure :in context :when mapping
@@ -1277,73 +1274,6 @@ and returns the record's end."
                                                   (list :value (vec-source-form name default count end-by)))
                                                  (t (list :value (scalar-value-form name default
                                                                                     enumerate-by slot)))))))))
-                               ;; ((member :leb subtypes)
-                               ;;  (unless (eql 1 length-form)
-                               ;;    (error "Field ~s: a LEB field must be one unit wide." name))
-                               ;;  (emit-frame name (make-instance 'continuation-rule)
-                               ;;              (make-instance 'leb-assembler :signed signed)
-                               ;;              (or (enumerate enumerate-by (getf pairs name))
-                               ;;                  default (error "Field ~a not specified." name))
-                               ;;              (lambda (f) `(funcall (aref ,serializers ,swap-by) (cons 1 ,f)
-                               ;;                                    ,enter))))
-                               ;; ((member :case subtypes)
-                               ;;  (write-effector (simplify-plan (field-plan item #'selector-form #'enum-of))
-                               ;;                  (list :name name
-                               ;;                        :value (or (enumerate enumerate-by (getf pairs name))
-                               ;;                                   default
-                               ;;                                   (error "Field ~a not specified." name))
-                               ;;                        :write (lambda (w f)
-                               ;;                                 `(funcall (aref ,serializers ,swap-by)
-                               ;;                                           (cons ,w ,f) ,enter)))))
-                               ;; ((member :vec subtypes)
-                               ;;  (when (and end-by count)
-                               ;;    (error "Field ~a: :count with :end-by is not supported yet." name))
-                               ;;  (let* ((encoder (gensym "EN")) (in (gensym "I"))
-                               ;;         (term (gensym "TM")) (e (gensym "E")) (c (gensym "C"))
-                               ;;         ;; data and characters share one encoding path
-                               ;;         (encode (lambda (form)
-                               ;;                   (if codec `(funcall ,encoder ,form)
-                               ;;                       `(let ((,in ,form))
-                               ;;                          (if (characterp ,in) (char-code ,in)
-                               ;;                              ,in)))))
-                               ;;         ;; a character terminator is encoded like the data;
-                               ;;         ;; an integer is a raw code
-                               ;;         (term-form
-                               ;;           (typecase end-by
-                               ;;             (null nil)
-                               ;;             (character (funcall encode end-by))
-                               ;;             (integer end-by)
-                               ;;             (t (error
-                               ;;                 "Field ~a: :end-by must be a character or an integer, not ~s."
-                               ;;                 name end-by))))
-                               ;;         (source (cond ((getf pairs name))
-                               ;;                       ((vectorp default) default)
-                               ;;                       (end-by "")))
-                               ;;         (write-element (lambda (code-form)
-                               ;;                          `(funcall (aref ,serializers ,swap-by)
-                               ;;                                    (cons ,length-form ,code-form) ,enter))))
-                               ;;    `(let* ((,encoder
-                               ;;              ,(and codec
-                               ;;                    `(codec-for ,codec
-                               ;;                                (lambda (,in)
-                               ;;                                  (error "Failed to encode input `~a` using ~a: ~a"
-                               ;;                                         ,in ,(write-to-string codec)
-                               ;;                                         "invalid input.")))))
-                               ;;            ,@(and term-form `((,term ,term-form))))
-                               ;;       ,(cond
-                               ;;          (source
-                               ;;           `(loop :for ,e :across ,source
-                               ;;                  :for ,c := ,(funcall encode e)
-                               ;;                  ,@(and term-form
-                               ;;                         `(:when (eql ,c ,term)
-                               ;;                            :do (error "Field ~a contains its terminator ~a."
-                               ;;                                       ',name ,term)))
-                               ;;                  :do ,(funcall write-element c)))
-                               ;;          ((integerp count) ;; numeric default, repeated
-                               ;;           `(loop :repeat ,count :do ,(funcall write-element default)))
-                               ;;          (t (error "Field ~a: no value, no default, and no integer :count."
-                               ;;                    name)))
-                               ;;       ,@(and term-form (list (funcall write-element term))))))
                                ;; a checksum over a placed field is backpatched where it is placed
                                ((and slot (eq :checksum-of (first slot)) (not (placed-item (second slot))))
                                 (store order length-form
@@ -1359,12 +1289,7 @@ and returns the record's end."
                                          :when (not (eq :checksum-of (second slot-of)))
                                            :collect (apply #'resolve-region qname slot-of)))
                             ,@(loop :for closure :in context :when mapping
-                                    :collect `(setf (third (assoc ,closure ,map)) ,index))
-                            ;; (push ,(getf pairs name) ,values)
-                            ;; (push ,qname ,values)
-                            ;; (print (list :bi ,name ,index ,length))
-
-                            ))))))))
+                                    :collect `(setf (third (assoc ,closure ,map)) ,index))))))))))
 
       (preprocess-spec (rest spec))
 
@@ -1878,6 +1803,7 @@ at INDEX of a vector source; offset slots count from the record's start."
     (when (and (eq as :record) in-keys)
       (error "unmarshal: ~:[(:as :record)~;(:into record)~] reads the whole record; it takes no keys."
              into))
+    
     (dolist (k in-keys)
       (when (consp k) (check-path (rest spec) k name)))
     (when (and (eq as :record) (not nested) (not record-class))
@@ -1901,11 +1827,6 @@ at INDEX of a vector source; offset slots count from the record's start."
               sub-lexicon (list :cr-sym cursor :bf-sym buffer :pe-sym ends
                                 :or-sym origin)))
           
-    ;; (loop :for item :in (rest spec) :do (setf (getf fields (getf item :name)) item))
-
-    ;; (print (list :ff fields keys))
-
-
     (flet ((render (kind src-form origin-form)
     ;; the code of the read, for KIND of source: :fast, a simple vector of the unit type that
     ;; holds the record; :general, any source; :nested, as the expansion this one is in
@@ -2371,6 +2292,7 @@ at INDEX of a vector source; offset slots count from the record's start."
                ,@(mapcar (lambda (s) (list s 0)) saves)
                 ,@(mapcar #'rest vars)
                 ,@(mapcar #'rest raws))
+           
            ;; a variable bound for one source may go unused on the other path
            (declare (ignorable ,src ,base
                                ,@(and (not nested) (list origin cursor))
@@ -2532,6 +2454,7 @@ Intended call once the fixes land:
 ;;     (if (fboundp fn-sym)
 ;;         (apply (symbol-function fn-sym) destination keys)
 ;;         (error "Manifest not found."))))
+
 #|
 
 (macroexpand `(defmanifest png-chunk (:unit 8 :endian :big)
@@ -2544,43 +2467,3 @@ Intended call once the fixes land:
 |#
 
 
-;; (defmacro make-masquer (string &rest assignments)
-;;   (let* ((params (if (listp (caar assignments)) (first assignments) nil))
-;;          (assignments (if (not params) assignments (rest assignments)))
-;;          (width (rest (assoc :width params)))
-;;          (mask  (1- (ash 1 width))))
-;;     `(lambda (array offset)
-;;        (let ((bound (array-total-size array)))
-;;          ,(multiple-value-bind (base segments symbols) (quantify-mask-string string nil)
-;;             (print (list :ss base segments symbols))
-;;             ;; (format t "~v,'0B~%" 16 (ash (1- (ash 1 length)) (nth index segments)))
-
-;;             (let* ((base-sym 'a)
-;;                    (rev-sym (reverse symbols))
-;;                    (rev-seg (reverse segments))
-;;                    (assign -1)
-;;                    (steps (loop :for assignment :in assignments :for sym :in rev-sym
-;;                                 :for seg :in rev-seg :for n :from 0
-;;                                 :append (destructuring-bind (key value) assignment
-;;                                           (let ((index (position (intern (string-upcase key) "KEYWORD")
-;;                                                                  symbols))
-;;                                                 (seg-length (if (= n (1- (length assignments)))
-;;                                                                 (nth n rev-seg)
-;;                                                                 (- (nth n rev-seg) (nth (1+ n) rev-seg)))))
-;;                                             (when (not index)
-;;                                               (error "Symbol ~a not found in mask ~a." key string))
-;;                                             (let ((length (- (nth (1+ index) segments)
-;;                                                              (nth index segments)))
-;;                                                   (divs (/ seg-length width)))
-;;                                               (print (list :ee divs length))
-;;                                               (if (= 1 divs)
-;;                                                   `((setf (aref array offset) ,value)
-;;                                                     (bounded-iterate offset bound))
-;;                                                   (loop :for d :below divs
-;;                                                         :append `((setf (aref array offset)
-;;                                                                         (logand (ash ,value ,(- (* 8 d)))
-;;                                                                                 ,mask))
-;;                                                                   (bounded-iterate offset bound))))))))))
-;;               (cond ((not steps) base)
-;;                     (t (cons 'progn steps))
-;;                     (t `(let ((,base-sym ,base)) ,@steps ,base-sym)))))))))
